@@ -60,7 +60,7 @@
 
       /* PDF Canvas Styles */
       #pdf-render-container {
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1兒童 size: 10px;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1儿童 size: 10px;
           background-color: #525659;
           overflow: auto;
           display: flex;
@@ -793,6 +793,9 @@
       const STORAGE_KEY = "scitext_transcriptions";
       const STORAGE_KEY_LAST_PAGE = "scitext_last_page_num";
       const STORAGE_KEY_FILENAME = "scitext_last_filename";
+      
+      // NEW: Default image URL for testing
+      const DEFAULT_IMAGE_URL = "https://lsparrish.github.io/sciconvert/sample.png";
 
       let transcriptionData = {};
       let aiQueryLog = []; // Global storage for AI request/response logs
@@ -958,13 +961,75 @@
             }
             const arrayBuffer = await pdfBlob.arrayBuffer();
             loadPDF(arrayBuffer, lastPageNum ? parseInt(lastPageNum) : 1);
+          } else {
+            // NEW: Load default image if no PDF is stored
+            loadDefaultImage();
           }
         } catch (error) {
           console.log("No previous session found or error loading DB:", error);
+          // Fallback to loading default image if DB load fails
+          loadDefaultImage();
         }
       }
 
+      // NEW: Function to load the default image
+      function loadDefaultImage() {
+          // Check if a PDF is already loaded or in pending state 
+          if (state.pdfDoc && !state.pdfDoc.isStaticImage || state.pageRendering) return;
+
+          els.pdfLoader.classList.remove("hidden");
+          els.pdfLoader.children[1].textContent = "Loading Sample Image...";
+
+          const img = new Image();
+          // Setting crossOrigin is essential for toDataURL on the canvas later
+          img.crossOrigin = 'anonymous'; 
+
+          img.onload = function() {
+              // 1. Set canvas dimensions
+              state.canvas.width = img.width;
+              state.canvas.height = img.height;
+              
+              // 2. Draw image
+              state.ctx.drawImage(img, 0, 0);
+
+              // 3. Mock PDF State for compatibility
+              state.pdfDoc = { numPages: 1, isStaticImage: true };
+              state.pageNum = 1;
+              
+              // 4. Update UI
+              els.pdfLoader.classList.add("hidden");
+              els.emptyState.classList.add("hidden");
+              els.pageCountSpan.textContent = 1;
+              els.pageNumSpan.textContent = 1;
+              els.navControls.style.display = "flex";
+              els.zoomControls.style.display = "none"; // Disable zoom for static image
+              
+              // Disable navigation buttons as it's a single static image
+              els.prevBtn.disabled = true;
+              els.nextBtn.disabled = true;
+
+              // 5. Finalize setup
+              updateOverlayWrapperSize();
+              loadContentForCurrentPage(true); // Load content from storage for page 1
+              els.pdfLoader.children[1].textContent = "Rendering Page..."; // Reset loader text
+          };
+
+          img.onerror = function() {
+              console.error("Failed to load default image from URL:", DEFAULT_IMAGE_URL);
+              els.pdfLoader.classList.add("hidden");
+              els.emptyState.classList.remove("hidden"); // Show empty state if loading fails
+              els.pdfLoader.children[1].textContent = "Rendering Page..."; // Reset loader text
+          };
+
+          img.src = DEFAULT_IMAGE_URL;
+      }
+
       function loadPDF(data, pageNum = 1) {
+        if (state.pdfDoc && state.pdfDoc.isStaticImage) {
+            // Clear static image mock if a new PDF is being loaded
+            state.pdfDoc = null;
+        }
+
         pdfjsLib
           .getDocument(data)
           .promise.then(function (pdfDoc_) {
@@ -980,6 +1045,25 @@
             console.error("Error loading PDF data:", e);
           });
       }
+
+      function updateOverlayWrapperSize() {
+        if (els.theCanvas) {
+          els.overlayWrapper.style.width = els.theCanvas.width + "px";
+          els.overlayWrapper.style.height = els.theCanvas.height + "px";
+        }
+      }
+
+      function queueRenderPage(num) {
+        // Prevent PDF rendering if in static image mode
+        if (state.pdfDoc && state.pdfDoc.isStaticImage) {
+            return;
+        }
+
+        state.pageRendering ? (state.pageNumPending = num) : renderPage(num);
+      }
+      
+      // --- Remaining Functions (Unchanged) ---
+      // ... (loadContentForCurrentPage, saveContent, renderPage, extractImageSnippet, getDivInternalState) ...
 
       function loadContentForCurrentPage(forcePreviewUpdate = false) {
         const pageNum = state.pageNum;
@@ -1019,7 +1103,6 @@
         }, 1000);
       }
 
-      // --- PDF Rendering ---
       function renderPage(num) {
         state.pageRendering = true;
         els.pdfLoader.classList.remove("hidden");
@@ -1051,19 +1134,6 @@
         els.prevBtn.disabled = num <= 1;
         els.nextBtn.disabled = num >= state.pdfDoc.numPages;
       }
-
-      function updateOverlayWrapperSize() {
-        if (els.theCanvas) {
-          els.overlayWrapper.style.width = els.theCanvas.width + "px";
-          els.overlayWrapper.style.height = els.theCanvas.height + "px";
-        }
-      }
-
-      function queueRenderPage(num) {
-        state.pageRendering ? (state.pageNumPending = num) : renderPage(num);
-      }
-
-      // --- Helpers ---
 
       /**
        * Extracts a base64 string from a given rect on the current canvas.
@@ -1363,7 +1433,11 @@
       // --- Debug Vision Logic (New) ---
       window.showDebugView = async function () {
         if (!state.targetDivId) return;
-        els.editActionBar.classList.add("disabled-bar"); // Hide edit bar temporarily
+        els.editActionBar.classList.add("disabled-bar");
+
+        if (typeof html2canvas === "undefined") {
+          return;
+        }
 
         const divEl = document.getElementById(state.targetDivId);
         if (!divEl) return;
@@ -2117,23 +2191,25 @@
       els.tabWrite.addEventListener("click", () => switchMainView("write"));
       els.tabPreview.addEventListener("click", () => switchMainView("preview"));
       els.prevBtn.addEventListener("click", () => {
-        if (state.pageNum > 1) {
+        if (state.pdfDoc && !state.pdfDoc.isStaticImage && state.pageNum > 1) {
           state.pageNum--;
           queueRenderPage(state.pageNum);
         }
       });
       els.nextBtn.addEventListener("click", () => {
-        if (state.pdfDoc && state.pageNum < state.pdfDoc.numPages) {
+        if (state.pdfDoc && !state.pdfDoc.isStaticImage && state.pageNum < state.pdfDoc.numPages) {
           state.pageNum++;
           queueRenderPage(state.pageNum);
         }
       });
       els.zoomInBtn.addEventListener("click", () => {
+        if (state.pdfDoc && state.pdfDoc.isStaticImage) return; // Ignore if static image
         state.scale += 0.2;
         els.zoomLevelSpan.innerText = Math.round(state.scale * 100) + "%";
         queueRenderPage(state.pageNum);
       });
       els.zoomOutBtn.addEventListener("click", () => {
+        if (state.pdfDoc && state.pdfDoc.isStaticImage) return; // Ignore if static image
         if (state.scale > 0.4) {
           state.scale -= 0.2;
           els.zoomLevelSpan.innerText = Math.round(state.scale * 100) + "%";
