@@ -1,0 +1,1498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>main.html</title>
+    
+    <!-- Libraries -->
+    <!-- PDF.js for rendering the scanned document -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';</script>
+    
+    <!-- Marked for Markdown parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.2.12/marked.min.js"></script>
+    
+    <!-- KaTeX for Math rendering -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.4/katex.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.4/contrib/auto-render.min.js"></script>
+
+    <!-- Tailwind for layout (via CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- html2canvas for DOM screenshots -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <style>
+        /* Custom Scrollbar for better aesthetics */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #e5e7eb; height: 100vh; overflow: hidden; }
+
+        /* Custom Tab Styles */
+        .tab-button {
+            padding: 0.75rem 1.5rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #4b5563;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.1s ease-in-out;
+        }
+        .tab-button:hover {
+            color: #1f2937;
+            border-bottom-color: #e5e7eb;
+        }
+        .tab-button.active {
+            color: #2563eb;
+            border-bottom-color: #2563eb;
+            background-color: #fff;
+        }
+
+        /* PDF Canvas Styles */
+        #pdf-render-container {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            background-color: #525659;
+            overflow: auto;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 20px;
+        }
+        
+        canvas {
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            max-width: none;
+        }
+
+        /* Editor Styles */
+        .editor-textarea {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            line-height: 1.6;
+            resize: none;
+        }
+
+        /* Preview Styles */
+        .preview-content {
+            line-height: 1.6;
+            text-align: justify;
+        }
+        
+        /* Font Classes */
+        .font-serif { font-family: 'Times New Roman', Times, serif; }
+        .font-sans { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+        .font-mono { font-family: 'Courier New', Courier, monospace; }
+        
+        .two-columns { column-count: 2; column-gap: 2rem; }
+        
+        /* Loader */
+        .loader {
+            border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%;
+            width: 30px; height: 30px; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Selection Box Styles */
+        #selection-box {
+            border: 2px dashed #2563eb;
+            background-color: rgba(37, 99, 235, 0.1);
+            position: absolute;
+            pointer-events: none; /* Let events pass through to layer */
+            display: none;
+            z-index: 50;
+        }
+        
+        /* Orange outline for Editing Mode */
+        #selection-box.edit-mode {
+            border-color: #f97316; /* Orange-500 */
+            background-color: rgba(249, 115, 22, 0.1);
+        }
+        
+        /* OVERLAY HEURISTIC RESET: Ensure AI/HTML content has no default margins */
+        #overlay-html-layer * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            line-height: 1.15; /* Better default for text */
+        }
+        #overlay-html-layer div {
+            /* Ensure the containers themselves don't collapse */
+            box-sizing: border-box;
+        }
+
+        /* --- Context Menu Styles (Simplified/Stripped) --- */
+        #context-menu {
+            position: fixed;
+            z-index: 9999;
+            display: none;
+            min-width: 230px;
+        }
+        
+        /* No custom styling for menu items, rely on Tailwind/system defaults */
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: background-color 0.1s;
+            width: 100%;
+            text-align: left;
+        }
+
+        .menu-item svg {
+            width: 1rem;
+            height: 1rem;
+            opacity: 0.7;
+        }
+
+        .menu-separator {
+            height: 1px;
+            background-color: #e5e7eb;
+            margin: 0;
+        }
+        
+        .menu-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            padding: 0.25rem;
+            gap: 0.25rem;
+            background-color: transparent; /* Keep background clean */
+        }
+        
+        .menu-grid-btn {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 0.4rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.25rem;
+            cursor: pointer;
+            color: #4b5563;
+        }
+        .menu-grid-btn:hover { background-color: #f3f4f6; color: #111; border-color: #d1d5db; }
+        
+        .menu-label {
+             display: flex;
+             flex-direction: column;
+             align-items: center;
+             font-size: 0.7rem;
+             color: #6b7280;
+        }
+
+        /* --- Action Bar Styles --- */
+        #selection-action-bar {
+            position: fixed;
+            z-index: 10000;
+            display: none;
+            transform-origin: top center;
+            animation: fadeIn 0.1s ease-out;
+        }
+        
+        .action-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 0.5rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            color: #d1d5db; /* gray-300 */
+        }
+        
+        .action-btn:hover {
+            background-color: #374151; /* gray-700 */
+            color: white;
+            transform: translateY(-1px);
+        }
+
+        .action-btn svg {
+            width: 1.25rem;
+            height: 1.25rem;
+            margin-bottom: 0.1rem;
+        }
+
+        .action-btn span {
+            font-size: 0.65rem;
+            font-weight: 600;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95) translateY(-5px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        
+    </style>
+</head>
+<body class="flex flex-col h-screen">
+
+    <!-- Header / Toolbar -->
+    <header class="bg-gray-800 text-white p-3 flex justify-between items-center shadow-md z-10 shrink-0">
+        <div class="flex items-center gap-4">
+            <h1 class="text-xl font-bold tracking-wider mr-4">SciText <span class="text-blue-400">Digitizer</span></h1>
+            
+            <div class="relative">
+                <input type="file" id="pdf-upload" accept="application/pdf" class="hidden" />
+                <label for="pdf-upload" class="cursor-pointer bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm font-semibold transition flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                    Load PDF
+                </label>
+            </div>
+
+            <div class="flex items-center bg-gray-700 rounded px-2 py-1 gap-2" id="pdf-nav-controls" style="display:none;">
+                <button id="prev-page" class="hover:text-blue-300 p-1 disabled:opacity-50" title="Previous Page">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                </button>
+                <span class="text-sm font-mono">Page <span id="page-num">0</span> / <span id="page-count">0</span></span>
+                <button id="next-page" class="hover:text-blue-300 p-1 disabled:opacity-50" title="Next Page">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                </button>
+            </div>
+            
+             <div class="flex items-center bg-gray-700 rounded px-2 py-1 gap-2" id="pdf-zoom-controls" style="display:none;">
+                <button id="zoom-out" class="hover:text-blue-300 p-1" title="Zoom Out">-</button>
+                <span id="zoom-level" class="text-xs font-mono w-12 text-center">100%</span>
+                <button id="zoom-in" class="hover:text-blue-300 p-1" title="Zoom In">+</button>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-4">
+            <span id="restore-badge" class="hidden bg-amber-100 text-amber-800 text-xs font-medium px-2.5 py-0.5 rounded border border-amber-400">
+                Restored: <span id="restored-filename" class="font-bold"></span>
+            </span>
+
+            <button id="export-md" class="bg-green-600 hover:bg-green-500 px-4 py-2 rounded text-sm font-semibold transition flex items-center gap-2" title="Download Transcription">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                Export
+            </button>
+            
+            <button id="fullscreen-toggle" class="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded text-sm font-semibold transition flex items-center gap-2" title="Toggle Fullscreen Mode">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-5v4m0 0h-4m4 0l-5-5M4 16v4m0 0h4M4 20l5-5m11 5v-4m0 0h-4m4 0l-5 5"></path></svg>
+                Full
+            </button>
+
+            <div class="flex flex-col text-xs">
+                <label class="text-gray-400 mb-0.5">Target Font</label>
+                <select id="font-select" class="bg-gray-700 border-none rounded px-2 py-1 text-white focus:ring-1 focus:ring-blue-500 outline-none">
+                    <option value="font-serif">Serif (Times)</option>
+                    <option value="font-sans">Sans-Serif (Arial)</option>
+                    <option value="font-mono">Monospace (Courier)</option>
+                </select>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 flex flex-col overflow-hidden relative">
+        
+        <!-- Tab Bar -->
+        <div id="main-tab-bar" class="flex bg-gray-50 border-b border-gray-200 shadow-inner shrink-0">
+            <button id="tab-source" class="tab-button">Source</button>
+            <button id="tab-overlay" class="tab-button active">Overlay Editor</button>
+            <button id="tab-write" class="tab-button">Markdown</button>
+            <button id="tab-preview" class="tab-button">Render</button>
+        </div>
+
+        <div id="empty-state" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-100 z-50 text-gray-500">
+            <svg class="w-24 h-24 mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            <h2 class="text-2xl font-bold mb-2">No Document Loaded</h2>
+            <p class="mb-6">Upload a PDF to begin digitizing.</p>
+        </div>
+
+        <div id="workspace" class="flex-1 overflow-hidden relative bg-white">
+            
+            <!-- 1. Source (PDF) Container -->
+            <div id="source-container" class="absolute inset-0 flex flex-col hidden">
+                <div id="pdf-render-container" class="w-full h-full">
+                    <canvas id="the-canvas"></canvas>
+                </div>
+                <div id="pdf-loader" class="absolute inset-0 bg-gray-800 bg-opacity-75 flex flex-col items-center justify-center hidden">
+                    <div class="loader mb-2"></div>
+                    <span class="text-white text-sm font-semibold">Rendering Page...</span>
+                </div>
+            </div>
+            
+            <!-- 2. Overlay Split View Container -->
+            <div id="overlay-container" class="absolute inset-0 flex hidden">
+                <!-- Left: Editor -->
+                <div class="w-1/3 h-full flex flex-col border-r border-gray-300 z-20 bg-white shadow-xl">
+                    <div class="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 border-b flex justify-between">
+                        <span>OVERLAY HTML</span>
+                        <span id="ai-status" class="text-blue-600 hidden">AI Processing...</span>
+                    </div>
+                    <textarea id="overlay-html-input" class="editor-textarea flex-1 w-full h-full p-4 border-none outline-none text-gray-800 bg-gray-50 text-xs" placeholder="<!-- Select a region on the right to digitize -->"></textarea>
+                </div>
+                
+                <!-- Right: Preview (Superimposed) -->
+                <div class="w-2/3 h-full flex flex-col relative bg-gray-500">
+                    <!-- Overlay Toolbar -->
+                    <div class="bg-gray-200 p-2 flex gap-4 border-b border-gray-400 shrink-0 z-30 justify-center text-sm text-gray-700 shadow-sm">
+                        <label class="flex items-center gap-2 cursor-pointer font-semibold hover:text-black">
+                            <input type="checkbox" id="chk-show-source" checked class="rounded text-blue-600 focus:ring-blue-500"> 
+                            Show Source PDF
+                        </label>
+                        <div class="w-px h-4 bg-gray-400 my-auto"></div>
+                        <label class="flex items-center gap-2 cursor-pointer font-semibold hover:text-black">
+                            <input type="checkbox" id="chk-show-overlay" checked class="rounded text-blue-600 focus:ring-blue-500"> 
+                            Show HTML Overlay
+                        </label>
+                    </div>
+
+                    <!-- Scroller -->
+                    <div id="overlay-scroller" class="flex-1 overflow-auto flex justify-center p-8 select-none relative">
+                        <!-- Wrapper matches Canvas Size -->
+                        <div id="overlay-wrapper" class="relative shadow-2xl origin-top bg-white">
+                            <!-- Mount point for Canvas when in this view -->
+                            <div id="overlay-canvas-mount" class="transition-opacity duration-200"></div>
+                            
+                            <!-- HTML Layer (Rendered Content) -->
+                            <div id="overlay-html-layer" class="absolute inset-0 overflow-hidden pointer-events-none z-10 transition-opacity duration-200"></div>
+                            
+                            <!-- Selection Layer (Interactive) -->
+                            <div id="selection-layer" class="absolute inset-0 z-20 cursor-crosshair"></div>
+                            
+                            <!-- Visual Selection Box -->
+                            <div id="selection-box"></div>
+                            
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. Editor Container (Write Tab - Markdown) -->
+            <div id="editor-container-md" class="absolute inset-0 flex flex-col hidden">
+                <textarea id="markdown-input" class="editor-textarea flex-1 w-full h-full p-4 border-none outline-none text-gray-800 bg-gray-50 text-sm" placeholder="# Transcription Area"></textarea>
+            </div>
+
+            <!-- 4. Preview Container (Render Tab) -->
+            <div id="preview-container" class="absolute inset-0 overflow-y-auto p-8 hidden bg-white">
+                <div id="preview-output" class="preview-content font-serif text-gray-900 max-w-none"></div>
+            </div>
+        </div>
+    </main>
+    
+    <!-- Action Bar (For new selections) -->
+    <div id="selection-action-bar" class="bg-gray-800 text-white rounded-lg shadow-2xl flex items-center p-1.5 gap-2 border border-gray-700">
+        <button id="btn-digitize" class="action-btn" title="Digitize Text (AI)">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            <span>Digitize</span>
+        </button>
+        <button id="btn-copy-image" class="action-btn" title="Extract Image">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+            <span>Image</span>
+        </button>
+        <button id="btn-create-div" class="action-btn" title="Empty Box">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"></path></svg>
+            <span>Empty</span>
+        </button>
+        
+        <div class="w-px h-8 bg-gray-600 mx-0.5"></div>
+        
+        <button id="btn-close-action" class="action-btn text-gray-400 hover:text-red-400" title="Close" onclick="closeSelection()">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            <span>Cancel</span>
+        </button>
+    </div>
+
+    <!-- Context Menu (Only for Edit) -->
+    <div id="context-menu" class="flex flex-col bg-white border border-gray-300 shadow-lg" style="position: fixed; z-index: 9999; display: none; min-width: 230px; border-radius: 4px; overflow: hidden;">
+        
+        <!-- Div Context Options -->
+        <div id="menu-group-div" class="">
+            <div class="px-3 py-1 text-xs font-semibold text-gray-500 bg-gray-50 border-b border-gray-200">Smart Style (AI)</div>
+            <div class="menu-grid p-2 gap-2">
+                <button id="btn-ai-replica" class="menu-grid-btn flex-col gap-1 h-auto py-2 hover:bg-blue-50 hover:border-blue-200 transition-colors" title="Recreates HTML & CSS to match image exactly">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                    <span class="text-xs font-medium text-gray-700">Replica</span>
+                </button>
+                <button id="btn-ai-font" class="menu-grid-btn flex-col gap-1 h-auto py-2 hover:bg-purple-50 hover:border-purple-200 transition-colors" title="Extracts Font & Size only">
+                    <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                    <span class="text-xs font-medium text-gray-700">Match Font</span>
+                </button>
+                <button id="btn-ai-text" class="menu-grid-btn flex-col gap-1 h-auto py-2 hover:bg-green-50 hover:border-green-200 transition-colors" title="Transcribes text only (no style)">
+                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"></path></svg>
+                    <span class="text-xs font-medium text-gray-700">Flow</span>
+                </button>
+            </div>
+            
+            <div class="menu-separator"></div>
+            <div class="px-3 py-1 text-xs font-semibold text-gray-500 bg-gray-50 border-b border-gray-200">Actions</div>
+            <div class="menu-grid">
+                 <button id="btn-smart-fit" class="menu-grid-btn text-xs" onclick="manualSmartFit()" title="Auto-size text to fill box">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                    Smart Fit
+                </button>
+                <button id="btn-clear-styles" class="menu-grid-btn text-xs" onclick="clearStyles()" title="Remove all styling">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                    Clear
+                </button>
+                 <button id="btn-delete-div" class="menu-grid-btn text-xs text-red-600 border-red-200 hover:bg-red-50" onclick="deleteDiv()" title="Delete">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    Delete
+                </button>
+            </div>
+
+            <div class="menu-separator"></div>
+            <div class="px-3 py-1 text-xs font-semibold text-gray-500 bg-gray-50 border-b border-gray-200">Typography</div>
+            <div class="menu-grid">
+                <button class="menu-grid-btn font-serif text-sm" onclick="updateStyle('font-family', 'Times New Roman, serif')" title="Serif">T</button>
+                <button class="menu-grid-btn font-sans text-sm" onclick="updateStyle('font-family', 'Arial, sans-serif')" title="Sans">S</button>
+                <button class="menu-grid-btn font-mono text-sm" onclick="updateStyle('font-family', 'monospace')" title="Mono">M</button>
+                
+                <button class="menu-grid-btn" onclick="updateStyle('text-align', 'left')" title="Align Left">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 9.5H3M21 4.5H3M21 14.5H3M17 19.5H3"/></svg>
+                </button>
+                <button class="menu-grid-btn" onclick="updateStyle('text-align', 'justify')" title="Justify">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+                </button>
+                 <button class="menu-grid-btn text-sm font-bold" onclick="updateStyle('font-weight', 'bold')" title="Bold">
+                    B
+                </button>
+            </div>
+            
+            <div class="menu-separator"></div>
+            <div class="px-3 py-1 text-xs font-semibold text-gray-500 bg-gray-50 border-b border-gray-200">Layout (Snap)</div>
+            <div class="menu-grid">
+                <button class="menu-grid-btn" onclick="snapLayout('page-width')" title="Full Page Width">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2" /><path d="M2 12h20"/></svg>
+                </button>
+                <button class="menu-grid-btn" onclick="snapLayout('margin-standard')" title="Standard Margins">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="12" height="16" /></svg>
+                </button>
+                <button class="menu-grid-btn" onclick="snapLayout('center')" title="Center on Page">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M3 12h18"/></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        
+        const apiKey = ""; // Runtime key
+        const STORAGE_KEY = 'scitext_transcriptions';
+        const STORAGE_KEY_LAST_PAGE = 'scitext_last_page_num';
+        const STORAGE_KEY_FILENAME = 'scitext_last_filename';
+
+        let transcriptionData = {};
+        
+        // --- State ---
+        const state = {
+            pdfDoc: null,
+            pageNum: 1,
+            pageRendering: false,
+            pageNumPending: null,
+            scale: 1.2,
+            canvas: document.getElementById('the-canvas'),
+            ctx: document.getElementById('the-canvas').getContext('2d'),
+            activeTab: 'overlay',
+            fontClass: 'font-serif',
+            isAuthReady: false,
+            saveTimeout: null,
+            
+            // Selection State
+            isSelecting: false,
+            selectionStart: { x: 0, y: 0 },
+            selectionEnd: { x: 0, y: 0 },
+            selectionRect: null, 
+            
+            // Interaction Target
+            targetDivId: null
+        };
+
+        // --- IndexedDB Utils ---
+        const DB_NAME = 'SciTextDB';
+        const DB_VERSION = 1;
+        const STORE_NAME = 'files';
+
+        function openDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME);
+                    }
+                };
+                request.onsuccess = (event) => resolve(event.target.result);
+                request.onerror = (event) => reject(event.target.error);
+            });
+        }
+
+        async function savePDFToDB(blob) {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.put(blob, 'currentPdf'); // Store with fixed key
+                request.onsuccess = () => resolve();
+                request.onerror = (e) => reject(e);
+            });
+        }
+
+        async function getPDFFromDB() {
+            const db = await openDB();
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.get('currentPdf');
+                request.onsuccess = (event) => resolve(event.target.result);
+                request.onerror = (e) => reject(e);
+            });
+        }
+
+        // --- DOM Elements ---
+        const els = {
+            upload: document.getElementById('pdf-upload'),
+            emptyState: document.getElementById('empty-state'),
+            pdfLoader: document.getElementById('pdf-loader'),
+            navControls: document.getElementById('pdf-nav-controls'),
+            zoomControls: document.getElementById('pdf-zoom-controls'),
+            prevBtn: document.getElementById('prev-page'),
+            nextBtn: document.getElementById('next-page'),
+            pageNumSpan: document.getElementById('page-num'),
+            pageCountSpan: document.getElementById('page-count'),
+            zoomInBtn: document.getElementById('zoom-in'),
+            zoomOutBtn: document.getElementById('zoom-out'),
+            zoomLevelSpan: document.getElementById('zoom-level'),
+            previewOutput: document.getElementById('preview-output'),
+            previewContainer: document.getElementById('preview-container'),
+            
+            sourceContainer: document.getElementById('source-container'),
+            overlayContainer: document.getElementById('overlay-container'),
+            editorContainerMd: document.getElementById('editor-container-md'),
+            overlayScroller: document.getElementById('overlay-scroller'),
+            
+            pdfRenderContainer: document.getElementById('pdf-render-container'),
+            overlayCanvasMount: document.getElementById('overlay-canvas-mount'),
+            overlayWrapper: document.getElementById('overlay-wrapper'),
+            overlayHtmlLayer: document.getElementById('overlay-html-layer'),
+            selectionLayer: document.getElementById('selection-layer'),
+            selectionBox: document.getElementById('selection-box'),
+            contextMenu: document.getElementById('context-menu'),
+            actionBar: document.getElementById('selection-action-bar'),
+            theCanvas: document.getElementById('the-canvas'),
+            
+            markdownInput: document.getElementById('markdown-input'),
+            overlayHtmlInput: document.getElementById('overlay-html-input'),
+            
+            tabSource: document.getElementById('tab-source'),
+            tabWrite: document.getElementById('tab-write'),
+            tabOverlay: document.getElementById('tab-overlay'),
+            tabPreview: document.getElementById('tab-preview'),
+            
+            fontSelect: document.getElementById('font-select'),
+            exportBtn: document.getElementById('export-md'),
+            fullscreenBtn: document.getElementById('fullscreen-toggle'),
+            
+            btnDigitize: document.getElementById('btn-digitize'),
+            btnCopyImage: document.getElementById('btn-copy-image'),
+            btnCreateDiv: document.getElementById('btn-create-div'),
+            aiStatus: document.getElementById('ai-status'),
+            
+            chkShowSource: document.getElementById('chk-show-source'),
+            chkShowOverlay: document.getElementById('chk-show-overlay'),
+            restoreBadge: document.getElementById('restore-badge'),
+            restoredFilename: document.getElementById('restored-filename'),
+
+            menuGroupDiv: document.getElementById('menu-group-div'),
+            // New Buttons
+            btnAiReplica: document.getElementById('btn-ai-replica'),
+            btnAiFont: document.getElementById('btn-ai-font'),
+            btnAiText: document.getElementById('btn-ai-text')
+        };
+        
+        // --- Persistence ---
+        function initPersistence() {
+            try {
+                const storedData = localStorage.getItem(STORAGE_KEY);
+                if (storedData) transcriptionData = JSON.parse(storedData);
+            } catch (error) { console.error("Error loading text data:", error); }
+
+            state.isAuthReady = true;
+            restoreSessionFromDB();
+        }
+
+        async function restoreSessionFromDB() {
+            try {
+                const pdfBlob = await getPDFFromDB();
+                if (pdfBlob) {
+                    const lastPageNum = localStorage.getItem(STORAGE_KEY_LAST_PAGE);
+                    const lastFilename = localStorage.getItem(STORAGE_KEY_FILENAME);
+                    if (lastFilename) {
+                        els.restoredFilename.textContent = lastFilename;
+                        els.restoreBadge.classList.remove('hidden');
+                    }
+                    const arrayBuffer = await pdfBlob.arrayBuffer();
+                    loadPDF(arrayBuffer, lastPageNum ? parseInt(lastPageNum) : 1);
+                }
+            } catch (error) {
+                console.log("No previous session found or error loading DB:", error);
+            }
+        }
+
+        function loadPDF(data, pageNum = 1) {
+            pdfjsLib.getDocument(data).promise.then(function(pdfDoc_) {
+                state.pdfDoc = pdfDoc_;
+                state.pageNum = pageNum;
+                els.pageCountSpan.textContent = state.pdfDoc.numPages;
+                els.emptyState.classList.add('hidden');
+                els.navControls.style.display = 'flex';
+                els.zoomControls.style.display = 'flex';
+                renderPage(state.pageNum);
+            }).catch(e => {
+                console.error("Error loading PDF data:", e);
+            });
+        }
+
+        function loadContentForCurrentPage(forcePreviewUpdate = false) {
+            const pageNum = state.pageNum;
+            const mdKey = `md_page_${pageNum}`;
+            const overlayKey = `overlay_page_${pageNum}`;
+            
+            if (els.markdownInput.value !== (transcriptionData[mdKey] || '')) {
+                els.markdownInput.value = transcriptionData[mdKey] || '';
+            }
+            if (els.overlayHtmlInput.value !== (transcriptionData[overlayKey] || '')) {
+                els.overlayHtmlInput.value = transcriptionData[overlayKey] || '';
+            }
+            if (forcePreviewUpdate) {
+                updatePreview();
+                updateOverlayPreview();
+            }
+        }
+
+        function saveContent() {
+            if (!state.isAuthReady) return;
+            clearTimeout(state.saveTimeout);
+            state.saveTimeout = setTimeout(() => {
+                transcriptionData[`md_page_${state.pageNum}`] = els.markdownInput.value;
+                transcriptionData[`overlay_page_${state.pageNum}`] = els.overlayHtmlInput.value;
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(transcriptionData));
+                localStorage.setItem(STORAGE_KEY_LAST_PAGE, state.pageNum);
+            }, 1000);
+        }
+
+        // --- PDF Rendering ---
+        function renderPage(num) {
+            state.pageRendering = true;
+            els.pdfLoader.classList.remove('hidden');
+            saveContent(); 
+            
+            state.pdfDoc.getPage(num).then(function(page) {
+                var viewport = page.getViewport({scale: state.scale});
+                state.canvas.height = viewport.height;
+                state.canvas.width = viewport.width;
+
+                var renderTask = page.render({canvasContext: state.ctx, viewport: viewport});
+
+                renderTask.promise.then(function() {
+                    state.pageRendering = false;
+                    els.pdfLoader.classList.add('hidden');
+                    updateOverlayWrapperSize();
+                    loadContentForCurrentPage(true);
+                    if (state.pageNumPending !== null) {
+                        renderPage(state.pageNumPending);
+                        state.pageNumPending = null;
+                    }
+                });
+            });
+
+            els.pageNumSpan.textContent = num;
+            els.prevBtn.disabled = num <= 1;
+            els.nextBtn.disabled = num >= state.pdfDoc.numPages;
+        }
+
+        function updateOverlayWrapperSize() {
+             if (els.theCanvas) {
+                els.overlayWrapper.style.width = els.theCanvas.width + 'px';
+                els.overlayWrapper.style.height = els.theCanvas.height + 'px';
+            }
+        }
+
+        function queueRenderPage(num) {
+            state.pageRendering ? state.pageNumPending = num : renderPage(num);
+        }
+
+        // --- Helpers ---
+
+        /**
+         * Extracts a base64 string from a given rect on the current canvas.
+         */
+        function extractImageSnippet(pixelRect) {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = pixelRect.width;
+            tempCanvas.height = pixelRect.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(
+                state.canvas, 
+                pixelRect.x, pixelRect.y, 
+                pixelRect.width, pixelRect.height, 
+                0, 0, 
+                pixelRect.width, pixelRect.height
+            );
+            return tempCanvas.toDataURL('image/png').split(',')[1];
+        }
+
+        /**
+         * Generic Gemini API Call Wrapper
+         * UPDATED: Robust Array Handling for Images
+         */
+        async function queryGemini(prompt, images) {
+            els.aiStatus.style.display = 'inline';
+            els.aiStatus.textContent = "AI Processing...";
+            
+            try {
+                // Construct the prompt parts
+                const parts = [{ text: prompt }];
+                
+                if (Array.isArray(images)) {
+                    // Multiple images
+                    images.forEach(img => {
+                        parts.push({ inlineData: { mimeType: "image/png", data: img } });
+                    });
+                } else if (images) {
+                    // Single image
+                    parts.push({ inlineData: { mimeType: "image/png", data: images } });
+                }
+
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            role: "user",
+                            parts: parts
+                        }]
+                    })
+                });
+
+                if (!response.ok) throw new Error('API request failed');
+                const data = await response.json();
+                
+                els.aiStatus.textContent = "Done!";
+                setTimeout(() => els.aiStatus.style.display = 'none', 2000);
+                
+                return data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+            } catch (error) {
+                console.error("AI Error:", error);
+                els.aiStatus.textContent = "Error!";
+                setTimeout(() => els.aiStatus.style.display = 'none', 2000);
+                throw error;
+            }
+        }
+        
+        function parseAIJson(text) {
+            try {
+                // Try to find a JSON block first
+                const jsonMatch = text.match(/\{[\s\S]*\}/);
+                if (jsonMatch) return JSON.parse(jsonMatch[0]);
+                return JSON.parse(text);
+            } catch (e) { return null; }
+        }
+
+        // --- DOM Modification Helpers (Non-AI) ---
+        
+        // 1. Unified Parser for DOM Updates (Robust)
+        function updateDOMWithCallback(callback) {
+             const parser = new DOMParser();
+             const doc = parser.parseFromString(`<body>${els.overlayHtmlInput.value}</body>`, 'text/html');
+             
+             if(callback(doc)) { // If modification happened
+                 els.overlayHtmlInput.value = doc.body.innerHTML;
+                 updateOverlayPreview();
+                 saveContent();
+                 return true;
+             }
+             return false;
+        }
+
+        window.updateStyle = function(property, value) {
+            if (!state.targetDivId) return;
+            
+            updateDOMWithCallback((doc) => {
+                const target = doc.getElementById(state.targetDivId);
+                if (target) {
+                    target.style[property] = value;
+                    return true;
+                }
+                return false;
+            });
+            els.contextMenu.style.display = 'none';
+        }
+        
+        window.deleteDiv = function() {
+            if (!state.targetDivId) return;
+            updateDOMWithCallback((doc) => {
+                const target = doc.getElementById(state.targetDivId);
+                if (target) {
+                    target.remove();
+                    state.targetDivId = null;
+                    window.closeSelection(); // Hide the box
+                    return true;
+                }
+                return false;
+            });
+            els.contextMenu.style.display = 'none';
+        }
+
+        window.clearStyles = function() {
+            if (!state.targetDivId) return;
+            updateDOMWithCallback((doc) => {
+                const target = doc.getElementById(state.targetDivId);
+                if (target) {
+                    // Keep positioning, clear typography
+                    const left = target.style.left;
+                    const top = target.style.top;
+                    const width = target.style.width;
+                    const height = target.style.height;
+                    
+                    target.removeAttribute('style');
+                    
+                    // Restore Layout
+                    target.style.position = 'absolute';
+                    target.style.left = left;
+                    target.style.top = top;
+                    target.style.width = width;
+                    target.style.height = height;
+                    target.style.background = 'rgba(255,255,255,0.8)';
+                    target.style.padding = '0px'; 
+                    target.style.margin = '0px'; 
+                    target.style.overflowWrap = 'break-word';
+                    target.style.overflow = 'hidden';
+                    target.style.lineHeight = '1.15';
+                    return true;
+                }
+                return false;
+            });
+            els.contextMenu.style.display = 'none';
+        }
+        
+        window.snapLayout = function(type) {
+             if (!state.targetDivId) return;
+             
+             if (type === 'page-width') {
+                 window.updateStyle('left', '0%');
+                 window.updateStyle('width', '100%');
+             } else if (type === 'margin-standard') {
+                 // Simulate ~1 inch margins (approx 10%)
+                 window.updateStyle('left', '10%');
+                 window.updateStyle('width', '80%');
+             } else if (type === 'center') {
+                 window.updateStyle('left', '15%');
+                 window.updateStyle('width', '70%');
+             }
+        }
+        
+        window.manualSmartFit = function() {
+             if (!state.targetDivId) return;
+             smartFitText(state.targetDivId);
+             els.contextMenu.style.display = 'none';
+        }
+
+        // --- Selection & Interaction Logic ---
+        
+        // 1. Shared Logic to Activate Edit Mode for a Div
+        function activateDivEditMode(divElement, clickEvent = null) {
+            if(!divElement) return;
+            state.targetDivId = divElement.id;
+            
+            // Hide selection bar if open
+            els.actionBar.style.display = 'none';
+            
+            // UI Toggle - Show Context Menu group
+            els.menuGroupDiv.classList.remove('hidden');
+            
+            // Calculate Position
+            const cw = els.theCanvas.width;
+            const ch = els.theCanvas.height;
+            const l = (parseFloat(divElement.style.left) / 100) * cw;
+            const t = (parseFloat(divElement.style.top) / 100) * ch;
+            const w = (parseFloat(divElement.style.width) / 100) * cw;
+            const h = (parseFloat(divElement.style.height) / 100) * ch;
+            
+            // Draw Box
+            els.selectionBox.style.left = l + 'px';
+            els.selectionBox.style.top = t + 'px';
+            els.selectionBox.style.width = w + 'px';
+            els.selectionBox.style.height = h + 'px';
+            els.selectionBox.style.display = 'block';
+            els.selectionBox.classList.add('edit-mode'); 
+            
+            // Position Menu
+            els.contextMenu.style.display = 'flex';
+            
+            if (clickEvent) {
+                // Use fixed viewport coordinates (clientX, clientY)
+                let posX = clickEvent.clientX;
+                let posY = clickEvent.clientY;
+                
+                // Menu dimensions for boundary checks
+                const menuW = els.contextMenu.offsetWidth || 230; 
+                const menuH = els.contextMenu.offsetHeight || 300; 
+                
+                // Adjust X if menu runs off the right side
+                if (posX + menuW > window.innerWidth) {
+                    posX = window.innerWidth - menuW - 5; // 5px padding
+                }
+                
+                // Adjust Y if menu runs off the bottom
+                if (posY + menuH > window.innerHeight) {
+                    posY = window.innerHeight - menuH - 5; // 5px padding
+                }
+                
+                els.contextMenu.style.left = posX + 'px';
+                els.contextMenu.style.top = posY + 'px';
+                
+            } else {
+                // Fallback (use element position relative to canvas)
+                const rect = divElement.getBoundingClientRect();
+                els.contextMenu.style.left = (rect.right + 10) + 'px';
+                els.contextMenu.style.top = (rect.bottom + 10) + 'px';
+            }
+            
+            // Auto Scroll to view if offscreen (only if in overlay view)
+            if (state.activeTab === 'overlay') {
+                divElement.scrollIntoView({behavior: "smooth", block: "center"});
+            }
+        }
+
+        // Helper: Get Div ID from Editor Cursor
+        function getTargetDivIdFromCursor() {
+            const cursor = els.overlayHtmlInput.selectionStart;
+            const text = els.overlayHtmlInput.value;
+            let openIndex = -1;
+            let balance = 0;
+            
+            for (let i = cursor - 1; i >= 0; i--) {
+                if (text.substring(i, i + 4) === '<div') {
+                    if (balance === 0) {
+                        openIndex = i;
+                        break;
+                    }
+                    balance--; 
+                } else if (text.substring(i, i + 5) === '/div>') { 
+                     balance++; 
+                }
+            }
+            
+            if (openIndex !== -1) {
+                const tagEnd = text.indexOf('>', openIndex);
+                if (tagEnd !== -1) {
+                    const tagContent = text.substring(openIndex, tagEnd);
+                    const match = tagContent.match(/id=["']([^"']+)["']/);
+                    return match ? match[1] : null;
+                }
+            }
+            return null;
+        }
+
+        // 2. Editor Interaction (Clicking in Textarea)
+        function handleEditorCursor(e) {
+            const divId = getTargetDivIdFromCursor();
+            if (divId) {
+                const divEl = document.getElementById(divId);
+                // Only visual highlight, don't open menu on left click
+                if (divEl) {
+                    state.targetDivId = divEl.id; 
+                }
+            }
+        }
+        
+        // Right click on editor to trigger menu
+        els.overlayHtmlInput.addEventListener('contextmenu', (e) => {
+            const divId = getTargetDivIdFromCursor();
+            if (divId) {
+                const divEl = document.getElementById(divId);
+                if (divEl) {
+                    e.preventDefault(); // Stop native menu
+                    activateDivEditMode(divEl, e); // Pass 'e' for coordinates
+                }
+            }
+        });
+
+        // 3. Mouse Interaction (Canvas)
+        function getPointerPos(e) {
+            const rect = els.selectionLayer.getBoundingClientRect();
+            return {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+        }
+
+        // Context Menu Handler (Right Click) - Only for Existing Divs now
+        els.selectionLayer.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            const elements = document.elementsFromPoint(e.clientX, e.clientY);
+            const clickedDiv = elements.find(el => el.parentElement && el.parentElement.id === 'overlay-html-layer');
+            
+            if (clickedDiv) {
+                activateDivEditMode(clickedDiv, e);
+            }
+        });
+
+        els.selectionLayer.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            els.selectionBox.classList.remove('edit-mode');
+            
+            // Hide any open menus or bars
+            els.contextMenu.style.display = 'none';
+            els.actionBar.style.display = 'none';
+            
+            state.isSelecting = true;
+            state.selectionStart = getPointerPos(e);
+            els.selectionBox.style.display = 'block';
+            els.selectionBox.style.width = '0px';
+            els.selectionBox.style.height = '0px';
+        });
+
+        els.selectionLayer.addEventListener('mousemove', (e) => {
+            if (!state.isSelecting) return;
+            const currentPos = getPointerPos(e);
+            const x = Math.min(state.selectionStart.x, currentPos.x);
+            const y = Math.min(state.selectionStart.y, currentPos.y);
+            const width = Math.abs(currentPos.x - state.selectionStart.x);
+            const height = Math.abs(currentPos.y - state.selectionStart.y);
+            
+            els.selectionBox.style.left = x + 'px';
+            els.selectionBox.style.top = y + 'px';
+            els.selectionBox.style.width = width + 'px';
+            els.selectionBox.style.height = height + 'px';
+        });
+
+        els.selectionLayer.addEventListener('mouseup', (e) => {
+            if (!state.isSelecting) return;
+            state.isSelecting = false;
+            
+            const currentPos = getPointerPos(e);
+            const width = Math.abs(currentPos.x - state.selectionStart.x);
+            const height = Math.abs(currentPos.y - state.selectionStart.y);
+            
+            if (width < 10 || height < 10) {
+                if (!els.selectionBox.classList.contains('edit-mode')) {
+                    els.selectionBox.style.display = 'none';
+                }
+                return;
+            }
+
+            const canvasW = els.theCanvas.width;
+            const canvasH = els.theCanvas.height;
+            const x = Math.min(state.selectionStart.x, currentPos.x);
+            const y = Math.min(state.selectionStart.y, currentPos.y);
+            
+            state.selectionRect = {
+                left: (x / canvasW) * 100,
+                top: (y / canvasH) * 100,
+                width: (width / canvasW) * 100,
+                height: (height / canvasH) * 100,
+                pixelX: x,
+                pixelY: y,
+                pixelW: width,
+                pixelH: height
+            };
+
+            // --- Show Action Bar ---
+            // Calculate absolute position on screen
+            const rect = els.selectionLayer.getBoundingClientRect();
+            const absX = rect.left + x;
+            const absY = rect.top + y + height;
+            
+            const barWidth = 180; 
+            let barLeft = absX + (width / 2) - (barWidth / 2);
+            let barTop = absY + 10; 
+            
+            // Boundary checks
+            if (barLeft < 10) barLeft = 10;
+            if (barLeft + barWidth > window.innerWidth) barLeft = window.innerWidth - barWidth - 10;
+            if (barTop + 50 > window.innerHeight) {
+                 barTop = (rect.top + y) - 60; 
+            }
+
+            els.actionBar.style.left = barLeft + 'px';
+            els.actionBar.style.top = barTop + 'px';
+            els.actionBar.style.display = 'flex';
+        });
+        
+        document.addEventListener('click', (e) => {
+             if (!els.contextMenu.contains(e.target) && els.contextMenu.style.display !== 'none') {
+                 els.contextMenu.style.display = 'none';
+             }
+        });
+
+        // --- Logic Hooks ---
+        
+        els.chkShowSource.addEventListener('change', (e) => {
+            els.overlayCanvasMount.style.opacity = e.target.checked ? '1' : '0';
+        });
+        els.chkShowOverlay.addEventListener('change', (e) => {
+            els.overlayHtmlLayer.style.display = e.target.checked ? 'block' : 'none';
+        });
+
+        els.btnCreateDiv.addEventListener('click', () => {
+            insertDiv("Placeholder Content");
+            window.closeSelection();
+        });
+        
+        els.btnCopyImage.addEventListener('click', () => {
+             const base64 = extractImageSnippet({
+                 x: state.selectionRect.pixelX, y: state.selectionRect.pixelY,
+                 width: state.selectionRect.pixelW, height: state.selectionRect.pixelH
+             });
+            insertImage(`data:image/png;base64,${base64}`);
+            window.closeSelection();
+        });
+
+        // Simplified Digitize (Text Only)
+        els.btnDigitize.addEventListener('click', async () => {
+            window.closeSelection();
+            const base64 = extractImageSnippet({
+                 x: state.selectionRect.pixelX, y: state.selectionRect.pixelY,
+                 width: state.selectionRect.pixelW, height: state.selectionRect.pixelH
+             });
+            
+            const prompt = "Transcribe the text in this image. Return ONLY the raw text, preserving line breaks. Do not include markdown blocks or commentary. If it is a mathematical formula, return the KaTeX equivalent.";
+            
+            try {
+                const resultText = await queryGemini(prompt, base64);
+                // The insertDiv function now handles the heuristic padding reset
+                insertDiv(resultText.trim());
+            } catch(e) { /* Error handled in wrapper */ }
+        });
+
+        // === AI Style Features (New) ===
+        
+        function getSnippetFromDiv(divId) {
+             const div = document.getElementById(divId);
+             if (!div) return null;
+             
+             const cw = els.theCanvas.width;
+             const ch = els.theCanvas.height;
+             const pixelRect = {
+                 x: (parseFloat(div.style.left) / 100) * cw,
+                 y: (parseFloat(div.style.top) / 100) * ch,
+                 width: (parseFloat(div.style.width) / 100) * cw,
+                 height: (parseFloat(div.style.height) / 100) * ch
+             };
+             return extractImageSnippet(pixelRect);
+        }
+
+        // 1. Replica: VISUAL COMPARISON (Robusted)
+        els.btnAiReplica.addEventListener('click', async () => {
+             const divId = state.targetDivId;
+             if (!divId) return;
+             els.contextMenu.style.display = 'none';
+
+             // Check if library loaded
+             if (typeof html2canvas === 'undefined') {
+                 alert("Visual library not loaded. Please refresh.");
+                 return;
+             }
+
+             // A. Capture Goal (PDF)
+             const base64Source = getSnippetFromDiv(divId);
+             
+             // B. Capture Actual (Browser Render) using html2canvas
+             const divEl = document.getElementById(divId);
+             if (!divEl) return;
+             
+             els.aiStatus.style.display = 'inline';
+             els.aiStatus.textContent = "Capturing...";
+             
+             try {
+                 // CRITICAL: Ensure we capture transparent background to see text isolation
+                 const canvas = await html2canvas(divEl, { 
+                     backgroundColor: null, 
+                     scale: 2,
+                     logging: false,
+                     useCORS: true,
+                     allowTaint: true
+                 });
+                 const base64Render = canvas.toDataURL('image/png').split(',')[1];
+                 
+                 const prompt = `You are a frontend expert. I am providing two images and the current HTML code for a specific element.
+                 
+                 Image 1: The "Goal" (Source PDF snippet). This is the ground truth.
+                 Image 2: The "Actual" (Browser rendering of the current code).
+                 
+                 The "Actual" rendering is likely misaligned or styled incorrectly. It needs to match the "Goal" exactly.
+                 
+                 Compare the two images visually:
+                 1. Look for text shifting. If Image 2's text is higher/lower than Image 1's text relative to the box edges, adjust 'padding-top' or 'margin-top'.
+                 2. Look for font size and line height discrepancies.
+                 
+                 Current HTML Code:
+                 \`${divEl.outerHTML}\`
+                 
+                 Your Task:
+                 Return the FULL, CORRECTED HTML string for this DIV element.
+                 - You MUST adjust the 'style' attribute to fix the visual errors.
+                 - If text is too close to the top, add padding-top.
+                 - Do NOT change the 'id'.
+                 - Return ONLY the HTML string (no markdown blocks).
+                 `;
+    
+                const resultHtml = await queryGemini(prompt, [base64Source, base64Render]);
+                
+                updateDOMWithCallback((doc) => {
+                    const target = doc.getElementById(divId);
+                    if (target) {
+                        const cleaned = resultHtml.replace(/```html/g, '').replace(/```/g, '').trim();
+                        if (cleaned.startsWith('<div')) {
+                            target.outerHTML = cleaned;
+                            return true;
+                        } else {
+                            target.innerHTML = cleaned;
+                            return true;
+                        }
+                    }
+                    return false;
+                });
+             } catch(e) { 
+                 console.error(e); 
+                 els.aiStatus.textContent = "Error";
+             }
+        });
+
+        // 2. Match Font: Style Heuristics only (CSS on Container)
+        els.btnAiFont.addEventListener('click', async () => {
+             const divId = state.targetDivId;
+             if (!divId) return;
+             els.contextMenu.style.display = 'none';
+
+             const base64 = getSnippetFromDiv(divId);
+             
+             const prompt = `Analyze the typography in this image snippet. 
+             Return a JSON object (and nothing else) containing the following CSS properties that best approximate the text style found in the image:
+             {
+                "fontFamily": "string (standard web-safe stack)",
+                "fontWeight": "string or number",
+                "fontStyle": "string (normal/italic)",
+                "textAlign": "string (left/center/justify/right)",
+                "fontSize": "string (e.g. '14px')"
+             }
+             Do NOT include markdown formatting. Just the raw JSON string.`;
+
+            try {
+                const resultText = await queryGemini(prompt, base64);
+                const styles = parseAIJson(resultText);
+                
+                if (styles) {
+                    updateDOMWithCallback((doc) => {
+                        const target = doc.getElementById(divId);
+                        if (target) {
+                            if (styles.fontFamily) target.style.fontFamily = styles.fontFamily;
+                            if (styles.fontWeight) target.style.fontWeight = styles.fontWeight;
+                            if (styles.fontStyle) target.style.fontStyle = styles.fontStyle;
+                            if (styles.textAlign) target.style.textAlign = styles.textAlign;
+                            if (styles.fontSize) target.style.fontSize = styles.fontSize;
+                            return true;
+                        }
+                        return false;
+                    });
+                }
+            } catch(e) { console.error(e); }
+        });
+
+        // 3. Flow: Text Only (Clean Transcription)
+        els.btnAiText.addEventListener('click', async () => {
+             const divId = state.targetDivId;
+             if (!divId) return;
+             els.contextMenu.style.display = 'none';
+
+             const base64 = getSnippetFromDiv(divId);
+             
+             const prompt = `Transcribe the text in this image. 
+             - Return ONLY the raw text. 
+             - Use HTML <p> tags for paragraphs. 
+             - Do not add any inline styles. 
+             - Do not include markdown blocks.`;
+
+            try {
+                const resultHtml = await queryGemini(prompt, base64);
+                updateDivContent(divId, resultHtml);
+            } catch(e) { console.error(e); }
+        });
+
+
+        // Helpers
+        window.closeSelection = function() {
+            els.selectionBox.style.display = 'none';
+            els.selectionBox.classList.remove('edit-mode');
+            els.contextMenu.style.display = 'none';
+            els.actionBar.style.display = 'none';
+        }
+
+        function insertDiv(content, styles = {}) {
+            const rect = state.selectionRect;
+            const l = rect.left.toFixed(2);
+            const t = rect.top.toFixed(2);
+            const w = rect.width.toFixed(2);
+            const h = rect.height.toFixed(2);
+            const id = `div-${Date.now()}`; 
+            
+            const safeContent = content.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+            
+            // HEURISTIC UPDATE: 
+            // 1. Padding: 0px (User Request)
+            // 2. Margin: 0px (User Request)
+            // 3. Line-height: 1.15 (Better for reading than 1.0, avoids cramped look)
+            // 4. Font-size: 14px (Starting point)
+            
+            let styleStr = `position: absolute; left: ${l}%; top: ${t}%; width: ${w}%; height: ${h}%; background: rgba(255,255,255,0.8); padding: 0px; margin: 0px; overflow-wrap: break-word; overflow: hidden;`;
+            styleStr += ` font-size: 14px; line-height: 1.15; font-family: 'Times New Roman', serif;`; 
+            
+            appendHtml(`<div id="${id}" style="${styleStr}">${safeContent}</div>`);
+            
+            // Trigger Smart Fit Heuristic after DOM update
+            setTimeout(() => smartFitText(id), 50);
+        }
+        
+        // --- Smart Fit Algorithm (Binary Search) ---
+        function smartFitText(divId) {
+             const el = document.getElementById(divId);
+             if (!el) return;
+             
+             // Reset line-height to ensure accurate height calculation
+             el.style.lineHeight = '1.15';
+
+             // Binary search for optimal font size
+             let low = 6;
+             let high = 100;
+             let bestSize = 12;
+
+             // We iterate to find the max size that fits
+             while (low <= high) {
+                 const mid = Math.floor((low + high) / 2);
+                 el.style.fontSize = mid + 'px';
+                 
+                 // HEURISTIC FIX: "Fail Stubbornly" Fix
+                 // Don't try to fill 100% of the box, fill 90%.
+                 // This ensures we don't accidentally push the text to the very top edge
+                 // causing the "distance from top" issue the user hated.
+                 const tolerance = 0.90; 
+                 
+                 if (el.scrollHeight <= (el.clientHeight * tolerance + 5) && el.scrollWidth <= el.clientWidth) {
+                     bestSize = mid;
+                     low = mid + 1; // Try bigger
+                 } else {
+                     high = mid - 1; // Too big
+                 }
+             }
+             
+             // Apply best size permanently to source
+             window.updateStyle('fontSize', bestSize + 'px');
+        }
+
+        function insertImage(dataUrl) {
+            const l = state.selectionRect.left.toFixed(2);
+            const t = state.selectionRect.top.toFixed(2);
+            const w = state.selectionRect.width.toFixed(2);
+            const h = state.selectionRect.height.toFixed(2);
+            appendHtml(`<img src="${dataUrl}" style="position: absolute; left: ${l}%; top: ${t}%; width: ${w}%; height: ${h}%; object-fit: contain;" />`);
+        }
+
+        function appendHtml(str) {
+            const input = els.overlayHtmlInput;
+            input.value = input.value + str;
+            updateOverlayPreview();
+            saveContent();
+        }
+
+        function updateDivContent(divId, newContent) {
+            updateDOMWithCallback((doc) => {
+                const target = doc.getElementById(divId);
+                if (target) {
+                    const cleanedContent = newContent.replace(/```html/g, '').replace(/```/g, '').trim();
+                    target.innerHTML = cleanedContent;
+                    return true;
+                }
+                return false;
+            });
+            // Re-run fitting if content changed
+            setTimeout(() => smartFitText(divId), 50);
+        }
+        
+        // --- Added for context menu click handlers ---
+        els.workspace = document.getElementById('workspace');
+
+        // --- Core Application Logic ---
+        els.upload.addEventListener('change', function(e) {
+            var file = e.target.files[0];
+            if (file.type !== 'application/pdf') return;
+            state.pageNum = 1;
+            localStorage.setItem(STORAGE_KEY_FILENAME, file.name);
+            els.restoredFilename.textContent = file.name;
+            els.restoreBadge.classList.add('hidden'); 
+            savePDFToDB(file).catch(err => console.error("Error saving PDF to DB:", err));
+            var fileReader = new FileReader();
+            fileReader.onload = function() {
+                var typedarray = new Uint8Array(this.result);
+                loadPDF(typedarray, 1);
+            };
+            fileReader.readAsArrayBuffer(file);
+        });
+
+        function updatePreview() {
+            const rawMarkdown = els.markdownInput.value;
+            const htmlContent = marked.parse(rawMarkdown);
+            els.previewOutput.innerHTML = htmlContent;
+            renderMathInElement(els.previewOutput, {
+                delimiters: [ {left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false} ],
+                throwOnError : false
+            });
+        }
+        
+        function updateOverlayPreview() {
+            els.overlayHtmlLayer.innerHTML = els.overlayHtmlInput.value;
+            renderMathInElement(els.overlayHtmlLayer, {
+                delimiters: [ {left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false} ], throwOnError: false
+            });
+        }
+
+        function switchMainView(viewId) {
+            saveContent();
+            state.activeTab = viewId;
+            if (viewId === 'source') {
+                if (!els.pdfRenderContainer.contains(els.theCanvas)) els.pdfRenderContainer.appendChild(els.theCanvas);
+            } else if (viewId === 'overlay') {
+                if (!els.overlayCanvasMount.contains(els.theCanvas)) els.overlayCanvasMount.appendChild(els.theCanvas);
+                updateOverlayPreview(); 
+            } 
+            
+            const containers = {
+                'source': els.sourceContainer, 'overlay': els.overlayContainer,
+                'write': els.editorContainerMd, 'preview': els.previewContainer
+            };
+            const buttons = {
+                'source': els.tabSource, 'overlay': els.tabOverlay,
+                'write': els.tabWrite, 'preview': els.tabPreview
+            };
+            Object.values(containers).forEach(c => c.classList.add('hidden'));
+            Object.values(buttons).forEach(b => b.classList.remove('active'));
+            if (containers[viewId]) containers[viewId].classList.remove('hidden');
+            if (buttons[viewId]) buttons[viewId].classList.add('active');
+            if (viewId === 'preview') updatePreview();
+        }
+
+        els.overlayHtmlInput.addEventListener('input', () => { updateOverlayPreview(); saveContent(); });
+        els.markdownInput.addEventListener('input', () => { saveContent(); });
+        els.tabSource.addEventListener('click', () => switchMainView('source'));
+        els.tabOverlay.addEventListener('click', () => switchMainView('overlay'));
+        els.tabWrite.addEventListener('click', () => switchMainView('write'));
+        els.tabPreview.addEventListener('click', () => switchMainView('preview'));
+        els.prevBtn.addEventListener('click', () => { if (state.pageNum > 1) { state.pageNum--; queueRenderPage(state.pageNum); }});
+        els.nextBtn.addEventListener('click', () => { if (state.pdfDoc && state.pageNum < state.pdfDoc.numPages) { state.pageNum++; queueRenderPage(state.pageNum); }});
+        els.zoomInBtn.addEventListener('click', () => { state.scale += 0.2; els.zoomLevelSpan.innerText = Math.round(state.scale * 100) + '%'; queueRenderPage(state.pageNum); });
+        els.zoomOutBtn.addEventListener('click', () => { if(state.scale > 0.4) { state.scale -= 0.2; els.zoomLevelSpan.innerText = Math.round(state.scale * 100) + '%'; queueRenderPage(state.pageNum); }});
+        els.fullscreenBtn.addEventListener('click', () => { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); });
+
+        initPersistence();
+        switchMainView('overlay'); 
+
+    </script>
+</body>
+</html>
