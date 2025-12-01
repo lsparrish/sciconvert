@@ -60,7 +60,8 @@
 
       /* PDF Canvas Styles */
       #pdf-render-container {
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1儿童 size: 10px;
+          /* Fixed an invalid box-shadow string that was causing a SyntaxError */
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); 
           background-color: #525659;
           overflow: auto;
           display: flex;
@@ -381,12 +382,12 @@
         id="main-tab-bar"
         class="flex bg-gray-50 border-b border-gray-200 shadow-inner shrink-0"
       >
-        <button id="tab-source" class="tab-button">Source</button>
         <button id="tab-overlay" class="tab-button active">
           Overlay Editor
         </button>
-        <button id="tab-write" class="tab-button">Markdown</button>
-        <button id="tab-preview" class="tab-button">Render</button>
+        <button id="tab-prompts" class="tab-button text-red-600 hover:text-red-800">
+          Prompts (Debug)
+        </button>
       </div>
 
       <div
@@ -411,7 +412,7 @@
       </div>
 
       <div id="workspace" class="flex-1 overflow-hidden relative bg-white">
-        <!-- 1. Source (PDF) Container -->
+        <!-- 1. Source (PDF) Container: KEPT as it contains the canvas -->
         <div
           id="source-container"
           class="absolute inset-0 flex flex-col hidden"
@@ -679,7 +680,7 @@
           </div>
         </div>
 
-        <!-- 3. Editor Container (Write Tab - Markdown) -->
+        <!-- 3. Editor Container (Markdown/Write - Removed from nav, kept for export) -->
         <div
           id="editor-container-md"
           class="absolute inset-0 flex flex-col hidden"
@@ -691,7 +692,7 @@
           ></textarea>
         </div>
 
-        <!-- 4. Preview Container (Render Tab) -->
+        <!-- 4. Preview Container (Render - Removed from nav) -->
         <div
           id="preview-container"
           class="absolute inset-0 overflow-y-auto p-8 hidden bg-white"
@@ -700,6 +701,18 @@
             id="preview-output"
             class="preview-content font-serif text-gray-900 max-w-none"
           ></div>
+        </div>
+        
+        <!-- 5. Prompts Container (Debug Tab) -->
+        <div
+          id="editor-container-prompts"
+          class="absolute inset-0 flex flex-col hidden"
+        >
+          <textarea
+            id="prompt-input"
+            class="editor-textarea flex-1 w-full h-full p-4 border-none outline-none text-xs"
+            placeholder="Loading AI prompts..."
+          ></textarea>
         </div>
       </div>
     </main>
@@ -793,6 +806,7 @@
       const STORAGE_KEY = "scitext_transcriptions";
       const STORAGE_KEY_LAST_PAGE = "scitext_last_page_num";
       const STORAGE_KEY_FILENAME = "scitext_last_filename";
+      const STORAGE_KEY_PROMPTS = "scitext_ai_prompts"; // Key for prompts
       
       // NEW: Default image URL for testing
       const DEFAULT_IMAGE_URL = "https://lsparrish.github.io/sciconvert/sample.png";
@@ -824,6 +838,42 @@
         targetDivId: null,
 
         isLogActive: false, // New state variable
+        
+        // AI Prompts (Editable content stored here)
+        prompts: {
+            DIGITIZE_TEXT: "Transcribe the text in this image. Return ONLY the raw text, preserving line breaks. Do not include markdown blocks or commentary. If it is a mathematical formula, return the KaTeX equivalent enclosed in dollar signs ($...$ or $$...$$).",
+            
+            REPLICA_STYLE: `You are a Visual CSS Alignment Engine. I am providing two images (Target Image and Test Render) and the current internal HTML/style of the text block corresponding exactly to the Test Render.
+
+Image 1: The "Target Image" (Source PDF snippet). This is the visual truth within the crop region that we are targeting.
+Image 2: The "Test Render" (Browser rendering of the content inside the fixed crop region).
+
+Your Mission: Make the alignment and typography in Image 2 as close as possible in appearance to Image 1.
+
+CRITICAL CONSTRAINTS:
+1. You MUST use inline styling on <span> or other appropriate structural HTML elements (like <p> or <h1>).
+2. The (Bounding Box) is for informational purposes only. It shows the width and height in pixel form. Do not add a enclosing div with these properties.
+3. Use only the properties **margin-top, margin-left, font-size, text-align, font-family, font-weight, and font-style** applied to the internal elements (<span>, <p>, etc.) to correct the style for each element.
+4. Changes to the style values must ONLY be in a direction that improves upon the current parameters shown in the test case, such that the HTML will more closely resemble the Target Image.
+
+Respond ONLY with the corrected inner HTML, no commentary or markdown.`,
+            FONT_STYLE: `Analyze the typography in this image snippet. 
+Return a JSON object (and nothing else) containing the following CSS properties that best approximate the text style found in the image:
+{
+   "fontFamily": "string (standard web-safe stack)",
+   "fontWeight": "string or number",
+   "fontStyle": "string (normal/italic)",
+   "textAlign": "string (left/center/justify/right)",
+   "fontSize": "string (e.g. '14px')"
+}
+Do NOT include markdown formatting. Just the raw JSON string.`,
+            
+            TEXT_ONLY: `Transcribe the text in this image. 
+- Return ONLY the raw text. 
+- Use HTML <p> tags for paragraphs. 
+- Do not add any inline styles. 
+- Do not include markdown blocks.`,
+        }
       };
 
       // --- IndexedDB Utils ---
@@ -881,12 +931,13 @@
         zoomInBtn: document.getElementById("zoom-in"),
         zoomOutBtn: document.getElementById("zoom-out"),
         zoomLevelSpan: document.getElementById("zoom-level"),
-        previewOutput: document.getElementById("preview-output"),
-        previewContainer: document.getElementById("preview-container"),
-
+        
+        // Removed elements from DOM: previewOutput, previewContainer, editorContainerMd
+        // Retain only necessary DOM elements
+        // sourceContainer is kept as it holds the canvas when not in overlay view
         sourceContainer: document.getElementById("source-container"),
         overlayContainer: document.getElementById("overlay-container"),
-        editorContainerMd: document.getElementById("editor-container-md"),
+        
         overlayScroller: document.getElementById("overlay-scroller"),
 
         pdfRenderContainer: document.getElementById("pdf-render-container"),
@@ -900,13 +951,13 @@
         editActionBar: document.getElementById("edit-action-bar"),
         theCanvas: document.getElementById("the-canvas"),
 
+        // Removed element from DOM: markdownInput
+        // markdownInput is technically still in the DOM for 'export', but not mapped to an active tab. Lets keep it here for export to work.
         markdownInput: document.getElementById("markdown-input"),
         overlayHtmlInput: document.getElementById("overlay-html-input"),
 
-        tabSource: document.getElementById("tab-source"),
-        tabWrite: document.getElementById("tab-write"),
+        // Removed tabs: tabSource, tabWrite, tabPreview
         tabOverlay: document.getElementById("tab-overlay"),
-        tabPreview: document.getElementById("tab-preview"),
 
         fontSelect: document.getElementById("font-select"),
         exportBtn: document.getElementById("export-md"),
@@ -931,6 +982,15 @@
         // New AI Log Elements
         editorTitle: document.getElementById("editor-title"),
         showAiLog: document.getElementById("show-ai-log"),
+        
+        // New Prompt Elements
+        tabPrompts: document.getElementById("tab-prompts"),
+        promptInput: document.getElementById("prompt-input"),
+        
+        // Need to explicitly map the hidden containers, as they are still referenced in switchMainView for display logic
+        editorContainerPrompts: document.getElementById("editor-container-prompts"),
+        editorContainerMd: document.getElementById("editor-container-md"),
+        previewContainer: document.getElementById("preview-container"),
       };
 
       // --- Persistence ---
@@ -938,8 +998,18 @@
         try {
           const storedData = localStorage.getItem(STORAGE_KEY);
           if (storedData) transcriptionData = JSON.parse(storedData);
+          
+          const storedPrompts = localStorage.getItem(STORAGE_KEY_PROMPTS);
+          if (storedPrompts) {
+              // Load stored prompts into the editor and state
+              // The editor input value is set when switching to the tab, but we need to parse it now.
+              parsePrompts(storedPrompts);
+          } 
+          // Set initial value in promptInput regardless of persistence load, using state.prompts
+          els.promptInput.value = formatPromptsForEditor(state.prompts);
+          
         } catch (error) {
-          console.error("Error loading text data:", error);
+          console.error("Error loading persistence data:", error);
         }
 
         state.isAuthReady = true;
@@ -947,6 +1017,54 @@
 
         // Initial bar state check
         updateEditBarState();
+      }
+      
+      // NEW: Function to format state.prompts back into the editor's markdown format
+      function formatPromptsForEditor(prompts) {
+          let output = `# AI Prompts Configuration\n\nThis document contains the core system instructions and user queries for the AI model's operations. Edit these templates to refine the model's behavior.\n\n---\n`;
+          for (const key in prompts) {
+              output += `\n## ${key}\n\n\`\`\`\n${prompts[key]}\n\`\`\`\n\n---\n`;
+          }
+          return output.trim();
+      }
+
+      // NEW: Function to parse markdown prompt blocks into state.prompts
+      function parsePrompts(markdownText) {
+          const blocks = {};
+          
+          const regex = /##\s*(\w+)\s*\n+\s*```\s*([\s\S]*?)\s*```/g;
+          let match;
+
+          while ((match = regex.exec(markdownText)) !== null) {
+              const key = match[1].trim();
+              const content = match[2].trim();
+              blocks[key] = content;
+          }
+          
+          // Overwrite state prompts only if block exists
+          const requiredKeys = Object.keys(state.prompts);
+          let updatedCount = 0;
+          requiredKeys.forEach(key => {
+              if (blocks[key]) {
+                  state.prompts[key] = blocks[key];
+                  updatedCount++;
+              }
+          });
+          if (updatedCount > 0) {
+              console.log(`Successfully updated ${updatedCount} prompts from editor.`);
+          }
+      }
+
+      // NEW: Function to save prompts
+      function savePrompts() {
+          // This function is now responsible for saving and parsing the prompts when the user types.
+          const currentPromptText = els.promptInput.value;
+          
+          // 1. Save the raw text to localStorage for persistence
+          localStorage.setItem(STORAGE_KEY_PROMPTS, currentPromptText);
+          
+          // 2. Reparse the content for immediate use in state.prompts
+          parsePrompts(currentPromptText);
       }
 
       async function restoreSessionFromDB() {
@@ -968,7 +1086,7 @@
         } catch (error) {
           console.log("No previous session found or error loading DB:", error);
           // Fallback to loading default image if DB load fails
-          loadDefaultImage();
+            loadDefaultImage();
         }
       }
 
@@ -1062,24 +1180,19 @@
         state.pageRendering ? (state.pageNumPending = num) : renderPage(num);
       }
       
-      // --- Remaining Functions (Unchanged) ---
-      // ... (loadContentForCurrentPage, saveContent, renderPage, extractImageSnippet, getDivInternalState) ...
-
       function loadContentForCurrentPage(forcePreviewUpdate = false) {
         const pageNum = state.pageNum;
-        const mdKey = `md_page_${pageNum}`;
         const overlayKey = `overlay_page_${pageNum}`;
 
-        if (els.markdownInput.value !== (transcriptionData[mdKey] || "")) {
-          els.markdownInput.value = transcriptionData[mdKey] || "";
-        }
+        // Markdown logic retained in the data structure for potential future use (Export), 
+        // but removed from direct UI interaction logic.
+        
         if (
           els.overlayHtmlInput.value !== (transcriptionData[overlayKey] || "")
         ) {
           els.overlayHtmlInput.value = transcriptionData[overlayKey] || "";
         }
         if (forcePreviewUpdate) {
-          updatePreview();
           updateOverlayPreview();
         }
         // Ensure the correct content is shown if log is not active
@@ -1094,12 +1207,17 @@
 
         clearTimeout(state.saveTimeout);
         state.saveTimeout = setTimeout(() => {
-          transcriptionData[`md_page_${state.pageNum}`] =
-            els.markdownInput.value;
+          // Save Markdown data if it was somehow modified (e.g., via future feature)
+          if (els.markdownInput) {
+            transcriptionData[`md_page_${state.pageNum}`] = els.markdownInput.value;
+          }
+
           transcriptionData[`overlay_page_${state.pageNum}`] =
             els.overlayHtmlInput.value;
           localStorage.setItem(STORAGE_KEY, JSON.stringify(transcriptionData));
           localStorage.setItem(STORAGE_KEY_LAST_PAGE, state.pageNum);
+          
+          // We assume prompt input changes are handled by its direct listener
         }, 1000);
       }
 
@@ -1160,41 +1278,27 @@
       /**
        * Helper to clone the element and strip non-internal CSS properties
        * before sending the HTML string to the AI.
+       * * MODIFIED: Now returns only content, ID, width, and height.
        */
-      function getDivInternalState(divElement) {
+      var getDivData = function(divElement) {
         const style = divElement.getAttribute("style") || "";
 
-        // Define positional/layout styles we want to remove from the AI's view
-        const positionalProps = [
-          "position",
-          "left",
-          "top",
-          "width",
-          "height",
-          "background",
-          "overflow",
-          "overflow-wrap",
-          "z-index",
-          "margin",
-        ];
-
-        let cleanStyle = style
-          .split(";")
-          .map((s) => s.trim())
-          .filter((s) => {
-            if (!s) return false;
-            const prop = s.split(":")[0].trim().toLowerCase();
-            // Keep the property ONLY if it is NOT a positional property
-            return !positionalProps.some((p) => prop.startsWith(p));
-          })
-          .join("; ");
-
+        // Retrieve width and height directly from the element's style attribute
+        // This is necessary because we need the dimensions, but must strip the
+        // positional CSS (`left`, `top`) as this has no useful relevance to the AI.
+        const widthMatch = style.match(/width:\s*([^;]+)/i);
+        const heightMatch = style.match(/height:\s*([^;]+)/i);
+        
+        const width = widthMatch ? widthMatch[1].trim() : 'auto';
+        const height = heightMatch ? heightMatch[1].trim() : 'auto';
+        
         return {
           id: divElement.id,
           content: divElement.innerHTML,
-          internalStyleString: cleanStyle,
+          width: width, 
+          height: height,
         };
-      }
+      };
 
       // --- AI Log Logic ---
       function updateLogVisibility() {
@@ -1484,8 +1588,8 @@
         state.targetDivId = divElement.id;
 
         // Hide non-editing bars
-        els.actionBar.style.display = "none";
         els.contextMenu.style.display = "none";
+        els.actionBar.style.display = "none";
 
         // Enable the Edit Action Bar (which is always visible)
         els.editActionBar.classList.remove("disabled-bar");
@@ -1743,8 +1847,8 @@
           height: state.selectionRect.pixelH,
         });
 
-        const prompt =
-          "Transcribe the text in this image. Return ONLY the raw text, preserving line breaks. Do not include markdown blocks or commentary. If it is a mathematical formula, return the KaTeX equivalent.";
+        // Use the editable prompt
+        const prompt = state.prompts.DIGITIZE_TEXT;
 
         try {
           const resultText = await queryGemini(prompt, base64);
@@ -1772,7 +1876,32 @@
         return extractImageSnippet(pixelRect);
       }
 
-      // 1. Replica: VISUAL COMPARISON
+      /**
+       * Helper to clone the element and strip non-internal CSS properties
+       * before sending the HTML string to the AI.
+       * * MODIFIED: Now returns only content, ID, width, and height.
+       */
+      var getDivData = function(divElement) {
+        const style = divElement.getAttribute("style") || "";
+
+        // Retrieve width and height directly from the element's style attribute
+        // This is necessary because we need the dimensions, but must strip the
+        // positional CSS (`left`, `top`) that the user does not want sent.
+        const widthMatch = style.match(/width:\s*([^;]+)/i);
+        const heightMatch = style.match(/height:\s*([^;]+)/i);
+        
+        const width = widthMatch ? widthMatch[1].trim() : 'auto';
+        const height = heightMatch ? heightMatch[1].trim() : 'auto';
+        
+        return {
+          id: divElement.id,
+          content: divElement.innerHTML,
+          width: width, 
+          height: height,
+        };
+      };
+
+      // 1. Replica: VISUAL COMPARISON (Now expects inner HTML string)
       window.runAiReplica = async function () {
         const divId = state.targetDivId;
         if (!divId) return;
@@ -1790,6 +1919,7 @@
         els.aiStatus.textContent = "Capturing...";
 
         try {
+          // Capture the current appearance of the element we are trying to fix
           const canvas = await html2canvas(divEl, {
             backgroundColor: "#ffffff",
             scale: 2,
@@ -1799,123 +1929,45 @@
           });
           const base64Render = canvas.toDataURL("image/png").split(",")[1];
 
-          const internalState = getDivInternalState(divEl);
+          // 1. Get current state to send to AI
+          const internalState = getDivData(divEl);
+          
+          // --- USER REQUEST: Use correctly calculated pixel value ---
+          const pixelWidth = divEl.clientWidth;
+          const pixelHeight = divEl.clientHeight;
+          const dimensions = `width: ${pixelWidth}px, height: ${pixelHeight}px`; 
+          
+          // Use the editable prompt and substitute current dimensions and content
+          let prompt = state.prompts.REPLICA_STYLE;
+          prompt = prompt.replace('{{dimensions}}', dimensions);
+          prompt = prompt.replace('{{content}}', internalState.content);
 
-          const prompt = `You are a Visual CSS Alignment Engine. I am providing two images (Target and Example) and the current internal HTML/style of the text block.
-                 
-                 Image 1: The "Target" (Source PDF snippet). This is the visual truth within the crop region that we are targetting.
-                 Image 2: The "Example" (Browser rendering of the content inside the fixed crop region).
-                 
-                 Your Mission: Make the alignment and typography in Image 2 as close as possible in appearance to Image 1.
-                 
-                 CRITICAL CONSTRAINTS:
-                 1. Use **padding-top and padding-left** for alignment and adjust typography using **font-size, line-height, text-align**.
-                 
-                 PRACTICE THESE VIRTUES:
 
-                 1.  **Curiosity**
-                 2.  **Relinquishment**
-                 3.  **Lightness**
-                 4.  **Evenness**
-                 5.  **Argument**
-                 6.  **Empiricism**
-                 7.  **Simplicity**
-                 8.  **Humility**
-                 9.  **Perfectionism**
-                 10. **Precision**
-                 11. **Scholarship**
-                 12. **The Void** (**Focus solely on achieving the correct outcome.**)
-
-                 ---
-                 Content to be Styled: ${internalState.content}
-                 ---
-                 
-                 Output:
-                 Return the FULL, CORRECTED HTML string for the single <div> element.
-                 - Return ONLY the HTML string (no markdown blocks or commentary).
-                 `;
-
+          // Query AI, expecting the raw new INNER HTML of the div
           const resultHtml = await queryGemini(prompt, [
             base64Source,
             base64Render,
           ]);
+          
+          // Check if AI actually returned content. If not, log error and exit gracefully.
+          if (!resultHtml) {
+              els.aiStatus.textContent = "AI Error (Empty Response)";
+              setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
+              els.editActionBar.classList.remove("disabled-bar");
+              console.error("AI Replica failed: received null/undefined resultHtml.");
+              return;
+          }
 
-          updateDOMWithCallback((doc) => {
-            const target = doc.getElementById(divId);
-            if (target) {
-              const cleaned = resultHtml
-                .replace(/```html/g, "")
-                .replace(/```/g, "")
-                .trim();
+          // Use a function to update the content, preserving the outer positional styles
+          updateDivContent(divId, resultHtml);
 
-              // Parse the AI's result to extract styles and inner HTML
-              const tempDiv = document.createElement("div");
-              tempDiv.innerHTML = cleaned;
-              const newEl = tempDiv.firstChild;
-
-              if (newEl && newEl.nodeName === "DIV" && newEl.id === divId) {
-                // AI returned the full, correct DIV. We need to merge styles, preserving position.
-
-                const newStyleString = newEl.getAttribute("style") || "";
-                const originalStyleString = target.getAttribute("style") || "";
-
-                const positionalPropsToKeep = [
-                  "position",
-                  "left",
-                  "top",
-                  "width",
-                  "height",
-                  "background",
-                  "overflow",
-                  "overflow-wrap",
-                  "z-index",
-                ];
-
-                const originalStyles = originalStyleString
-                  .split(";")
-                  .map((s) => s.trim())
-                  .filter((s) => {
-                    const prop = s.split(":")[0].trim().toLowerCase();
-                    return positionalPropsToKeep.some((p) =>
-                      prop.startsWith(p),
-                    );
-                  });
-
-                const newInternalStyles = newStyleString
-                  .split(";")
-                  .map((s) => s.trim())
-                  .filter((s) => {
-                    const prop = s.split(":")[0].trim().toLowerCase();
-                    return (
-                      !positionalPropsToKeep.some((p) => prop.startsWith(p)) &&
-                      s
-                    );
-                  });
-
-                const mergedStyles = [...originalStyles, ...newInternalStyles]
-                  .filter((s) => s)
-                  .join("; ");
-
-                target.setAttribute("style", mergedStyles);
-                target.innerHTML = newEl.innerHTML;
-                els.editActionBar.classList.remove("disabled-bar");
-                return true;
-              } else {
-                target.innerHTML = cleaned;
-                els.editActionBar.classList.remove("disabled-bar");
-                return true;
-              }
-            }
-            els.editActionBar.classList.remove("disabled-bar");
-            return false;
-          });
         } catch (e) {
           console.error(e);
           els.aiStatus.textContent = "Error";
           els.editActionBar.classList.remove("disabled-bar");
         }
       };
-
+      
       // 2. Match Font: Style Heuristics only (CSS on Container)
       window.runAiFont = async function () {
         const divId = state.targetDivId;
@@ -1923,20 +1975,20 @@
         els.editActionBar.classList.add("disabled-bar");
 
         const base64 = getSnippetFromDiv(divId);
-
-        const prompt = `Analyze the typography in this image snippet. 
-             Return a JSON object (and nothing else) containing the following CSS properties that best approximate the text style found in the image:
-             {
-                "fontFamily": "string (standard web-safe stack)",
-                "fontWeight": "string or number",
-                "fontStyle": "string (normal/italic)",
-                "textAlign": "string (left/center/justify/right)",
-                "fontSize": "string (e.g. '14px')"
-             }
-             Do NOT include markdown formatting. Just the raw JSON string.`;
+        
+        // Use the editable prompt
+        const prompt = state.prompts.FONT_STYLE;
 
         try {
           const resultText = await queryGemini(prompt, base64);
+          if (!resultText) {
+              console.error("AI Font failed: received null/undefined result.");
+              els.aiStatus.textContent = "AI Error (Empty Response)";
+              setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
+              els.editActionBar.classList.remove("disabled-bar");
+              return;
+          }
+
           const styles = parseAIJson(resultText);
 
           if (styles) {
@@ -1969,15 +2021,21 @@
         els.editActionBar.classList.add("disabled-bar");
 
         const base64 = getSnippetFromDiv(divId);
-
-        const prompt = `Transcribe the text in this image. 
-             - Return ONLY the raw text. 
-             - Use HTML <p> tags for paragraphs. 
-             - Do not add any inline styles. 
-             - Do not include markdown blocks.`;
+        
+        // Use the editable prompt
+        const prompt = state.prompts.TEXT_ONLY;
 
         try {
           const resultHtml = await queryGemini(prompt, base64);
+          
+          if (!resultHtml) {
+              console.error("AI Text failed: received null/undefined result.");
+              els.aiStatus.textContent = "AI Error (Empty Response)";
+              setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
+              els.editActionBar.classList.remove("disabled-bar");
+              return;
+          }
+
           updateDivContent(divId, resultHtml);
           els.editActionBar.classList.remove("disabled-bar");
         } catch (e) {
@@ -2079,6 +2137,15 @@
       }
 
       function updateDivContent(divId, newContent) {
+        // FIX: Add robust check for null/undefined content immediately.
+        if (!newContent) {
+          console.error(`AI response returned empty content (undefined or null) for div ${divId}. Skipping update.`);
+          els.aiStatus.textContent = "AI Error (Empty Response)";
+          setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
+          els.editActionBar.classList.remove("disabled-bar");
+          return;
+        }
+        
         updateDOMWithCallback((doc) => {
           const target = doc.getElementById(divId);
           if (target) {
@@ -2086,13 +2153,20 @@
               .replace(/```html/g, "")
               .replace(/```/g, "")
               .trim();
+              
+            // Apply new inner HTML
             target.innerHTML = cleanedContent;
+            
+            // NOTE: The previous check for wrapped content is complex and potentially prone to false positives/negatives, 
+            // but the core fix is ensuring we only replace innerHTML, which is maintained.
+
             return true;
           }
           return false;
         });
-        // Re-run fitting if content changed
+        // Re-run fitting if content changed (may be needed if content structure changes height)
         setTimeout(() => smartFitText(divId), 50);
+        els.editActionBar.classList.remove("disabled-bar");
       }
 
       // --- Added for context menu click handlers ---
@@ -2117,18 +2191,7 @@
         fileReader.readAsArrayBuffer(file);
       });
 
-      function updatePreview() {
-        const rawMarkdown = els.markdownInput.value;
-        const htmlContent = marked.parse(rawMarkdown);
-        els.previewOutput.innerHTML = htmlContent;
-        renderMathInElement(els.previewOutput, {
-          delimiters: [
-            { left: "$$", right: "$$", display: true },
-            { left: "$", right: "$", display: false },
-          ],
-          throwOnError: false,
-        });
-      }
+      // window.updatePreview is now unused
 
       function updateOverlayPreview() {
         els.overlayHtmlLayer.innerHTML = els.overlayHtmlInput.value;
@@ -2144,32 +2207,42 @@
       function switchMainView(viewId) {
         saveContent();
         state.activeTab = viewId;
-        if (viewId === "source") {
-          if (!els.pdfRenderContainer.contains(els.theCanvas))
-            els.pdfRenderContainer.appendChild(els.theCanvas);
-        } else if (viewId === "overlay") {
+        
+        // Only Overlay and Prompts are active tabs
+        if (viewId === "overlay") {
+          // The canvas is mounted to overlayCanvasMount in the Overlay tab
           if (!els.overlayCanvasMount.contains(els.theCanvas))
             els.overlayCanvasMount.appendChild(els.theCanvas);
           updateOverlayPreview();
+        } else if (viewId === "prompts") {
+            // Ensure the editor reflects the current in-memory state when loading the tab
+            // This is crucial for enabling editing based on the latest state
+            els.promptInput.value = formatPromptsForEditor(state.prompts);
         }
 
         const containers = {
-          source: els.sourceContainer,
+          source: els.sourceContainer, // Kept hidden/background container
           overlay: els.overlayContainer,
-          write: els.editorContainerMd,
-          preview: els.previewContainer,
+          write: els.editorContainerMd, // Kept hidden/background container
+          preview: els.previewContainer, // Kept hidden/background container
+          prompts: els.editorContainerPrompts,
         };
         const buttons = {
-          source: els.tabSource,
           overlay: els.tabOverlay,
-          write: els.tabWrite,
-          preview: els.tabPreview,
+          prompts: els.tabPrompts,
         };
-        Object.values(containers).forEach((c) => c.classList.add("hidden"));
-        Object.values(buttons).forEach((b) => b.classList.remove("active"));
+        
+        // FIX: Add null check for containers and buttons before accessing classList
+        Object.values(containers).forEach((c) => {
+            if (c) c.classList.add("hidden");
+        });
+        Object.values(buttons).forEach((b) => {
+            if (b) b.classList.remove("active");
+        });
+        
         if (containers[viewId]) containers[viewId].classList.remove("hidden");
         if (buttons[viewId]) buttons[viewId].classList.add("active");
-        if (viewId === "preview") updatePreview();
+        
 
         // Always revert from log view when switching tabs
         if (state.isLogActive) {
@@ -2183,13 +2256,15 @@
           saveContent();
         }
       });
-      els.markdownInput.addEventListener("input", () => {
-        saveContent();
-      });
-      els.tabSource.addEventListener("click", () => switchMainView("source"));
+      
+      // Listener for the prompt input: saves and parses the text immediately upon input change
+      els.promptInput.addEventListener("input", savePrompts);
+      // Also save/parse on blur/change for reliable update if a paste occurs
+      els.promptInput.addEventListener("blur", savePrompts);
+
+
       els.tabOverlay.addEventListener("click", () => switchMainView("overlay"));
-      els.tabWrite.addEventListener("click", () => switchMainView("write"));
-      els.tabPreview.addEventListener("click", () => switchMainView("preview"));
+      els.tabPrompts.addEventListener("click", () => switchMainView("prompts"));
       els.prevBtn.addEventListener("click", () => {
         if (state.pdfDoc && !state.pdfDoc.isStaticImage && state.pageNum > 1) {
           state.pageNum--;
