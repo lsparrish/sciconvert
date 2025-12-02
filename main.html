@@ -31,187 +31,257 @@
 
     <style>
       /* Custom Scrollbar for better aesthetics */
-      ::-webkit-scrollbar { width: 8px; height: 8px; }
-      ::-webkit-scrollbar-track { background: #f1f1f1; }
-      ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
-      ::-webkit-scrollbar-thumb:hover { background: #555; }
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #f1f1f1;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #555;
+      }
 
-      body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #e5e7eb; height: 100vh; overflow: hidden; }
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #e5e7eb;
+        height: 100vh;
+        overflow: hidden;
+      }
 
       /* Custom Tab Styles */
       .tab-button {
-          padding: 0.75rem 1.5rem;
-          font-size: 0.875rem;
-          font-weight: 600;
-          color: #4b5563;
-          border-bottom: 2px solid transparent;
-          cursor: pointer;
-          transition: all 0.1s ease-in-out;
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: #4b5563;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        transition: all 0.1s ease-in-out;
       }
       .tab-button:hover {
-          color: #1f2937;
-          border-bottom-color: #e5e7eb;
+        color: #1f2937;
+        border-bottom-color: #e5e7eb;
       }
       .tab-button.active {
-          color: #2563eb;
-          border-bottom-color: #2563eb;
-          background-color: #fff;
+        color: #2563eb;
+        border-bottom-color: #2563eb;
+        background-color: #fff;
       }
 
       /* PDF Canvas Styles */
       #pdf-render-container {
-          /* Fixed an invalid box-shadow string that was causing a SyntaxError */
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); 
-          background-color: #525659;
-          overflow: auto;
-          display: flex;
-          justify-content: center;
-          align-items: flex-start;
-          padding: 20px;
+        /* Fixed an invalid box-shadow string that was causing a SyntaxError */
+        box-shadow:
+          0 4px 6px -1px rgba(0, 0, 0, 0.1),
+          0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        background-color: #525659;
+        overflow: auto;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        padding: 20px;
       }
 
       canvas {
-          box-shadow: 0 0 10px rgba(0,0,0,0.5);
-          max-width: none;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        max-width: none;
       }
 
       /* Editor Styles */
       .editor-textarea {
-          font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-          line-height: 1.6;
-          resize: none;
+        font-family: "Consolas", "Monaco", "Courier New", monospace;
+        line-height: 1.6;
+        resize: none;
       }
 
       /* Preview Styles */
       .preview-content {
-          line-height: 1.6;
-          text-align: justify;
+        line-height: 1.6;
+        text-align: justify;
       }
 
       /* Font Classes */
-      .font-serif { font-family: 'Times New Roman', Times, serif; }
-      .font-sans { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
-      .font-mono { font-family: 'Courier New', Courier, monospace; }
+      .font-serif {
+        font-family: "Times New Roman", Times, serif;
+      }
+      .font-sans {
+        font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      }
+      .font-mono {
+        font-family: "Courier New", Courier, monospace;
+      }
 
-      .two-columns { column-count: 2; column-gap: 2rem; }
+      .two-columns {
+        column-count: 2;
+        column-gap: 2rem;
+      }
 
       /* Loader */
       .loader {
-          border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%;
-          width: 30px; height: 30px; animation: spin 1s linear infinite;
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #3498db;
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        animation: spin 1s linear infinite;
       }
-      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
 
       /* Selection Box Styles */
       #selection-box {
-          border: 2px dashed #2563eb;
-          background-color: rgba(37, 99, 235, 0.1);
-          position: absolute;
-          pointer-events: none; /* Let events pass through to layer */
-          display: none;
-          z-index: 50;
+        border: 2px dashed #2563eb;
+        background-color: rgba(37, 99, 235, 0.1);
+        position: absolute;
+        pointer-events: none; /* Let events pass through to layer */
+        display: none;
+        z-index: 50;
       }
 
       /* Orange outline for Editing Mode */
       #selection-box.edit-mode {
-          border-color: #f97316; /* Orange-500 */
-          background-color: rgba(249, 115, 22, 0.1);
+        border-color: #f97316; /* Orange-500 */
+        background-color: rgba(249, 115, 22, 0.1);
       }
 
       /* OVERLAY HEURISTIC RESET: Ensure AI/HTML content has no default margins */
       #overlay-html-layer * {
-          margin: 0;
-          padding: 0;
-          box-sizing: border-box;
-          /* STRICT RESET: 1.0 line height matches print closer than 1.15 */
-          line-height: 1.0;
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        /* STRICT RESET: 1.0 line height matches print closer than 1.15 */
+        line-height: 1;
       }
       #overlay-html-layer div {
-          /* Ensure the containers themselves don't collapse */
-          box-sizing: border-box;
+        /* Ensure the containers themselves don't collapse */
+        box-sizing: border-box;
       }
 
-      /* Debug View Overlay */
+      /* Debug View Overlay (Updated for side-by-side comparison) */
       #debug-vision-overlay {
-          position: absolute;
-          z-index: 99999;
-          border: 2px solid red;
-          background: rgba(255, 0, 0, 0.1);
-          pointer-events: none;
-          display: none;
+        position: fixed; /* Fixed position covers the entire viewport reliably */
+        inset: 0;
+        z-index: 99999;
+        background: rgba(0, 0, 0, 0.85); /* Dark background for focus */
+        pointer-events: all;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        color: white;
+      }
+      #debug-vision-content {
+        display: flex;
+        gap: 20px;
+        max-width: 90%;
+        max-height: 90%;
+        justify-content: center;
+        align-items: flex-start;
+      }
+      .debug-pane {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        background: #333;
+        padding: 10px;
+        border-radius: 8px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+      }
+      .debug-pane img {
+        max-width: 100%;
+        max-height: 80vh;
+        object-fit: contain;
+        border: 1px solid #555;
       }
       #debug-vision-label {
-          position: absolute;
-          top: -20px;
-          left: 0;
-          background: red;
-          color: white;
-          font-size: 10px;
-          padding: 2px 4px;
-          font-weight: bold;
+        /* Placeholder, not used in new design */
+        display: none;
+      }
+      #close-debug-vision {
+        /* Style for the closing button */
+        cursor: pointer;
       }
 
       /* --- Context Menu Styles (Simplified/Stripped) --- */
       #context-menu {
-          /* Hiding context menu logic since we are transitioning to action bar */
-          display: none !important;
+        /* Hiding context menu logic since we are transitioning to action bar */
+        display: none !important;
       }
 
       /* --- Action Bar Styles (Selection) --- */
       #selection-action-bar {
-          position: fixed;
-          z-index: 10000;
-          display: none;
-          transform-origin: top center;
-          animation: fadeIn 0.1s ease-out;
+        position: fixed;
+        z-index: 10000;
+        display: none;
+        transform-origin: top center;
+        animation: fadeIn 0.1s ease-out;
       }
 
       /* --- Action Bar Styles (Edit) --- */
       #edit-action-bar {
-          z-index: 0;
-          /* Position and width managed by Tailwind classes in HTML: w-full shrink-0 */
+        z-index: 0;
+        /* Position and width managed by Tailwind classes in HTML: w-full shrink-0 */
       }
 
       .disabled-bar {
-          opacity: 0.5;
-          pointer-events: none;
-          transition: opacity 0.2s ease-in-out;
+        opacity: 0.5;
+        pointer-events: none;
+        transition: opacity 0.2s ease-in-out;
       }
 
       .action-btn {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: 0.5rem;
-          border-radius: 0.375rem;
-          cursor: pointer;
-          transition: all 0.15s;
-          color: #4b5563;
-          background: #f9fafb;
-          border: 1px solid #f3f4f6;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 0.5rem;
+        border-radius: 0.375rem;
+        cursor: pointer;
+        transition: all 0.15s;
+        color: #4b5563;
+        background: #f9fafb;
+        border: 1px solid #f3f4f6;
       }
 
       .action-btn:hover {
-          background-color: #f3f4f6;
-          color: #1f2937;
-          transform: translateY(-1px);
+        background-color: #f3f4f6;
+        color: #1f2937;
+        transform: translateY(-1px);
       }
 
       .action-btn svg {
-          width: 1.25rem;
-          height: 1.25rem;
-          margin-bottom: 0.1rem;
+        width: 1.25rem;
+        height: 1.25rem;
+        margin-bottom: 0.1rem;
       }
 
       .action-btn span {
-          font-size: 0.65rem;
-          font-weight: 600;
+        font-size: 0.65rem;
+        font-weight: 600;
       }
 
       @keyframes fadeIn {
-          from { opacity: 0; transform: scale(0.95) translateY(-5px); }
-          to { opacity: 1; transform: scale(1) translateY(0); }
+        from {
+          opacity: 0;
+          transform: scale(0.95) translateY(-5px);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+        }
       }
     </style>
   </head>
@@ -385,7 +455,10 @@
         <button id="tab-overlay" class="tab-button active">
           Overlay Editor
         </button>
-        <button id="tab-prompts" class="tab-button text-red-600 hover:text-red-800">
+        <button
+          id="tab-prompts"
+          class="tab-button text-red-600 hover:text-red-800"
+        >
           Prompts (Debug)
         </button>
       </div>
@@ -562,21 +635,6 @@
 
               <!-- Actions Group -->
               <button
-                class="action-btn text-indigo-600 hover:text-indigo-700"
-                onclick="manualSmartFit()"
-                title="Auto-size text to fill box"
-              >
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
-                  ></path>
-                </svg>
-                <span>Fit Text</span>
-              </button>
-              <button
                 id="btn-clear-styles-edit"
                 class="action-btn text-amber-600 hover:text-amber-700"
                 onclick="clearStyles()"
@@ -702,7 +760,7 @@
             class="preview-content font-serif text-gray-900 max-w-none"
           ></div>
         </div>
-        
+
         <!-- 5. Prompts Container (Debug Tab) -->
         <div
           id="editor-container-prompts"
@@ -792,13 +850,30 @@
       <!-- Content removed, using edit-action-bar instead -->
     </div>
 
-    <!-- Debug Vision Overlay Mount -->
+    <!-- Debug Vision Overlay Mount (UPDATED STRUCTURE) -->
     <div id="debug-vision-overlay">
-      <div id="debug-vision-label">AI VISION (html2canvas)</div>
-      <img
-        id="debug-vision-img"
-        style="width: 100%; height: 100%; object-fit: contain"
-      />
+      <div id="debug-vision-content">
+        <div class="debug-pane">
+          <span
+            id="debug-source-label"
+            class="text-sm font-bold text-yellow-300"
+            >1. TARGET (Source PDF Image)</span
+          >
+          <img id="debug-source-img" alt="Target Image Snippet" />
+        </div>
+        <div class="debug-pane">
+          <span id="debug-render-label" class="text-sm font-bold text-blue-300"
+            >2. TEST RENDER (Current HTML View)</span
+          >
+          <img id="debug-render-img" alt="Current HTML Render" />
+        </div>
+      </div>
+      <button
+        id="close-debug-vision"
+        class="mt-4 bg-gray-600 hover:bg-gray-500 text-white font-semibold py-2 px-4 rounded transition"
+      >
+        Close Debug View
+      </button>
     </div>
 
     <script type="module">
@@ -807,9 +882,10 @@
       const STORAGE_KEY_LAST_PAGE = "scitext_last_page_num";
       const STORAGE_KEY_FILENAME = "scitext_last_filename";
       const STORAGE_KEY_PROMPTS = "scitext_ai_prompts"; // Key for prompts
-      
+
       // NEW: Default image URL for testing
-      const DEFAULT_IMAGE_URL = "https://lsparrish.github.io/sciconvert/sample.png";
+      const DEFAULT_IMAGE_URL =
+        "https://lsparrish.github.io/sciconvert/sample.png";
 
       let transcriptionData = {};
       let aiQueryLog = []; // Global storage for AI request/response logs
@@ -838,26 +914,36 @@
         targetDivId: null,
 
         isLogActive: false, // New state variable
-        
+
         // AI Prompts (Editable content stored here)
         prompts: {
-            DIGITIZE_TEXT: "Transcribe the text in this image. Return ONLY the raw text, preserving line breaks. Do not include markdown blocks or commentary. If it is a mathematical formula, return the KaTeX equivalent enclosed in dollar signs ($...$ or $$...$$).",
-            
-            REPLICA_STYLE: `You are a Visual CSS Alignment Engine. I am providing two images (Target Image and Test Render) and the current internal HTML/style of the text block corresponding exactly to the Test Render.
+          DIGITIZE_TEXT:
+            "Transcribe the text in this image. Return ONLY the raw text, preserving line breaks. Do not include markdown blocks or commentary. If it is a mathematical formula, return the KaTeX equivalent enclosed in dollar signs ($...$ or $$...$$).",
+          REPLICA_STYLE: `You are a Visual CSS Alignment Engine. 
+I am providing two images ("Target Image" and "Test Render").
+I am also providing the current HTML of the text block corresponding exactly to the Test Render.
 
-Image 1: The "Target Image" (Source PDF snippet). This is the visual truth within the crop region that we are targeting.
-Image 2: The "Test Render" (Browser rendering of the content inside the fixed crop region).
+Image 1: The "Target Image" (Source scanned image) -- make the HTML like this.
+Image 2: The "Test Render" (Browser rendering) -- Use this to understand what the provided HTML currently does.
 
-Your Mission: Make the alignment and typography in Image 2 as close as possible in appearance to Image 1.
+CHALLENGE: Make the alignment and typography in Image 2 as close as possible in appearance to Image 1.
 
 CRITICAL CONSTRAINTS:
 1. You MUST use inline styling on <span> or other appropriate structural HTML elements (like <p> or <h1>).
-2. The (Bounding Box) is for informational purposes only. It shows the width and height in pixel form. Do not add a enclosing div with these properties.
-3. Use only the properties **margin-top, margin-left, font-size, text-align, font-family, font-weight, and font-style** applied to the internal elements (<span>, <p>, etc.) to correct the style for each element.
-4. Changes to the style values must ONLY be in a direction that improves upon the current parameters shown in the test case, such that the HTML will more closely resemble the Target Image.
+2. The (Bounding Box) is for informational purposes only. It shows the width and height. Do not add a enclosing div with these properties.
+3. Use the properties **margin-top, margin-left, font-size, text-align, font-family, font-weight, and font-style** applied to the internal elements (<span>, <p>, etc.) to correct each element.
+4. Changes to the style values must be in a direction that improves upon the current parameters shown in the test case, such that the HTML to be rendered will more closely resemble the Target Image.
+5. Deeply consider for each element whether it needs to be smaller, larger, up, down, left, right. 
+6. Picture the words like puzzle pieces that you can shrink or grow. Reaching the correct size is one "click", reaching the correct distance values is another "click".
+7. Consider standardizing on all fonts having the same font-size, with relative modifiers for each style.
 
-Respond ONLY with the corrected inner HTML, no commentary or markdown.`,
-            FONT_STYLE: `Analyze the typography in this image snippet. 
+--- CURRENT STATE FOR TEST RENDER ---
+(Bounding Box): {{promptDimensions}}
+(Content HTML): {{content}}
+------------------------------------
+
+Respond ONLY with the corrected inner HTML, no commentary or markdown apart from HTML comments.`,
+          FONT_STYLE: `Analyze the typography in this image snippet. 
 Return a JSON object (and nothing else) containing the following CSS properties that best approximate the text style found in the image:
 {
    "fontFamily": "string (standard web-safe stack)",
@@ -867,13 +953,13 @@ Return a JSON object (and nothing else) containing the following CSS properties 
    "fontSize": "string (e.g. '14px')"
 }
 Do NOT include markdown formatting. Just the raw JSON string.`,
-            
-            TEXT_ONLY: `Transcribe the text in this image. 
+
+          TEXT_ONLY: `Transcribe the text in this image. 
 - Return ONLY the raw text. 
 - Use HTML <p> tags for paragraphs. 
 - Do not add any inline styles. 
 - Do not include markdown blocks.`,
-        }
+        },
       };
 
       // --- IndexedDB Utils ---
@@ -931,13 +1017,13 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         zoomInBtn: document.getElementById("zoom-in"),
         zoomOutBtn: document.getElementById("zoom-out"),
         zoomLevelSpan: document.getElementById("zoom-level"),
-        
+
         // Removed elements from DOM: previewOutput, previewContainer, editorContainerMd
         // Retain only necessary DOM elements
         // sourceContainer is kept as it holds the canvas when not in overlay view
         sourceContainer: document.getElementById("source-container"),
         overlayContainer: document.getElementById("overlay-container"),
-        
+
         overlayScroller: document.getElementById("overlay-scroller"),
 
         pdfRenderContainer: document.getElementById("pdf-render-container"),
@@ -975,20 +1061,24 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
 
         menuGroupDiv: document.getElementById("menu-group-div"),
 
-        // Debug
+        // Debug (Update mapping for new elements)
         debugOverlay: document.getElementById("debug-vision-overlay"),
-        debugImg: document.getElementById("debug-vision-img"),
+        debugSourceImg: document.getElementById("debug-source-img"), // New
+        debugRenderImg: document.getElementById("debug-render-img"), // New
+        closeDebugVision: document.getElementById("close-debug-vision"), // New
 
         // New AI Log Elements
         editorTitle: document.getElementById("editor-title"),
         showAiLog: document.getElementById("show-ai-log"),
-        
+
         // New Prompt Elements
         tabPrompts: document.getElementById("tab-prompts"),
         promptInput: document.getElementById("prompt-input"),
-        
+
         // Need to explicitly map the hidden containers, as they are still referenced in switchMainView for display logic
-        editorContainerPrompts: document.getElementById("editor-container-prompts"),
+        editorContainerPrompts: document.getElementById(
+          "editor-container-prompts",
+        ),
         editorContainerMd: document.getElementById("editor-container-md"),
         previewContainer: document.getElementById("preview-container"),
       };
@@ -998,16 +1088,15 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         try {
           const storedData = localStorage.getItem(STORAGE_KEY);
           if (storedData) transcriptionData = JSON.parse(storedData);
-          
+
           const storedPrompts = localStorage.getItem(STORAGE_KEY_PROMPTS);
           if (storedPrompts) {
-              // Load stored prompts into the editor and state
-              // The editor input value is set when switching to the tab, but we need to parse it now.
-              parsePrompts(storedPrompts);
-          } 
+            // Load stored prompts into the editor and state
+            // The editor input value is set when switching to the tab, but we need to parse it now.
+            parsePrompts(storedPrompts);
+          }
           // Set initial value in promptInput regardless of persistence load, using state.prompts
           els.promptInput.value = formatPromptsForEditor(state.prompts);
-          
         } catch (error) {
           console.error("Error loading persistence data:", error);
         }
@@ -1018,53 +1107,55 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         // Initial bar state check
         updateEditBarState();
       }
-      
+
       // NEW: Function to format state.prompts back into the editor's markdown format
       function formatPromptsForEditor(prompts) {
-          let output = `# AI Prompts Configuration\n\nThis document contains the core system instructions and user queries for the AI model's operations. Edit these templates to refine the model's behavior.\n\n---\n`;
-          for (const key in prompts) {
-              output += `\n## ${key}\n\n\`\`\`\n${prompts[key]}\n\`\`\`\n\n---\n`;
-          }
-          return output.trim();
+        let output = `# AI Prompts Configuration\n\nThis document contains the core system instructions and user queries for the AI model's operations. Edit these templates to refine the model's behavior.\n\n---\n`;
+        for (const key in prompts) {
+          output += `\n## ${key}\n\n\`\`\`\n${prompts[key]}\n\`\`\`\n\n---\n`;
+        }
+        return output.trim();
       }
 
       // NEW: Function to parse markdown prompt blocks into state.prompts
       function parsePrompts(markdownText) {
-          const blocks = {};
-          
-          const regex = /##\s*(\w+)\s*\n+\s*```\s*([\s\S]*?)\s*```/g;
-          let match;
+        const blocks = {};
 
-          while ((match = regex.exec(markdownText)) !== null) {
-              const key = match[1].trim();
-              const content = match[2].trim();
-              blocks[key] = content;
+        const regex = /##\s*(\w+)\s*\n+\s*```\s*([\s\S]*?)\s*```/g;
+        let match;
+
+        while ((match = regex.exec(markdownText)) !== null) {
+          const key = match[1].trim();
+          const content = match[2].trim();
+          blocks[key] = content;
+        }
+
+        // Overwrite state prompts only if block exists
+        const requiredKeys = Object.keys(state.prompts);
+        let updatedCount = 0;
+        requiredKeys.forEach((key) => {
+          if (blocks[key]) {
+            state.prompts[key] = blocks[key];
+            updatedCount++;
           }
-          
-          // Overwrite state prompts only if block exists
-          const requiredKeys = Object.keys(state.prompts);
-          let updatedCount = 0;
-          requiredKeys.forEach(key => {
-              if (blocks[key]) {
-                  state.prompts[key] = blocks[key];
-                  updatedCount++;
-              }
-          });
-          if (updatedCount > 0) {
-              console.log(`Successfully updated ${updatedCount} prompts from editor.`);
-          }
+        });
+        if (updatedCount > 0) {
+          console.log(
+            `Successfully updated ${updatedCount} prompts from editor.`,
+          );
+        }
       }
 
       // NEW: Function to save prompts
       function savePrompts() {
-          // This function is now responsible for saving and parsing the prompts when the user types.
-          const currentPromptText = els.promptInput.value;
-          
-          // 1. Save the raw text to localStorage for persistence
-          localStorage.setItem(STORAGE_KEY_PROMPTS, currentPromptText);
-          
-          // 2. Reparse the content for immediate use in state.prompts
-          parsePrompts(currentPromptText);
+        // This function is now responsible for saving and parsing the prompts when the user types.
+        const currentPromptText = els.promptInput.value;
+
+        // 1. Save the raw text to localStorage for persistence
+        localStorage.setItem(STORAGE_KEY_PROMPTS, currentPromptText);
+
+        // 2. Reparse the content for immediate use in state.prompts
+        parsePrompts(currentPromptText);
       }
 
       async function restoreSessionFromDB() {
@@ -1086,66 +1177,73 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         } catch (error) {
           console.log("No previous session found or error loading DB:", error);
           // Fallback to loading default image if DB load fails
-            loadDefaultImage();
+          loadDefaultImage();
         }
       }
 
       // NEW: Function to load the default image
       function loadDefaultImage() {
-          // Check if a PDF is already loaded or in pending state 
-          if (state.pdfDoc && !state.pdfDoc.isStaticImage || state.pageRendering) return;
+        // Check if a PDF is already loaded or in pending state
+        if (
+          (state.pdfDoc && !state.pdfDoc.isStaticImage) ||
+          state.pageRendering
+        )
+          return;
 
-          els.pdfLoader.classList.remove("hidden");
-          els.pdfLoader.children[1].textContent = "Loading Sample Image...";
+        els.pdfLoader.classList.remove("hidden");
+        els.pdfLoader.children[1].textContent = "Loading Sample Image...";
 
-          const img = new Image();
-          // Setting crossOrigin is essential for toDataURL on the canvas later
-          img.crossOrigin = 'anonymous'; 
+        const img = new Image();
+        // Setting crossOrigin is essential for toDataURL on the canvas later
+        img.crossOrigin = "anonymous";
 
-          img.onload = function() {
-              // 1. Set canvas dimensions
-              state.canvas.width = img.width;
-              state.canvas.height = img.height;
-              
-              // 2. Draw image
-              state.ctx.drawImage(img, 0, 0);
+        img.onload = function () {
+          // 1. Set canvas dimensions
+          state.canvas.width = img.width;
+          state.canvas.height = img.height;
 
-              // 3. Mock PDF State for compatibility
-              state.pdfDoc = { numPages: 1, isStaticImage: true };
-              state.pageNum = 1;
-              
-              // 4. Update UI
-              els.pdfLoader.classList.add("hidden");
-              els.emptyState.classList.add("hidden");
-              els.pageCountSpan.textContent = 1;
-              els.pageNumSpan.textContent = 1;
-              els.navControls.style.display = "flex";
-              els.zoomControls.style.display = "none"; // Disable zoom for static image
-              
-              // Disable navigation buttons as it's a single static image
-              els.prevBtn.disabled = true;
-              els.nextBtn.disabled = true;
+          // 2. Draw image
+          state.ctx.drawImage(img, 0, 0);
 
-              // 5. Finalize setup
-              updateOverlayWrapperSize();
-              loadContentForCurrentPage(true); // Load content from storage for page 1
-              els.pdfLoader.children[1].textContent = "Rendering Page..."; // Reset loader text
-          };
+          // 3. Mock PDF State for compatibility
+          state.pdfDoc = { numPages: 1, isStaticImage: true };
+          state.pageNum = 1;
 
-          img.onerror = function() {
-              console.error("Failed to load default image from URL:", DEFAULT_IMAGE_URL);
-              els.pdfLoader.classList.add("hidden");
-              els.emptyState.classList.remove("hidden"); // Show empty state if loading fails
-              els.pdfLoader.children[1].textContent = "Rendering Page..."; // Reset loader text
-          };
+          // 4. Update UI
+          els.pdfLoader.classList.add("hidden");
+          els.emptyState.classList.add("hidden");
+          els.pageCountSpan.textContent = 1;
+          els.pageNumSpan.textContent = 1;
+          els.navControls.style.display = "flex";
+          els.zoomControls.style.display = "none"; // Disable zoom for static image
 
-          img.src = DEFAULT_IMAGE_URL;
+          // Disable navigation buttons as it's a single static image
+          els.prevBtn.disabled = true;
+          els.nextBtn.disabled = true;
+
+          // 5. Finalize setup
+          updateOverlayWrapperSize();
+          loadContentForCurrentPage(true); // Load content from storage for page 1
+          els.pdfLoader.children[1].textContent = "Rendering Page..."; // Reset loader text
+        };
+
+        img.onerror = function () {
+          console.error(
+            "Failed to load default image from URL:",
+            DEFAULT_IMAGE_URL,
+          );
+          els.pdfLoader.classList.add("hidden");
+          els.emptyState.classList.remove("hidden"); // Show empty state if loading fails
+          els.pdfLoader.children[1].textContent = "Rendering Page..."; // Reset loader text
+        };
+
+        img.src = DEFAULT_IMAGE_URL;
       }
 
       function loadPDF(data, pageNum = 1) {
         if (state.pdfDoc && state.pdfDoc.isStaticImage) {
-            // Clear static image mock if a new PDF is being loaded
-            state.pdfDoc = null;
+          // Clear static image mock if a new PDF is being loaded
+          state.pdfDoc = null;
         }
 
         pdfjsLib
@@ -1174,19 +1272,19 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
       function queueRenderPage(num) {
         // Prevent PDF rendering if in static image mode
         if (state.pdfDoc && state.pdfDoc.isStaticImage) {
-            return;
+          return;
         }
 
         state.pageRendering ? (state.pageNumPending = num) : renderPage(num);
       }
-      
+
       function loadContentForCurrentPage(forcePreviewUpdate = false) {
         const pageNum = state.pageNum;
         const overlayKey = `overlay_page_${pageNum}`;
 
-        // Markdown logic retained in the data structure for potential future use (Export), 
+        // Markdown logic retained in the data structure for potential future use (Export),
         // but removed from direct UI interaction logic.
-        
+
         if (
           els.overlayHtmlInput.value !== (transcriptionData[overlayKey] || "")
         ) {
@@ -1209,14 +1307,15 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         state.saveTimeout = setTimeout(() => {
           // Save Markdown data if it was somehow modified (e.g., via future feature)
           if (els.markdownInput) {
-            transcriptionData[`md_page_${state.pageNum}`] = els.markdownInput.value;
+            transcriptionData[`md_page_${state.pageNum}`] =
+              els.markdownInput.value;
           }
 
           transcriptionData[`overlay_page_${state.pageNum}`] =
             els.overlayHtmlInput.value;
           localStorage.setItem(STORAGE_KEY, JSON.stringify(transcriptionData));
           localStorage.setItem(STORAGE_KEY_LAST_PAGE, state.pageNum);
-          
+
           // We assume prompt input changes are handled by its direct listener
         }, 1000);
       }
@@ -1280,22 +1379,22 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
        * before sending the HTML string to the AI.
        * * MODIFIED: Now returns only content, ID, width, and height.
        */
-      var getDivData = function(divElement) {
+      var getDivData = function (divElement) {
         const style = divElement.getAttribute("style") || "";
 
         // Retrieve width and height directly from the element's style attribute
         // This is necessary because we need the dimensions, but must strip the
-        // positional CSS (`left`, `top`) as this has no useful relevance to the AI.
+        // positional CSS (`left`, `top`) that the user does not want sent.
         const widthMatch = style.match(/width:\s*([^;]+)/i);
         const heightMatch = style.match(/height:\s*([^;]+)/i);
-        
-        const width = widthMatch ? widthMatch[1].trim() : 'auto';
-        const height = heightMatch ? heightMatch[1].trim() : 'auto';
-        
+
+        const width = widthMatch ? widthMatch[1].trim() : "auto";
+        const height = heightMatch ? heightMatch[1].trim() : "auto";
+
         return {
           id: divElement.id,
           content: divElement.innerHTML,
-          width: width, 
+          width: width,
           height: height,
         };
       };
@@ -1501,7 +1600,7 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
             target.style.top = top;
             target.style.width = width;
             target.style.height = height;
-            target.style.background = "rgba(255,255,255,0.8)";
+            target.style.background = "rgba(255,255,255,0.7)"; // Consistent background color
             target.style.padding = "0px";
             target.style.margin = "0px";
             target.style.overflowWrap = "break-word";
@@ -1529,56 +1628,70 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         }
       };
 
-      window.manualSmartFit = function () {
-        if (!state.targetDivId) return;
-        smartFitText(state.targetDivId);
-      };
-
       // --- Debug Vision Logic (New) ---
-      window.showDebugView = async function () {
+
+      /**
+       * Shows the captured images in a modal for visual inspection.
+       */
+      function showAiVisionDebug(sourceB64, renderB64, dimensions) {
+        // Update content
+        els.debugSourceImg.src = `data:image/png;base64,${sourceB64}`;
+        els.debugRenderImg.src = `data:image/png;base64,${renderB64}`;
+
+        // Update labels to show dimensions being sent to AI
+        document.getElementById("debug-source-label").textContent =
+          `1. TARGET (Source PDF Image) - ${dimensions.native}`;
+        document.getElementById("debug-render-label").textContent =
+          `2. TEST RENDER (Current HTML View) - ${dimensions.scaled}`;
+
+        // Show overlay
+        els.debugOverlay.style.display = "flex";
+      }
+
+      window.showDebugView = function () {
         if (!state.targetDivId) return;
-        els.editActionBar.classList.add("disabled-bar");
-
-        if (typeof html2canvas === "undefined") {
-          return;
-        }
-
         const divEl = document.getElementById(state.targetDivId);
         if (!divEl) return;
 
-        // Setup Overlay Position
-        const rect = divEl.getBoundingClientRect();
+        // Use the logic from runAiReplica to get the images and dimensions
+        const base64Source = getSnippetFromDiv(state.targetDivId);
 
-        els.debugOverlay.style.left = rect.left + "px";
-        els.debugOverlay.style.top = rect.top + "px";
-        els.debugOverlay.style.width = rect.width + "px";
-        els.debugOverlay.style.height = rect.height + "px";
-        els.debugOverlay.style.display = "block";
+        html2canvas(divEl, {
+          backgroundColor: "#ffffff",
+          scale: 2,
+          logging: false,
+          useCORS: true,
+          allowTaint: true,
+        })
+          .then((canvas) => {
+            const base64Render = canvas.toDataURL("image/png").split(",")[1];
 
-        els.debugImg.src = ""; // Clear previous
+            const scaledPixelWidth = divEl.clientWidth;
+            const scaledPixelHeight = divEl.clientHeight;
+            const currentScale =
+              state.pdfDoc && state.pdfDoc.isStaticImage ? 1.0 : state.scale;
+            const nativePixelWidth = Math.round(
+              scaledPixelWidth / currentScale,
+            );
+            const nativePixelHeight = Math.round(
+              scaledPixelHeight / currentScale,
+            );
 
-        try {
-          const canvas = await html2canvas(divEl, {
-            backgroundColor: "#ffffff", // Force white to match paper
-            scale: 2,
-            logging: false,
-            useCORS: true,
-            allowTaint: true,
+            const dimensions = {
+              scaled: `W:${scaledPixelWidth}px, H:${scaledPixelHeight}px (Scale: ${currentScale})`,
+              native: `W:${nativePixelWidth}px, H:${nativePixelHeight}px (Original)`,
+            };
+
+            showAiVisionDebug(base64Source, base64Render, dimensions);
+          })
+          .catch((e) => {
+            console.error("Debug capture failed", e);
           });
-
-          els.debugImg.src = canvas.toDataURL();
-
-          // Auto hide after 3 seconds
-          setTimeout(() => {
-            els.debugOverlay.style.display = "none";
-            els.editActionBar.classList.remove("disabled-bar"); // Restore edit bar state
-          }, 3000);
-        } catch (e) {
-          console.error("Debug capture failed", e);
-          els.debugOverlay.style.display = "none";
-          els.editActionBar.classList.remove("disabled-bar"); // Restore edit bar state on error
-        }
       };
+
+      els.closeDebugVision.addEventListener("click", () => {
+        els.debugOverlay.style.display = "none";
+      });
 
       // --- Selection & Interaction Logic ---
 
@@ -1881,7 +1994,7 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
        * before sending the HTML string to the AI.
        * * MODIFIED: Now returns only content, ID, width, and height.
        */
-      var getDivData = function(divElement) {
+      var getDivData = function (divElement) {
         const style = divElement.getAttribute("style") || "";
 
         // Retrieve width and height directly from the element's style attribute
@@ -1889,14 +2002,14 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         // positional CSS (`left`, `top`) that the user does not want sent.
         const widthMatch = style.match(/width:\s*([^;]+)/i);
         const heightMatch = style.match(/height:\s*([^;]+)/i);
-        
-        const width = widthMatch ? widthMatch[1].trim() : 'auto';
-        const height = heightMatch ? heightMatch[1].trim() : 'auto';
-        
+
+        const width = widthMatch ? widthMatch[1].trim() : "auto";
+        const height = heightMatch ? heightMatch[1].trim() : "auto";
+
         return {
           id: divElement.id,
           content: divElement.innerHTML,
-          width: width, 
+          width: width,
           height: height,
         };
       };
@@ -1931,43 +2044,66 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
 
           // 1. Get current state to send to AI
           const internalState = getDivData(divEl);
-          
-          // --- USER REQUEST: Use correctly calculated pixel value ---
-          const pixelWidth = divEl.clientWidth;
-          const pixelHeight = divEl.clientHeight;
-          const dimensions = `width: ${pixelWidth}px, height: ${pixelHeight}px`; 
-          
+
+          // --- FIX: Use correctly calculated NATIVE pixel value for context ---
+          const scaledPixelWidth = divEl.clientWidth;
+          const scaledPixelHeight = divEl.clientHeight;
+
+          // Determine current effective rendering scale (1.0 for static images, state.scale for PDFs)
+          const currentScale =
+            state.pdfDoc && state.pdfDoc.isStaticImage ? 1.0 : state.scale;
+
+          // Calculate Native (unscaled) dimensions
+          const nativePixelWidth = Math.round(scaledPixelWidth / currentScale);
+          const nativePixelHeight = Math.round(
+            scaledPixelHeight / currentScale,
+          );
+
+          const dimensions = {
+            scaled: `W:${scaledPixelWidth}px, H:${scaledPixelHeight}px (Scale: ${currentScale})`,
+            native: `W:${nativePixelWidth}px, H:${nativePixelHeight}px (Original)`,
+          };
+
+          // CRITICAL FIX: Explicitly name the native size as the Reference Frame for the AI.
+
+          const promptDimensions = `Reference Frame (Native Scan Resolution): W:${nativePixelWidth}px, H:${nativePixelHeight}px. Current Viewport Scale: ${currentScale}.`;
+
+          // Show the comparison debug view before calling the AI (500ms delay for visibility)
+          showAiVisionDebug(base64Source, base64Render, dimensions);
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          els.debugOverlay.style.display = "none";
+
           // Use the editable prompt and substitute current dimensions and content
           let prompt = state.prompts.REPLICA_STYLE;
-          prompt = prompt.replace('{{dimensions}}', dimensions);
-          prompt = prompt.replace('{{content}}', internalState.content);
-
+          prompt = prompt.replace("{{dimensions}}", promptDimensions);
+          prompt = prompt.replace("{{content}}", internalState.content);
 
           // Query AI, expecting the raw new INNER HTML of the div
           const resultHtml = await queryGemini(prompt, [
             base64Source,
             base64Render,
           ]);
-          
+
           // Check if AI actually returned content. If not, log error and exit gracefully.
           if (!resultHtml) {
-              els.aiStatus.textContent = "AI Error (Empty Response)";
-              setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
-              els.editActionBar.classList.remove("disabled-bar");
-              console.error("AI Replica failed: received null/undefined resultHtml.");
-              return;
+            els.aiStatus.textContent = "AI Error (Empty Response)";
+            setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
+            els.editActionBar.classList.remove("disabled-bar");
+            console.error(
+              "AI Replica failed: received null/undefined resultHtml.",
+            );
+            return;
           }
 
           // Use a function to update the content, preserving the outer positional styles
           updateDivContent(divId, resultHtml);
-
         } catch (e) {
           console.error(e);
           els.aiStatus.textContent = "Error";
           els.editActionBar.classList.remove("disabled-bar");
         }
       };
-      
+
       // 2. Match Font: Style Heuristics only (CSS on Container)
       window.runAiFont = async function () {
         const divId = state.targetDivId;
@@ -1975,18 +2111,18 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         els.editActionBar.classList.add("disabled-bar");
 
         const base64 = getSnippetFromDiv(divId);
-        
+
         // Use the editable prompt
         const prompt = state.prompts.FONT_STYLE;
 
         try {
           const resultText = await queryGemini(prompt, base64);
           if (!resultText) {
-              console.error("AI Font failed: received null/undefined result.");
-              els.aiStatus.textContent = "AI Error (Empty Response)";
-              setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
-              els.editActionBar.classList.remove("disabled-bar");
-              return;
+            console.error("AI Font failed: received null/undefined result.");
+            els.aiStatus.textContent = "AI Error (Empty Response)";
+            setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
+            els.editActionBar.classList.remove("disabled-bar");
+            return;
           }
 
           const styles = parseAIJson(resultText);
@@ -2021,19 +2157,19 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         els.editActionBar.classList.add("disabled-bar");
 
         const base64 = getSnippetFromDiv(divId);
-        
+
         // Use the editable prompt
         const prompt = state.prompts.TEXT_ONLY;
 
         try {
           const resultHtml = await queryGemini(prompt, base64);
-          
+
           if (!resultHtml) {
-              console.error("AI Text failed: received null/undefined result.");
-              els.aiStatus.textContent = "AI Error (Empty Response)";
-              setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
-              els.editActionBar.classList.remove("disabled-bar");
-              return;
+            console.error("AI Text failed: received null/undefined result.");
+            els.aiStatus.textContent = "AI Error (Empty Response)";
+            setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
+            els.editActionBar.classList.remove("disabled-bar");
+            return;
           }
 
           updateDivContent(divId, resultHtml);
@@ -2074,49 +2210,13 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         // 3. Line-height: 1.0 (Strict print alignment)
         // 4. Font-size: 14px (Starting point)
 
-        let styleStr = `position: absolute; left: ${l}%; top: ${t}%; width: ${w}%; height: ${h}%; background: rgba(255,255,255,0.8); padding: 0px; margin: 0px; overflow-wrap: break-word; overflow: hidden;`;
-        styleStr += ` font-size: 14px; line-height: 1.0; font-family: 'Times New Roman', serif;`;
+        let styleStr = `position: absolute; left: ${l}%; top: ${t}%; width: ${w}%; height: ${h}%; background: rgba(255,255,255,0.7); padding: 0px; margin: 0px; overflow-wrap: break-word; overflow: hidden;`;
+        //let there be no font styling in this div, as it serves as container.
+        //styleStr += ` font-size: 14px; line-height: 1.0; font-family: 'Times New Roman', serif;`;
 
         appendHtml(`<div id="${id}" style="${styleStr}">${safeContent}</div>`);
 
         // Trigger Smart Fit Heuristic after DOM update
-        setTimeout(() => smartFitText(id), 50);
-      }
-
-      // --- Smart Fit Algorithm (Binary Search) ---
-      function smartFitText(divId) {
-        const el = document.getElementById(divId);
-        if (!el) return;
-
-        // Reset line-height to ensure accurate height calculation
-        el.style.lineHeight = "1.0";
-
-        // Binary search for optimal font size
-        let low = 6;
-        let high = 100;
-        let bestSize = 12;
-
-        // We iterate to find the max size that fits
-        while (low <= high) {
-          const mid = Math.floor((low + high) / 2);
-          el.style.fontSize = mid + "px";
-
-          // HEURISTIC FIX: Priority is Width Fit
-          // We relax the height constraint slightly to allow filling the width
-          // because print layouts often have strict column widths.
-          const isWidthFit = el.scrollWidth <= el.clientWidth;
-          const isHeightFit = el.scrollHeight <= el.clientHeight + 5; // Allow slight overflow (5px)
-
-          if (isWidthFit && isHeightFit) {
-            bestSize = mid;
-            low = mid + 1; // Try bigger
-          } else {
-            high = mid - 1; // Too big
-          }
-        }
-
-        // Apply best size permanently to source
-        window.updateStyle("fontSize", bestSize + "px");
       }
 
       function insertImage(dataUrl) {
@@ -2139,13 +2239,15 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
       function updateDivContent(divId, newContent) {
         // FIX: Add robust check for null/undefined content immediately.
         if (!newContent) {
-          console.error(`AI response returned empty content (undefined or null) for div ${divId}. Skipping update.`);
+          console.error(
+            `AI response returned empty content (undefined or null) for div ${divId}. Skipping update.`,
+          );
           els.aiStatus.textContent = "AI Error (Empty Response)";
           setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
           els.editActionBar.classList.remove("disabled-bar");
           return;
         }
-        
+
         updateDOMWithCallback((doc) => {
           const target = doc.getElementById(divId);
           if (target) {
@@ -2153,11 +2255,11 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
               .replace(/```html/g, "")
               .replace(/```/g, "")
               .trim();
-              
+
             // Apply new inner HTML
             target.innerHTML = cleanedContent;
-            
-            // NOTE: The previous check for wrapped content is complex and potentially prone to false positives/negatives, 
+
+            // NOTE: The previous check for wrapped content is complex and potentially prone to false positives/negatives,
             // but the core fix is ensuring we only replace innerHTML, which is maintained.
 
             return true;
@@ -2165,7 +2267,6 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
           return false;
         });
         // Re-run fitting if content changed (may be needed if content structure changes height)
-        setTimeout(() => smartFitText(divId), 50);
         els.editActionBar.classList.remove("disabled-bar");
       }
 
@@ -2207,7 +2308,7 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
       function switchMainView(viewId) {
         saveContent();
         state.activeTab = viewId;
-        
+
         // Only Overlay and Prompts are active tabs
         if (viewId === "overlay") {
           // The canvas is mounted to overlayCanvasMount in the Overlay tab
@@ -2215,9 +2316,9 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
             els.overlayCanvasMount.appendChild(els.theCanvas);
           updateOverlayPreview();
         } else if (viewId === "prompts") {
-            // Ensure the editor reflects the current in-memory state when loading the tab
-            // This is crucial for enabling editing based on the latest state
-            els.promptInput.value = formatPromptsForEditor(state.prompts);
+          // Ensure the editor reflects the current in-memory state when loading the tab
+          // This is crucial for enabling editing based on the latest state
+          els.promptInput.value = formatPromptsForEditor(state.prompts);
         }
 
         const containers = {
@@ -2231,18 +2332,17 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
           overlay: els.tabOverlay,
           prompts: els.tabPrompts,
         };
-        
+
         // FIX: Add null check for containers and buttons before accessing classList
         Object.values(containers).forEach((c) => {
-            if (c) c.classList.add("hidden");
+          if (c) c.classList.add("hidden");
         });
         Object.values(buttons).forEach((b) => {
-            if (b) b.classList.remove("active");
+          if (b) b.classList.remove("active");
         });
-        
+
         if (containers[viewId]) containers[viewId].classList.remove("hidden");
         if (buttons[viewId]) buttons[viewId].classList.add("active");
-        
 
         // Always revert from log view when switching tabs
         if (state.isLogActive) {
@@ -2256,12 +2356,11 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
           saveContent();
         }
       });
-      
+
       // Listener for the prompt input: saves and parses the text immediately upon input change
       els.promptInput.addEventListener("input", savePrompts);
       // Also save/parse on blur/change for reliable update if a paste occurs
       els.promptInput.addEventListener("blur", savePrompts);
-
 
       els.tabOverlay.addEventListener("click", () => switchMainView("overlay"));
       els.tabPrompts.addEventListener("click", () => switchMainView("prompts"));
@@ -2272,7 +2371,11 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         }
       });
       els.nextBtn.addEventListener("click", () => {
-        if (state.pdfDoc && !state.pdfDoc.isStaticImage && state.pageNum < state.pdfDoc.numPages) {
+        if (
+          state.pdfDoc &&
+          !state.pdfDoc.isStaticImage &&
+          state.pageNum < state.pdfDoc.numPages
+        ) {
           state.pageNum++;
           queueRenderPage(state.pageNum);
         }
