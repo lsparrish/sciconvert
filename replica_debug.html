@@ -256,23 +256,24 @@
               class="debug-tab active"
               onclick="switchDebugTab('jsonStructure')"
             >
-              jsonStructure
-            </button>
-            <button
-              id="tab-promptTemplate"
-              class="debug-tab"
-              onclick="switchDebugTab('promptTemplate')"
-            >
-              promptTemplate
+              HTML Div
             </button>
             <button
               id="tab-fullPayload"
               class="debug-tab"
               onclick="switchDebugTab('fullPayload')"
             >
-              fullPayload
+              Full Payload
             </button>
           </div>
+          <button
+            id="tab-promptTemplate"
+            class="debug-tab"
+            onclick="switchDebugTab('promptTemplate')"
+          >
+            Prompt Template
+          </button>
+
           <!-- Copy Button -->
           <button
             id="copy-debug-btn"
@@ -296,7 +297,7 @@
         </div>
 
         <div class="flex-1 flex flex-col overflow-hidden bg-gray-950 relative">
-          <!-- Raw Text Editor (For JSON/Prompt) -->
+          <!-- Raw Text Editor (For JSON/Prompt/HTML) -->
           <textarea
             id="overlay-html-input"
             class="editor-textarea flex-1 w-full h-full p-4 outline-none text-green-400 bg-gray-950 text-xs border-none resize-none"
@@ -336,7 +337,7 @@
 
       // Hardcoded initial content (do not change)
       const INITIAL_HTML_CONTENT = `
-<div id="${TEST_DIV_ID}" style="position: absolute; left: 4.92%; top: 2.34%; width: 88.80%; height: 26.53%; background: rgba(255,255,255,0.7); padding: 0px; margin: 0px; ">
+<div id="${TEST_DIV_ID}" style="position: relative; left: 4.92%; top: 2.34%; width: 88.80%; height: 26.53%; background: rgba(255,255,255,0.7); padding: 0px; margin: 0px; ">
 <p>Journal of the British Interplanetary Society, Vol. 36, pp. 115-128, 1983.</p><br><br><p>ORBITAL RING SYSTEMS AND JACOB'S LADDERS - II</p><br><br><p>PAUL BIRCH*</p><p>45, Brownville Road, Heaton Moor, Stockport, England.</p><br><br><p>A method of transferring payloads into space without using rockets has been presented in Part I, in which massive rings encircle the globe in a low orbit supporting stationary 'sky-hooks,' from which cables hang down to any point on the Earth's surface. Vehicles can climb up these 'ladders' into orbit, or can accelerate along the rings. The structure and deployment of such Orbital Ring Systems is examined and their varied uses considered; several scenarios are considered and shown to be economically feasible and beneficial.</p> 
 </div>`;
 
@@ -354,7 +355,7 @@
 
         // Debug Data Store
         debugData: {
-          jsonStructure: "// Ready to run.",
+          jsonStructure: "", // NOW UNUSED for log data
           promptTemplate: "// No prompt generated yet.",
           fullPayload: '{ "status": "No request made yet." }',
         },
@@ -366,16 +367,15 @@
 The goal is to minimize the "Diff Score" (visual difference).
 
 **CRITICAL CONTEXT:**
-1. **Target Image**: Has a RED BORDER. This defines the frame of reference.
-2. **Current Render**: Is mechanically aligned to the top-left of the Target.
-3. **Problem**: The internal spacing (vertical gaps) is wrong. The second line might be too low or high.
+1. **Target Image**: Has a RED BORDER. This defines the exact crop boundary.
+2. **Current Render**: ALSO has a RED BORDER.
+3. **Alignment**: The RED BORDERS in both images represent the EXACT SAME coordinate space. You must align the text INSIDE the Render's border to match the text INSIDE the Target's border.
 
 **Instructions:**
-- Look at the RED BORDER on the Target. It tells you the scale.
-- Compare the vertical distance between the first line of text and the second line in both images.
-- Adjust 'top' to fix the vertical gaps.
-- Adjust 'left' to fix the position of the first letter.
-- Adjust 'font-size' and 'letter-spacing' to match the width.
+- Use the RED BORDER as your absolute frame of reference.
+- Compare the vertical distance (margin-top) of the first line from the top red edge.
+- Compare the horizontal distance (margin-left) of the text from the left red edge.
+- Adjust 'top', 'left', 'font-size', and 'letter-spacing' to make the content match.
 - Use relative 'em' values assuming 14px as the original size.
 - Use 2 decimal point values e.g. 1.53em NOT 1.5em.
 
@@ -488,12 +488,30 @@ Respond ONLY with valid JSON.`,
           els.overlayHtmlInput.classList.add("hidden");
           els.visualViewer.classList.remove("hidden");
           renderVisualPayload(state.debugData.fullPayload);
+        } else if (tabName === "jsonStructure") {
+          // SHOW LIVE HTML (Raw)
+          els.visualViewer.classList.add("hidden");
+          els.overlayHtmlInput.classList.remove("hidden");
+          // Add some newlines for readability of block elements
+          let formatted = els.overlayHtmlLayer.innerHTML;
+          formatted = formatted
+            .replace(/<\/div>/g, "</div>\n")
+            .replace(/<br>/g, "<br>\n");
+          els.overlayHtmlInput.value = formatted;
         } else {
           els.visualViewer.classList.add("hidden");
           els.overlayHtmlInput.classList.remove("hidden");
           els.overlayHtmlInput.value = state.debugData[tabName] || "";
         }
       };
+
+      // NEW: Enable editing of HTML from the textarea
+      els.overlayHtmlInput.addEventListener("input", () => {
+        if (state.activeDebugTab === "jsonStructure") {
+          els.overlayHtmlLayer.innerHTML = els.overlayHtmlInput.value;
+          updateOverlayPreview();
+        }
+      });
 
       function updateOverlayPreview(content = null) {
         renderMathInElement(els.overlayHtmlLayer, {
@@ -668,23 +686,20 @@ Respond ONLY with valid JSON.`,
       function prepareDomForAnalysis(divId) {
         const div = document.getElementById(divId);
         if (!div) return;
-        let spanCount = 0;
-        function processNode(node) {
-          if (node.nodeType === 3) {
-            // Text Node
-            if (node.textContent.trim().length > 0) {
-              const span = document.createElement("span");
-              span.id = `seg-${Date.now()}-${spanCount++}`;
-              span.textContent = node.textContent;
-              node.replaceWith(span);
+        let blkCount = 0;
+        
+        // Helper to ensure elements have IDs
+        function ensureIds(node) {
+            if (node.nodeType === 1) { // Element Node
+                if (!node.id) {
+                    node.id = `blk-${Date.now()}-${blkCount++}`;
+                }
+                // Recursively check children
+                Array.from(node.children).forEach(ensureIds);
             }
-          } else if (node.nodeType === 1) {
-            // Element
-            if (!node.id) node.id = `blk-${Date.now()}-${spanCount++}`;
-            Array.from(node.childNodes).forEach(processNode);
-          }
         }
-        Array.from(div.childNodes).forEach(processNode);
+        
+        ensureIds(div);
         return div;
       }
 
@@ -702,7 +717,7 @@ Respond ONLY with valid JSON.`,
             if (el.style.lineHeight) styles.lineHeight = el.style.lineHeight;
             if (el.style.top) styles.top = el.style.top;
             if (el.style.left) styles.left = el.style.left;
-            if (el.style.position) styles.position = el.style.position;
+            if (el.style.position) styles.position = 'relative';
             if (el.style.marginBottom)
               styles.marginBottom = el.style.marginBottom;
 
@@ -842,15 +857,23 @@ Respond ONLY with valid JSON.`,
           // 2. Prepare Images for AI and Diff
           // Source for AI gets a BORDER
           const sourceCanvasBordered = addSimpleBorder(sourceCanvas);
+          
+          // Render for AI gets a BORDER (New for symmetry/pixel matching)
+          const renderCanvasBordered = addSimpleBorder(renderCanvas);
 
-          // Render stays RAW (No border)
+          // Render stays RAW (No border) for Diffing
           const renderCanvasRaw = renderCanvas;
 
           // 3. Convert to Base64
-          // AI sees: Bordered Source vs Raw Render
+          // AI sees: Bordered Source vs Bordered Render (for precise frame alignment)
           const base64SourceBordered = sourceCanvasBordered
             .toDataURL("image/png")
             .split(",")[1];
+            
+          const base64RenderBordered = renderCanvasBordered
+            .toDataURL("image/png")
+            .split(",")[1];
+            
           const base64RenderRaw = renderCanvasRaw
             .toDataURL("image/png")
             .split(",")[1];
@@ -901,11 +924,11 @@ Respond ONLY with valid JSON.`,
 
           const historyImages = state.history.map((h) => h.image);
 
-          // CRITICAL: The payload sends Bordered Source vs Raw Render
+          // CRITICAL: The payload sends Bordered Source vs Bordered Render
           const imagePayload = [
             base64SourceBordered,
             ...historyImages,
-            base64RenderRaw,
+            base64RenderBordered,
           ];
 
           // 5. Update Debug View
@@ -918,7 +941,7 @@ Respond ONLY with valid JSON.`,
               let label = "Unknown";
               if (i === 0) label = "Target (Bordered)";
               else if (i === imagePayload.length - 1)
-                label = "Current Render (Raw)";
+                label = "Current Render (Bordered)";
               else label = `History Frame ${i}`;
               return {
                 index: i + 1,
@@ -931,16 +954,14 @@ Respond ONLY with valid JSON.`,
             response: null,
           };
 
-          state.debugData.jsonStructure = `// Iteration: ${iterationInfo}\n// Diff Score: ${diffDisplayVal}%\n\n// History Log:\n${historyLog}\n\n// JSON Data to AI:\n${jsonString}`;
           state.debugData.promptTemplate = `// Iteration: ${iterationInfo}\n// Prompt Template:\n${state.prompts.REPLICA_STRUCTURED}`;
           state.debugData.fullPayload = JSON.stringify(debugObj, null, 2);
 
           window.switchDebugTab(state.activeDebugTab);
 
-          // Display what we are actually diffing or sending?
-          // Let's display what we sent to AI to match the mental model.
+          // Display what we sent to AI to match the mental model (Bordered vs Bordered)
           els.debugSourceImg.src = `data:image/png;base64,${base64SourceBordered}`;
-          els.debugRenderImg.src = `data:image/png;base64,${base64RenderRaw}`;
+          els.debugRenderImg.src = `data:image/png;base64,${base64RenderBordered}`;
 
           // 6. Execute AI Query
           els.aiStatus.textContent = `${iterationInfo} Thinking...`;
@@ -951,8 +972,9 @@ Respond ONLY with valid JSON.`,
           debugObj.response = updates;
           state.debugData.fullPayload = JSON.stringify(debugObj, null, 2);
 
-          const responseLog = `\n\n// AI Response:\n${JSON.stringify(updates, null, 2)}`;
-          state.debugData.jsonStructure += responseLog;
+          // WE DON'T LOG TO JSON STRUCTURE ANYMORE
+          // const responseLog = `\n\n// AI Response:\n${JSON.stringify(updates, null, 2)}`;
+          // state.debugData.jsonStructure += responseLog;
 
           window.switchDebugTab(state.activeDebugTab);
 
