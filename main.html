@@ -168,30 +168,31 @@
         box-sizing: border-box;
       }
 
-      /* Debug View Overlay (Updated for side-by-side comparison) */
+      /* Debug View Overlay (Modal, now only used for capturing the data) */
       #debug-vision-overlay {
-        position: fixed; /* Fixed position covers the entire viewport reliably */
-        inset: 0;
-        z-index: 99999;
-        background: rgba(0, 0, 0, 0.85); /* Dark background for focus */
-        pointer-events: all;
-        display: none;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 20px;
-        color: white;
+        /* We are repurposing this ID for the content of the new tab */
+        display: none; /* Keep hidden, content moved to editor-container-debug */
       }
-      #debug-vision-content {
+
+      /* New Debug Tab Content Styling */
+      #editor-container-debug {
+        /* This is the new container for the side-by-side view */
+        background: #2d3748; /* dark grey matching header */
+      }
+      #debug-vision-content-tab {
+        /* Styles for the inner content of the debug tab */
         display: flex;
         gap: 20px;
-        max-width: 90%;
-        max-height: 90%;
-        justify-content: center;
+        width: 100%;
+        padding: 20px 20px 0 20px; /* Adjust padding to separate images from textarea */
+        justify-content: space-evenly;
         align-items: flex-start;
       }
-      .debug-pane {
-        flex: 1;
+      .debug-pane-tab {
+        flex-shrink: 0;
+        width: 45%; /* Keep side-by-side on large screens */
+        max-width: 600px;
+        min-width: 300px;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -200,19 +201,11 @@
         border-radius: 8px;
         box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
       }
-      .debug-pane img {
+      .debug-pane-tab img {
         max-width: 100%;
-        max-height: 80vh;
+        height: auto;
         object-fit: contain;
         border: 1px solid #555;
-      }
-      #debug-vision-label {
-        /* Placeholder, not used in new design */
-        display: none;
-      }
-      #close-debug-vision {
-        /* Style for the closing button */
-        cursor: pointer;
       }
 
       /* --- Context Menu Styles (Simplified/Stripped) --- */
@@ -293,6 +286,9 @@
       <div class="flex items-center gap-4">
         <h1 class="text-xl font-bold tracking-wider mr-4">
           SciText <span class="text-blue-400">Digitizer</span>
+        </h1>
+        <h1>
+          <a href="https://github.com/lsparrish/sciconvert">GH</a>
         </h1>
 
         <div class="relative">
@@ -459,9 +455,14 @@
           id="tab-prompts"
           class="tab-button text-red-600 hover:text-red-800"
         >
-          Prompts (Debug)
+          Prompts
         </button>
-        <a href=https://github.com/lsparrish/sciconvert>GH</a>
+        <button
+          id="tab-debug"
+          class="tab-button text-purple-600 hover:text-purple-800"
+        >
+          Debug (Images)
+        </button>
       </div>
 
       <div
@@ -773,6 +774,49 @@
             placeholder="Loading AI prompts..."
           ></textarea>
         </div>
+
+        <!-- 6. Debug Images Container (NEW TAB CONTENT) -->
+        <div
+          id="editor-container-debug"
+          class="absolute inset-0 hidden flex flex-col p-4 bg-gray-800"
+        >
+          <!-- Image Comparison Row -->
+          <div
+            id="debug-vision-content-tab"
+            class="flex-shrink-0 flex justify-space-evenly gap-4"
+          >
+            <div class="debug-pane-tab">
+              <span
+                id="debug-source-label"
+                class="text-sm font-bold text-yellow-300 mb-2"
+              >
+                TARGET (Source Scan)
+              </span>
+              <img id="debug-source-img" alt="Target Image Snippet" />
+            </div>
+            <div class="debug-pane-tab">
+              <span
+                id="debug-render-label"
+                class="text-sm font-bold text-blue-300 mb-2"
+              >
+                TEST RENDER (HTML Output)
+              </span>
+              <img id="debug-render-img" alt="Current HTML Render" />
+            </div>
+          </div>
+
+          <!-- HTML Content Area -->
+          <div class="flex-1 flex flex-col pt-4 overflow-hidden">
+            <span class="text-xs font-bold text-gray-400 mb-1 pl-4"
+              >HTML Content Sent to AI</span
+            >
+            <textarea
+              id="debug-html-content"
+              class="editor-textarea flex-1 w-full p-4 outline-none text-gray-200 bg-gray-900 text-xs border border-gray-700 resize-none"
+              readonly
+            ></textarea>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -851,30 +895,9 @@
       <!-- Content removed, using edit-action-bar instead -->
     </div>
 
-    <!-- Debug Vision Overlay Mount (UPDATED STRUCTURE) -->
-    <div id="debug-vision-overlay">
-      <div id="debug-vision-content">
-        <div class="debug-pane">
-          <span
-            id="debug-source-label"
-            class="text-sm font-bold text-yellow-300"
-            >1. TARGET (Source PDF Image)</span
-          >
-          <img id="debug-source-img" alt="Target Image Snippet" />
-        </div>
-        <div class="debug-pane">
-          <span id="debug-render-label" class="text-sm font-bold text-blue-300"
-            >2. TEST RENDER (Current HTML View)</span
-          >
-          <img id="debug-render-img" alt="Current HTML Render" />
-        </div>
-      </div>
-      <button
-        id="close-debug-vision"
-        class="mt-4 bg-gray-600 hover:bg-gray-500 text-white font-semibold py-2 px-4 rounded transition"
-      >
-        Close Debug View
-      </button>
+    <!-- Debug Vision Overlay Mount (REMOVED/REPURPOSED) -->
+    <div id="debug-vision-overlay" style="display: none">
+      <!-- Content moved to #editor-container-debug -->
     </div>
 
     <script type="module">
@@ -932,16 +955,26 @@ CHALLENGE: Make the alignment and typography in Image 2 as close as possible in 
 CRITICAL CONSTRAINTS:
 1. You MUST use inline styling on <span> or other appropriate structural HTML elements (like <p> or <h1>).
 2. The (Bounding Box) is for informational purposes only. It shows the width and height. Do not add a enclosing div with these properties.
-3. Use the properties **margin-top, margin-left, font-size, text-align, font-family, font-weight, and font-style** applied to the internal elements (<span>, <p>, etc.) to correct each element.
+3. Use the properties **position, top, left, font-size, text-align, font-family, font-weight, and font-style** applied to the internal elements (<span>, <p>, etc.) to correct each element. Use 'position: relative;' along with 'top' and 'left' (using 'em' units) to achieve precise vertical or horizontal placement. Do NOT use these: line-height, margin, padding.
 4. Changes to the style values must be in a direction that improves upon the current parameters shown in the test case, such that the HTML to be rendered will more closely resemble the Target Image.
 5. Deeply consider for each element whether it needs to be smaller, larger, up, down, left, right. 
 6. Picture the words like puzzle pieces that you can shrink or grow. Reaching the correct size is one "click", reaching the correct distance values is another "click".
 7. Consider standardizing on all fonts having the same font-size, with relative modifiers for each style.
+8. Use at least two digits of precision in specifying relative fonts (em).
 
 --- CURRENT STATE FOR TEST RENDER ---
 (Bounding Box): {{promptDimensions}}
 (Content HTML): {{content}}
 ------------------------------------
+
+--- EXAMPLE -------------------------
+EXAMPLE FROM:
+Journal of the British Interplanetary Society, Vol. 36, pp. 115-128, 1983.
+EXAMPLE TO:
+<p style="font-style: italic; position: relative; top: 3%; left: 3.4%; font-size: 0.63em;">Journal of the British Interplanetary Society, Vol. 36, pp. 115-128, 1983.</p>
+-------------------------------------
+
+Note that results can only be better or worse, so this is not a creative endeavor. Set TEMPERATURE=0 and make small changes to each element in the manner you think they should change to more closely resemble the Target.
 
 Respond ONLY with the corrected inner HTML, no commentary or markdown apart from HTML comments.`,
           FONT_STYLE: `Analyze the typography in this image snippet. 
@@ -1045,6 +1078,7 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
 
         // Removed tabs: tabSource, tabWrite, tabPreview
         tabOverlay: document.getElementById("tab-overlay"),
+        tabDebug: document.getElementById("tab-debug"), // New element
 
         fontSelect: document.getElementById("font-select"),
         exportBtn: document.getElementById("export-md"),
@@ -1063,10 +1097,15 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         menuGroupDiv: document.getElementById("menu-group-div"),
 
         // Debug (Update mapping for new elements)
-        debugOverlay: document.getElementById("debug-vision-overlay"),
+        // Note: The original #debug-vision-overlay is hidden via style
         debugSourceImg: document.getElementById("debug-source-img"), // New
         debugRenderImg: document.getElementById("debug-render-img"), // New
-        closeDebugVision: document.getElementById("close-debug-vision"), // New
+        closeDebugVision: document.getElementById("close-debug-vision"), // Not used in tab view
+
+        // New Debug Tab Container
+        editorContainerDebug: document.getElementById("editor-container-debug"),
+        // NEW: Textarea for HTML content
+        debugHtmlContent: document.getElementById("debug-html-content"),
 
         // New AI Log Elements
         editorTitle: document.getElementById("editor-title"),
@@ -1354,13 +1393,15 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
       }
 
       /**
-       * Extracts a base64 string from a given rect on the current canvas.
+       * Extracts a base64 string from a given rect on the current canvas, applying an optional scale.
        */
-      function extractImageSnippet(pixelRect) {
+      function extractImageSnippet(pixelRect, outputScale = 1.0) {
         const tempCanvas = document.createElement("canvas");
-        tempCanvas.width = pixelRect.width;
-        tempCanvas.height = pixelRect.height;
+        // Scale the output canvas dimensions
+        tempCanvas.width = pixelRect.width * outputScale;
+        tempCanvas.height = pixelRect.height * outputScale;
         const tempCtx = tempCanvas.getContext("2d");
+        // Draw the source snippet to the new scaled dimensions
         tempCtx.drawImage(
           state.canvas,
           pixelRect.x,
@@ -1369,8 +1410,8 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
           pixelRect.height,
           0,
           0,
-          pixelRect.width,
-          pixelRect.height,
+          tempCanvas.width, // Scaled Target Width
+          tempCanvas.height, // Scaled Target Height
         );
         return tempCanvas.toDataURL("image/png").split(",")[1];
       }
@@ -1378,23 +1419,27 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
       /**
        * Helper to clone the element and strip non-internal CSS properties
        * before sending the HTML string to the AI.
-       * * MODIFIED: Now returns only content, ID, width, and height.
+       * * MODIFIED: Now extracts all bounding box coordinates.
        */
       var getDivData = function (divElement) {
         const style = divElement.getAttribute("style") || "";
 
-        // Retrieve width and height directly from the element's style attribute
-        // This is necessary because we need the dimensions, but must strip the
-        // positional CSS (`left`, `top`) that the user does not want sent.
+        // Extract percentage values for positioning and sizing
+        const leftMatch = style.match(/left:\s*([^;]+)/i);
+        const topMatch = style.match(/top:\s*([^;]+)/i);
         const widthMatch = style.match(/width:\s*([^;]+)/i);
         const heightMatch = style.match(/height:\s*([^;]+)/i);
 
+        const left = leftMatch ? leftMatch[1].trim() : "0%";
+        const top = topMatch ? topMatch[1].trim() : "0%";
         const width = widthMatch ? widthMatch[1].trim() : "auto";
         const height = heightMatch ? heightMatch[1].trim() : "auto";
 
         return {
           id: divElement.id,
           content: divElement.innerHTML,
+          left: left,
+          top: top,
           width: width,
           height: height,
         };
@@ -1632,34 +1677,46 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
       // --- Debug Vision Logic (New) ---
 
       /**
-       * Shows the captured images in a modal for visual inspection.
+       * Shows the captured images and HTML in the Debug tab.
        */
-      function showAiVisionDebug(sourceB64, renderB64, dimensions) {
+      function showAiVisionDebug(
+        sourceB64,
+        renderB64,
+        promptDimensions,
+        htmlContent,
+      ) {
         // Update content
         els.debugSourceImg.src = `data:image/png;base64,${sourceB64}`;
         els.debugRenderImg.src = `data:image/png;base64,${renderB64}`;
 
-        // Update labels to show dimensions being sent to AI
-        document.getElementById("debug-source-label").textContent =
-          `1. TARGET (Source PDF Image) - ${dimensions.native}`;
-        document.getElementById("debug-render-label").textContent =
-          `2. TEST RENDER (Current HTML View) - ${dimensions.scaled}`;
+        // Populate the new HTML content textarea
+        els.debugHtmlContent.value = htmlContent;
 
-        // Show overlay
-        els.debugOverlay.style.display = "flex";
+        // Switch to the debug tab to display the content immediately
+        switchMainView("debug");
+
+        // Optional: Log the dimensions for future reference in the console/log tab
+        console.log("Debug Images Context:", promptDimensions);
       }
 
       window.showDebugView = function () {
-        if (!state.targetDivId) return;
+        if (!state.targetDivId) {
+          console.warn("No active DIV selected for debug view.");
+          return;
+        }
         const divEl = document.getElementById(state.targetDivId);
         if (!divEl) return;
 
         // Use the logic from runAiReplica to get the images and dimensions
-        const base64Source = getSnippetFromDiv(state.targetDivId);
+        const AI_IMAGE_SCALE = 2.0;
+        const base64Source = getSnippetFromDiv(
+          state.targetDivId,
+          AI_IMAGE_SCALE,
+        );
 
         html2canvas(divEl, {
           backgroundColor: "#ffffff",
-          scale: 2,
+          scale: AI_IMAGE_SCALE,
           logging: false,
           useCORS: true,
           allowTaint: true,
@@ -1683,16 +1740,27 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
               native: `W:${nativePixelWidth}px, H:${nativePixelHeight}px (Original)`,
             };
 
-            showAiVisionDebug(base64Source, base64Render, dimensions);
+            // 1. Get current state to send to AI
+            const internalState = getDivData(divEl);
+            const promptDimensions = `
+Bounding Box (Container Constraints, relative to page): W:${internalState.width}, H:${internalState.height}.
+Internal Alignment Context: The origin (0,0) of the cropped image is the top-left corner of the Bounding Box. The task is to align content within these boundaries.
+`;
+
+            showAiVisionDebug(
+              base64Source,
+              base64Render,
+              promptDimensions,
+              internalState.content,
+            ); // Pass HTML content here
           })
           .catch((e) => {
             console.error("Debug capture failed", e);
           });
       };
 
-      els.closeDebugVision.addEventListener("click", () => {
-        els.debugOverlay.style.display = "none";
-      });
+      // Removed modal closing logic, as it's now a persistent tab
+      // els.closeDebugVision.addEventListener("click", () => { ... });
 
       // --- Selection & Interaction Logic ---
 
@@ -1975,7 +2043,11 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
 
       // === AI Style Features (Refactored to global functions) ===
 
-      function getSnippetFromDiv(divId) {
+      /**
+       * Extracts a base64 string from a given div's coordinates on the PDF canvas,
+       * using the specified scale for high-resolution output.
+       */
+      function getSnippetFromDiv(divId, imageScale = 1.0) {
         const div = document.getElementById(divId);
         if (!div) return null;
 
@@ -1987,29 +2059,33 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
           width: (parseFloat(div.style.width) / 100) * cw,
           height: (parseFloat(div.style.height) / 100) * ch,
         };
-        return extractImageSnippet(pixelRect);
+        return extractImageSnippet(pixelRect, imageScale); // Pass the scale
       }
 
       /**
        * Helper to clone the element and strip non-internal CSS properties
        * before sending the HTML string to the AI.
-       * * MODIFIED: Now returns only content, ID, width, and height.
+       * * MODIFIED: Now extracts all bounding box coordinates.
        */
       var getDivData = function (divElement) {
         const style = divElement.getAttribute("style") || "";
 
-        // Retrieve width and height directly from the element's style attribute
-        // This is necessary because we need the dimensions, but must strip the
-        // positional CSS (`left`, `top`) that the user does not want sent.
+        // Extract percentage values for positioning and sizing
+        const leftMatch = style.match(/left:\s*([^;]+)/i);
+        const topMatch = style.match(/top:\s*([^;]+)/i);
         const widthMatch = style.match(/width:\s*([^;]+)/i);
         const heightMatch = style.match(/height:\s*([^;]+)/i);
 
+        const left = leftMatch ? leftMatch[1].trim() : "0%";
+        const top = topMatch ? topMatch[1].trim() : "0%";
         const width = widthMatch ? widthMatch[1].trim() : "auto";
         const height = heightMatch ? heightMatch[1].trim() : "auto";
 
         return {
           id: divElement.id,
           content: divElement.innerHTML,
+          left: left,
+          top: top,
           width: width,
           height: height,
         };
@@ -2025,7 +2101,12 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
           return;
         }
 
-        const base64Source = getSnippetFromDiv(divId);
+        // Define the high-resolution scale we want for both images
+        const AI_IMAGE_SCALE = 2.0;
+
+        // 1. Capture Source Image (PDF Snippet) at the desired high resolution
+        const base64Source = getSnippetFromDiv(divId, AI_IMAGE_SCALE);
+
         const divEl = document.getElementById(divId);
         if (!divEl) return;
 
@@ -2035,8 +2116,8 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         try {
           // Capture the current appearance of the element we are trying to fix
           const canvas = await html2canvas(divEl, {
-            backgroundColor: "#ffffff",
-            scale: 2,
+            backgroundColor: "#ffffff", // 2. Capture Render Image (HTML Snippet) using the same high-resolution scale
+            scale: AI_IMAGE_SCALE,
             logging: false,
             useCORS: true,
             allowTaint: true,
@@ -2046,37 +2127,23 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
           // 1. Get current state to send to AI
           const internalState = getDivData(divEl);
 
-          // --- FIX: Use correctly calculated NATIVE pixel value for context ---
-          const scaledPixelWidth = divEl.clientWidth;
-          const scaledPixelHeight = divEl.clientHeight;
+          // CRITICAL FIX: Simplify metadata to only contain what's relevant to the internal alignment task (W/H and origin)
+          const promptDimensions = `
+Bounding Box (Container Constraints, relative to page): W:${internalState.width}, H:${internalState.height}.
+Internal Alignment Context: The origin (0,0) of the cropped image is the top-left corner of the Bounding Box. The task is to align content within these boundaries.
+`;
 
-          // Determine current effective rendering scale (1.0 for static images, state.scale for PDFs)
-          const currentScale =
-            state.pdfDoc && state.pdfDoc.isStaticImage ? 1.0 : state.scale;
-
-          // Calculate Native (unscaled) dimensions
-          const nativePixelWidth = Math.round(scaledPixelWidth / currentScale);
-          const nativePixelHeight = Math.round(
-            scaledPixelHeight / currentScale,
-          );
-
-          const dimensions = {
-            scaled: `W:${scaledPixelWidth}px, H:${scaledPixelHeight}px (Scale: ${currentScale})`,
-            native: `W:${nativePixelWidth}px, H:${nativePixelHeight}px (Original)`,
-          };
-
-          // CRITICAL FIX: Explicitly name the native size as the Reference Frame for the AI.
-
-          const promptDimensions = `Reference Frame (Native Scan Resolution): W:${nativePixelWidth}px, H:${nativePixelHeight}px. Current Viewport Scale: ${currentScale}.`;
-
-          // Show the comparison debug view before calling the AI (500ms delay for visibility)
-          showAiVisionDebug(base64Source, base64Render, dimensions);
-          await new Promise((resolve) => setTimeout(resolve, 5000));
-          els.debugOverlay.style.display = "none";
+          // Show the comparison in the dedicated debug tab
+          showAiVisionDebug(
+            base64Source,
+            base64Render,
+            promptDimensions,
+            internalState.content,
+          ); // Pass HTML content here
 
           // Use the editable prompt and substitute current dimensions and content
           let prompt = state.prompts.REPLICA_STYLE;
-          prompt = prompt.replace("{{dimensions}}", promptDimensions);
+          prompt = prompt.replace("{{promptDimensions}}", promptDimensions);
           prompt = prompt.replace("{{content}}", internalState.content);
 
           // Query AI, expecting the raw new INNER HTML of the div
@@ -2100,7 +2167,6 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
           updateDivContent(divId, resultHtml);
         } catch (e) {
           console.error(e);
-          els.aiStatus.textContent = "Error";
           els.editActionBar.classList.remove("disabled-bar");
         }
       };
@@ -2310,7 +2376,26 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         saveContent();
         state.activeTab = viewId;
 
-        // Only Overlay and Prompts are active tabs
+        const containers = {
+          source: els.sourceContainer, // Kept hidden/background container
+          overlay: els.overlayContainer,
+          write: els.editorContainerMd, // Kept hidden/background container
+          preview: els.previewContainer, // Kept hidden/background container
+          prompts: els.editorContainerPrompts,
+          debug: els.editorContainerDebug, // New debug container
+        };
+        const buttons = {
+          overlay: els.tabOverlay,
+          prompts: els.tabPrompts,
+          debug: els.tabDebug, // New debug button
+        };
+
+        // Always revert from log view when switching tabs
+        if (state.isLogActive) {
+          state.isLogActive = false;
+        }
+
+        // Handle content initialization based on viewId
         if (viewId === "overlay") {
           // The canvas is mounted to overlayCanvasMount in the Overlay tab
           if (!els.overlayCanvasMount.contains(els.theCanvas))
@@ -2318,21 +2403,9 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
           updateOverlayPreview();
         } else if (viewId === "prompts") {
           // Ensure the editor reflects the current in-memory state when loading the tab
-          // This is crucial for enabling editing based on the latest state
           els.promptInput.value = formatPromptsForEditor(state.prompts);
         }
-
-        const containers = {
-          source: els.sourceContainer, // Kept hidden/background container
-          overlay: els.overlayContainer,
-          write: els.editorContainerMd, // Kept hidden/background container
-          preview: els.previewContainer, // Kept hidden/background container
-          prompts: els.editorContainerPrompts,
-        };
-        const buttons = {
-          overlay: els.tabOverlay,
-          prompts: els.tabPrompts,
-        };
+        // Note: The Debug tab content is set inside runAiReplica or showDebugView
 
         // FIX: Add null check for containers and buttons before accessing classList
         Object.values(containers).forEach((c) => {
@@ -2344,11 +2417,6 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
 
         if (containers[viewId]) containers[viewId].classList.remove("hidden");
         if (buttons[viewId]) buttons[viewId].classList.add("active");
-
-        // Always revert from log view when switching tabs
-        if (state.isLogActive) {
-          state.isLogActive = false;
-        }
       }
 
       els.overlayHtmlInput.addEventListener("input", () => {
@@ -2365,6 +2433,8 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
 
       els.tabOverlay.addEventListener("click", () => switchMainView("overlay"));
       els.tabPrompts.addEventListener("click", () => switchMainView("prompts"));
+      els.tabDebug.addEventListener("click", () => switchMainView("debug")); // New tab listener
+
       els.prevBtn.addEventListener("click", () => {
         if (state.pdfDoc && !state.pdfDoc.isStaticImage && state.pageNum > 1) {
           state.pageNum--;
