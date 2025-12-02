@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Style Replica Test</title>
+
+    <!-- Essential Libraries for the test -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script>
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.4/contrib/auto-render.min.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.4/katex.min.css"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+      body {
+        font-family: "Inter", sans-serif;
+        background-color: #1f2937;
+        height: 100vh;
+        overflow: hidden;
+      }
+      .editor-textarea {
+        font-family: "Consolas", "Monaco", "Courier New", monospace;
+        line-height: 1.6;
+        resize: none;
+      }
+      /* Ensure AI content doesn't have default margins */
+      #overlay-html-layer * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        line-height: 1;
+      }
+      #overlay-html-layer div {
+        box-sizing: border-box;
+      }
+      .loader {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #3498db;
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+      /* Custom Tab Styles */
+      .debug-tab {
+        @apply px-3 py-1 text-xs font-mono cursor-pointer border-t border-r border-l border-transparent text-gray-400 hover:text-white transition-colors;
+        margin-bottom: -1px;
+      }
+      .debug-tab.active {
+        @apply border-gray-700 bg-gray-950 text-green-400;
+      }
+      
+      /* JSON Visualizer Styles */
+      .json-key { color: #9cdcfe; }
+      .json-string { color: #ce9178; }
+      .json-number { color: #b5cea8; }
+      .json-null { color: #569cd6; }
+    </style>
+  </head>
+  <body class="flex flex-col h-screen">
+    <!-- Header -->
+    <header
+      class="bg-gray-900 text-white p-3 flex justify-between items-center shadow-lg shrink-0"
+    >
+      <h1 class="text-xl font-bold tracking-wider text-purple-400">
+        AI Style Replica Testbed (Structured)
+      </h1>
+      <div class="flex items-center gap-2">
+        <span
+          id="ai-status"
+          class="text-blue-400 font-semibold mr-2 text-sm"
+          style="display: none"
+          >AI Status</span
+        >
+
+        <!-- Fullscreen Toggle -->
+        <button
+          id="fullscreen-btn"
+          class="bg-gray-700 hover:bg-gray-600 p-2 rounded-lg transition text-gray-300"
+          title="Toggle Fullscreen"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 8V4m0 0h4M4 4l5 5m11-5v4m0 0h-4m4 0l-5-5M4 16v4m0 0h4M4 20l5-5m11 5v-4m0 0h-4m4 0l-5 5"
+            ></path>
+          </svg>
+        </button>
+
+        <div class="h-8 w-px bg-gray-700 mx-2"></div>
+
+        <!-- Loop Count Input -->
+        <div class="flex items-center bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+             <input type="number" id="loop-count" value="1" min="1" max="10" class="w-12 bg-gray-800 text-white text-center text-sm outline-none py-2 border-r border-gray-700" title="Iterations">
+            <!-- Run Button -->
+            <button
+              id="run-replica-test"
+              class="bg-purple-600 hover:bg-purple-500 px-4 py-2 text-sm font-semibold transition flex items-center gap-2 h-full"
+            >
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
+                ></path>
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                ></path>
+              </svg>
+              Run
+            </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 flex overflow-hidden relative">
+      <!-- Left: Visual Preview -->
+      <div
+        class="w-1/2 h-full flex flex-col relative bg-gray-700 border-r border-gray-800"
+      >
+        <div class="bg-gray-800 p-2 text-white font-bold text-center">
+          Visual Test Area
+        </div>
+        <div
+          id="overlay-scroller"
+          class="flex-1 overflow-auto flex justify-center p-8 relative"
+        >
+          <div id="overlay-wrapper" class="relative shadow-2xl origin-top">
+            <div id="overlay-canvas-mount">
+              <canvas id="the-canvas"></canvas>
+            </div>
+            <div
+              id="overlay-html-layer"
+              class="absolute inset-0 overflow-hidden z-10"
+            ></div>
+          </div>
+        </div>
+        <div
+          id="pdf-loader"
+          class="absolute inset-0 bg-gray-800 bg-opacity-75 flex flex-col items-center justify-center hidden"
+        >
+          <div class="loader mb-2"></div>
+          <span class="text-white text-sm font-semibold"
+            >Loading Sample Image...</span
+          >
+        </div>
+      </div>
+
+      <!-- Right: Debug/Output Panel -->
+      <div
+        id="debug-panel"
+        class="w-1/2 h-full flex flex-col bg-gray-900 overflow-hidden"
+      >
+        <div class="bg-gray-800 p-2 text-white font-bold text-center shrink-0">
+          AI Input/Output (Structured)
+        </div>
+        <div
+          id="debug-vision-content"
+          class="flex-shrink-0 flex justify-space-evenly gap-4 p-4 border-b border-gray-800"
+        >
+          <div class="flex-shrink-0 w-1/2 flex flex-col items-center">
+            <span class="text-xs font-bold text-yellow-300 mb-2">
+              TARGET (Source)
+            </span>
+            <img
+              id="debug-source-img"
+              class="max-w-full h-auto object-contain border border-gray-700 rounded-md"
+            />
+          </div>
+          <div class="flex-shrink-0 w-1/2 flex flex-col items-center">
+            <span class="text-xs font-bold text-blue-300 mb-2">
+              TEST RENDER
+            </span>
+            <img
+              id="debug-render-img"
+              class="max-w-full h-auto object-contain border border-gray-700 rounded-md"
+            />
+          </div>
+        </div>
+
+        <!-- Debug Tabs -->
+        <div class="flex justify-between border-b border-gray-700 bg-gray-900 px-2 pt-2 items-end">
+            <div class="flex">
+                <button id="tab-jsonStructure" class="debug-tab active" onclick="switchDebugTab('jsonStructure')">jsonStructure</button>
+                <button id="tab-promptTemplate" class="debug-tab" onclick="switchDebugTab('promptTemplate')">promptTemplate</button>
+                <button id="tab-fullPayload" class="debug-tab" onclick="switchDebugTab('fullPayload')">fullPayload</button>
+            </div>
+            <!-- Copy Button -->
+            <button id="copy-debug-btn" class="text-xs text-gray-400 hover:text-white px-2 py-1 mb-1 flex items-center gap-1 transition">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+                Copy Data
+            </button>
+        </div>
+
+        <div class="flex-1 flex flex-col overflow-hidden bg-gray-950 relative">
+          <!-- Raw Text Editor (For JSON/Prompt) -->
+          <textarea
+            id="overlay-html-input"
+            class="editor-textarea flex-1 w-full h-full p-4 outline-none text-green-400 bg-gray-950 text-xs border-none resize-none"
+            placeholder="Data will appear here..."
+          ></textarea>
+          
+          <!-- Visual Viewer (For Full Payload) -->
+          <div id="debug-visual-viewer" class="absolute inset-0 w-full h-full p-4 overflow-auto bg-gray-950 text-xs font-mono text-gray-300 hidden"></div>
+        </div>
+      </div>
+    </main>
+    
+    <!-- Image Modal -->
+    <div id="image-modal" class="fixed inset-0 bg-black bg-opacity-90 z-50 hidden flex items-center justify-center p-8" onclick="this.classList.add('hidden')">
+        <img id="modal-img" class="max-w-full max-h-full object-contain shadow-2xl border border-gray-600 rounded">
+        <span class="absolute top-4 right-4 text-white text-sm font-bold cursor-pointer hover:text-red-400">Click anywhere to close</span>
+    </div>
+
+    <script type="module">
+      const apiKey = "";
+      const DEFAULT_IMAGE_URL =
+        "https://lsparrish.github.io/sciconvert/sample.png";
+      const TEST_DIV_ID = "div-1764643541094";
+
+      // Hardcoded initial content
+      const INITIAL_HTML_CONTENT = `
+<div id="${TEST_DIV_ID}" style="position: absolute; left: 4.92%; top: 2.34%; width: 88.80%; height: 26.53%; background: rgba(255,255,255,0.7); padding: 0px; margin: 0px; overflow-wrap: break-word; overflow: hidden; font-family: 'Times New Roman', serif;"> 
+<p>Journal of the British Interplanetary Society, Vol. 36, pp. 115-128, 1983.</p><br><br><p>ORBITAL RING SYSTEMS AND JACOB'S LADDERS - II</p><br><br><p>PAUL BIRCH*</p><p>45, Brownville Road, Heaton Moor, Stockport, England.</p><br><br><p>A method of transferring payloads into space without using rockets has been presented in Part I, in which massive rings encircle the globe in a low orbit supporting stationary 'sky-hooks,' from which cables hang down to any point on the Earth's surface. Vehicles can climb up these 'ladders' into orbit, or can accelerate along the rings. The structure and deployment of such Orbital Ring Systems is examined and their varied uses considered; several scenarios are considered and shown to be economically feasible and beneficial.</p> 
+</div>`;
+
+      // Simplified State
+      const state = {
+        pdfDoc: null,
+        pageNum: 1,
+        scale: 1.0,
+        canvas: document.getElementById("the-canvas"),
+        ctx: document.getElementById("the-canvas").getContext("2d"),
+        targetDivId: TEST_DIV_ID,
+        
+        // History of attempts (Base64 strings)
+        history: [],
+
+        // Debug Data Store
+        debugData: {
+            jsonStructure: "// Ready to run.",
+            promptTemplate: "// No prompt generated yet.",
+            fullPayload: "{ \"status\": \"No request made yet.\" }"
+        },
+        activeDebugTab: 'jsonStructure',
+
+        // The structured prompt
+        prompts: {
+          REPLICA_STRUCTURED: `Analyze the visual difference between the "Target Image" and "Test Render".
+I am providing a sequence of images:
+1. "Target Image" (The Goal).
+2. ...[History Images]... (Previous attempts, if any).
+3. "Current Render" (The Latest State).
+
+Your job is to generate CSS style adjustments for the "Current Render" to make it look exactly like the "Target Image".
+Use the History Images to see the trajectory of changes. If the Current Render is better than the History, continue in that direction. If it got worse, reverse course.
+
+Input Data:
+{{jsonStructure}}
+
+Instructions:
+1. Return a JSON object where keys are the Element IDs and values are objects containing CSS properties.
+2. Focus on: 'font-size' (use 'em' relative to current), 'font-weight', 'font-style', 'text-align'.
+3. For position, use 'position: relative', 'top' (in 'em'), 'left' (in 'em').
+4. Do NOT re-emit the text content. Only style updates.
+5. If an element needs no change, do not include it.
+
+Example Output Format:
+{
+  "el-123": { "font-weight": "bold", "font-size": "1.2em", "top": "0.5em" },
+  "el-456": { "text-align": "center", "font-style": "italic" }
+}
+
+Respond ONLY with valid JSON.`,
+        },
+      };
+
+      const els = {
+        theCanvas: document.getElementById("the-canvas"),
+        overlayHtmlLayer: document.getElementById("overlay-html-layer"),
+        overlayWrapper: document.getElementById("overlay-wrapper"),
+        overlayHtmlInput: document.getElementById("overlay-html-input"),
+        visualViewer: document.getElementById("debug-visual-viewer"),
+        runButton: document.getElementById("run-replica-test"),
+        loopInput: document.getElementById("loop-count"),
+        fullscreenBtn: document.getElementById("fullscreen-btn"),
+        copyDebugBtn: document.getElementById("copy-debug-btn"),
+        aiStatus: document.getElementById("ai-status"),
+        pdfLoader: document.getElementById("pdf-loader"),
+        debugSourceImg: document.getElementById("debug-source-img"),
+        debugRenderImg: document.getElementById("debug-render-img"),
+        tabJson: document.getElementById("tab-jsonStructure"),
+        tabPrompt: document.getElementById("tab-promptTemplate"),
+        tabFull: document.getElementById("tab-fullPayload"),
+        imageModal: document.getElementById("image-modal"),
+        modalImg: document.getElementById("modal-img"),
+      };
+
+      // Modal Helper
+      window.expandImage = function(src) {
+        els.modalImg.src = src;
+        els.imageModal.classList.remove('hidden');
+      };
+
+      // Payload Rendering Helper
+      function renderVisualPayload(jsonString) {
+          try {
+              const obj = JSON.parse(jsonString);
+              let html = '<div class="pl-2">';
+              
+              const renderValue = (key, val) => {
+                  if (key === 'images' && Array.isArray(val)) {
+                      // Custom Renderer for Images Array
+                      let imgHtml = '[\n';
+                      val.forEach((item) => {
+                          imgHtml += `    { <span class="json-key">"index"</span>: <span class="json-number">${item.index}</span>, <span class="json-key">"role"</span>: <span class="json-string">"${item.role}"</span>, <span class="json-key">"data"</span>: `;
+                          // The Thumbnail
+                          imgHtml += `<img src="data:${item.mimeType};base64,${item.data}" class="inline-block h-8 border border-gray-600 rounded cursor-pointer hover:scale-150 hover:border-white transition-transform origin-left z-10 relative ml-2 align-middle" onclick="expandImage(this.src)" title="Click to Expand (Length: ${item.dataLength})" />`;
+                          imgHtml += ` },\n`;
+                      });
+                      imgHtml += '  ]';
+                      return imgHtml;
+                  }
+                  
+                  if (typeof val === 'string') return `<span class="json-string">"${val.replace(/\n/g, '\\n').replace(/"/g, '\\"')}"</span>`;
+                  if (typeof val === 'number') return `<span class="json-number">${val}</span>`;
+                  if (val === null) return `<span class="json-null">null</span>`;
+                  if (typeof val === 'object') return JSON.stringify(val, null, 2); // Fallback for deep objects
+                  return val;
+              };
+
+              // Iterating top level keys manually for simple structure
+              html += '{\n';
+              for (const key in obj) {
+                  html += `  <span class="json-key">"${key}"</span>: ${renderValue(key, obj[key])},\n`;
+              }
+              html += '}</div>';
+              
+              els.visualViewer.innerHTML = html;
+          } catch(e) {
+              els.visualViewer.innerText = "Error parsing JSON for visual view: " + e.message;
+          }
+      }
+
+      // Expose switchDebugTab globally for inline onclick
+      window.switchDebugTab = function(tabName) {
+        state.activeDebugTab = tabName;
+        
+        // Update UI Tabs
+        els.tabJson.classList.remove('active');
+        els.tabPrompt.classList.remove('active');
+        els.tabFull.classList.remove('active');
+        
+        if (tabName === 'jsonStructure') els.tabJson.classList.add('active');
+        if (tabName === 'promptTemplate') els.tabPrompt.classList.add('active');
+        if (tabName === 'fullPayload') els.tabFull.classList.add('active');
+
+        // Logic to switch between Textarea and Visual Div
+        if (tabName === 'fullPayload') {
+            els.overlayHtmlInput.classList.add('hidden');
+            els.visualViewer.classList.remove('hidden');
+            renderVisualPayload(state.debugData.fullPayload);
+        } else {
+            els.visualViewer.classList.add('hidden');
+            els.overlayHtmlInput.classList.remove('hidden');
+            els.overlayHtmlInput.value = state.debugData[tabName] || "";
+        }
+      };
+
+      function updateOverlayPreview(content = null) {
+        renderMathInElement(els.overlayHtmlLayer, {
+          delimiters: [
+            { left: "$$", right: "$$", display: true },
+            { left: "$", right: "$", display: false },
+          ],
+          throwOnError: false,
+        });
+      }
+
+      function extractImageSnippet(pixelRect, outputScale = 1.0) {
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = pixelRect.width * outputScale;
+        tempCanvas.height = pixelRect.height * outputScale;
+        const tempCtx = tempCanvas.getContext("2d");
+        tempCtx.drawImage(
+          state.canvas,
+          pixelRect.x,
+          pixelRect.y,
+          pixelRect.width,
+          pixelRect.height,
+          0,
+          0,
+          tempCanvas.width,
+          tempCanvas.height,
+        );
+        return tempCanvas.toDataURL("image/png").split(",")[1];
+      }
+
+      function getSnippetFromDiv(divId, imageScale = 1.0) {
+        const div = document.getElementById(divId);
+        if (!div) return null;
+
+        const cw = els.theCanvas.width;
+        const ch = els.theCanvas.height;
+        const pixelRect = {
+          x: (parseFloat(div.style.left) / 100) * cw,
+          y: (parseFloat(div.style.top) / 100) * ch,
+          width: (parseFloat(div.style.width) / 100) * cw,
+          height: (parseFloat(div.style.height) / 100) * ch,
+        };
+        return extractImageSnippet(pixelRect, imageScale);
+      }
+
+      // --- Structured Data Helpers ---
+
+      function prepareDomForAnalysis(divId) {
+        const div = document.getElementById(divId);
+        if (!div) return;
+        let spanCount = 0;
+        function processNode(node) {
+            if (node.nodeType === 3) { // Text Node
+                if (node.textContent.trim().length > 0) {
+                   const span = document.createElement('span');
+                   span.id = `seg-${Date.now()}-${spanCount++}`;
+                   span.textContent = node.textContent;
+                   node.replaceWith(span);
+                }
+            } else if (node.nodeType === 1) { // Element
+                if (!node.id) node.id = `blk-${Date.now()}-${spanCount++}`;
+                Array.from(node.childNodes).forEach(processNode);
+            }
+        }
+        Array.from(div.childNodes).forEach(processNode);
+        return div; 
+      }
+
+      function getStructureJson(divId) {
+        const div = document.getElementById(divId);
+        const elements = div.querySelectorAll('*'); 
+        const structure = [];
+        elements.forEach(el => {
+            if (el.innerText && el.innerText.trim().length > 0) {
+               structure.push({
+                   id: el.id,
+                   tag: el.tagName.toLowerCase(),
+                   text: el.innerText.substring(0, 50) + (el.innerText.length>50 ? "..." : "") 
+               });
+            }
+        });
+        return structure;
+      }
+
+      function applyStyleUpdates(updates) {
+        let count = 0;
+        for (const [id, styles] of Object.entries(updates)) {
+            const el = document.getElementById(id);
+            if (el) {
+                for (const [prop, val] of Object.entries(styles)) {
+                    el.style[prop] = val;
+                }
+                count++;
+            }
+        }
+        return count;
+      }
+
+      function downscaleImage(sourceCanvas, scale) {
+         const w = sourceCanvas.width * scale;
+         const h = sourceCanvas.height * scale;
+         const tCanvas = document.createElement("canvas");
+         tCanvas.width = w;
+         tCanvas.height = h;
+         const ctx = tCanvas.getContext("2d");
+         ctx.drawImage(sourceCanvas, 0, 0, w, h);
+         return tCanvas.toDataURL("image/png").split(",")[1];
+      }
+
+      async function queryGemini(prompt, images) {
+        try {
+          const parts = [{ text: prompt }];
+          if (Array.isArray(images)) {
+            images.forEach((img) => {
+              parts.push({ inlineData: { mimeType: "image/png", data: img } });
+            });
+          }
+
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                  contents: [{ role: "user", parts: parts }],
+                  generationConfig: { responseMimeType: "application/json" } 
+              }),
+            },
+          );
+
+          if (!response.ok) throw new Error(`API request failed with status: ${response.status}`);
+          const data = await response.json();
+          const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          return resultText;
+        } catch (error) {
+          console.error("AI Error:", error);
+          throw error;
+        }
+      }
+
+      async function runAiReplicaSingle(iterationInfo = "") {
+        const divId = state.targetDivId;
+        if (!divId) return;
+
+        prepareDomForAnalysis(divId);
+        
+        const AI_IMAGE_SCALE = 2.0;
+        const HISTORY_SCALE = 0.5;
+
+        const divEl = document.getElementById(divId);
+        
+        els.aiStatus.textContent = `${iterationInfo} Capturing...`;
+        els.aiStatus.style.display = "inline";
+
+        try {
+          const base64Source = getSnippetFromDiv(divId, AI_IMAGE_SCALE);
+          
+          const canvas = await html2canvas(divEl, {
+            backgroundColor: "#ffffff",
+            scale: AI_IMAGE_SCALE,
+            logging: false,
+            useCORS: true,
+            allowTaint: true,
+          });
+          const base64Render = canvas.toDataURL("image/png").split(",")[1];
+          const base64HistoryThumb = downscaleImage(canvas, HISTORY_SCALE / AI_IMAGE_SCALE);
+
+          const structure = getStructureJson(divId);
+          const jsonString = JSON.stringify(structure, null, 2);
+          
+          let prompt = state.prompts.REPLICA_STRUCTURED;
+          prompt = prompt.replace("{{jsonStructure}}", jsonString);
+
+          const imagePayload = [base64Source, ...state.history, base64Render];
+          
+          const debugObj = {
+             iteration: iterationInfo,
+             timestamp: new Date().toISOString(),
+             promptText: prompt,
+             images: imagePayload.map((img, i) => {
+                let label = "Unknown";
+                if (i === 0) label = "Target (Goal)";
+                else if (i === imagePayload.length - 1) label = "Current Render";
+                else label = `History Frame ${i}`;
+                
+                return {
+                    index: i + 1,
+                    role: label,
+                    dataLength: img.length,
+                    mimeType: "image/png",
+                    data: img // FULL DATA INCLUDED
+                };
+             }),
+             response: null 
+          };
+
+          state.debugData.jsonStructure = `// Iteration Info: ${iterationInfo}\n// History Length: ${state.history.length}\n// JSON Data to AI:\n${jsonString}`;
+          state.debugData.promptTemplate = `// Iteration Info: ${iterationInfo}\n// Prompt Template:\n${state.prompts.REPLICA_STRUCTURED}`;
+          state.debugData.fullPayload = JSON.stringify(debugObj, null, 2);
+          
+          window.switchDebugTab(state.activeDebugTab);
+
+          els.debugSourceImg.src = `data:image/png;base64,${base64Source}`;
+          els.debugRenderImg.src = `data:image/png;base64,${base64Render}`;
+
+          els.aiStatus.textContent = `${iterationInfo} Thinking...`;
+          const resultJsonStr = await queryGemini(prompt, imagePayload);
+          
+          const updates = JSON.parse(resultJsonStr);
+          
+          debugObj.response = updates;
+          state.debugData.fullPayload = JSON.stringify(debugObj, null, 2);
+          
+          const responseLog = `\n\n// AI Response:\n${JSON.stringify(updates, null, 2)}`;
+          state.debugData.jsonStructure += responseLog;
+
+          // Re-render current tab content
+          window.switchDebugTab(state.activeDebugTab);
+
+          const appliedCount = applyStyleUpdates(updates);
+          console.log(`[${iterationInfo}] Applied styles to ${appliedCount} elements.`);
+
+          state.history.push(base64HistoryThumb);
+
+          return true; 
+
+        } catch (e) {
+          console.error(e);
+          if (state.activeDebugTab !== 'fullPayload') {
+             els.overlayHtmlInput.value += `\n// Error: ${e.message}`;
+          } else {
+             els.visualViewer.innerHTML += `<div class="text-red-500 mt-4">Error: ${e.message}</div>`;
+          }
+          return false; 
+        }
+      }
+
+      async function runLoop() {
+         const count = parseInt(els.loopInput.value) || 1;
+         els.runButton.disabled = true;
+         els.runButton.classList.add('opacity-50', 'cursor-not-allowed');
+
+         state.history = [];
+
+         for (let i = 1; i <= count; i++) {
+             const success = await runAiReplicaSingle(`Run ${i}/${count}`);
+             if (!success) break; 
+         }
+
+         els.aiStatus.textContent = "All Done!";
+         setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
+         els.runButton.disabled = false;
+         els.runButton.classList.remove('opacity-50', 'cursor-not-allowed');
+      }
+
+      function initializeTestbed() {
+        els.pdfLoader.classList.remove("hidden");
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+
+        img.onload = function () {
+          const ratio = img.height / img.width;
+          const baseW = 700;
+          const baseH = baseW * ratio;
+          state.canvas.width = baseW;
+          state.canvas.height = baseH;
+          state.ctx.drawImage(img, 0, 0, baseW, baseH);
+          state.pdfDoc = { numPages: 1, isStaticImage: true };
+          els.overlayWrapper.style.width = baseW + "px";
+          els.overlayWrapper.style.height = baseH + "px";
+
+          els.overlayHtmlLayer.innerHTML = INITIAL_HTML_CONTENT;
+          
+          els.pdfLoader.classList.add("hidden");
+          els.runButton.addEventListener("click", runLoop);
+          
+          els.fullscreenBtn.addEventListener("click", () => {
+             if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+             } else {
+                if (document.exitFullscreen) {
+                   document.exitFullscreen();
+                }
+             }
+          });
+
+          // Copy Button Logic (Modified to always grab raw state for fullPayload)
+          els.copyDebugBtn.addEventListener("click", () => {
+             if (state.activeDebugTab === 'fullPayload') {
+                 // Copy the raw JSON state, not the visual HTML
+                 navigator.clipboard.writeText(state.debugData.fullPayload).then(() => {
+                    const originalText = els.copyDebugBtn.innerHTML;
+                    els.copyDebugBtn.innerHTML = `<span class="text-green-400">Copied!</span>`;
+                    setTimeout(() => els.copyDebugBtn.innerHTML = originalText, 1500);
+                 });
+             } else {
+                 // Standard text area copy
+                 els.overlayHtmlInput.select();
+                 document.execCommand('copy');
+                 const originalText = els.copyDebugBtn.innerHTML;
+                 els.copyDebugBtn.innerHTML = `<span class="text-green-400">Copied!</span>`;
+                 setTimeout(() => els.copyDebugBtn.innerHTML = originalText, 1500);
+             }
+          });
+        };
+
+        img.onerror = function () {
+          els.pdfLoader.children[1].textContent = "Failed to load sample image.";
+        };
+        img.src = DEFAULT_IMAGE_URL; 
+      }
+
+      window.onload = initializeTestbed;
+    </script>
+  </body>
+</html>
