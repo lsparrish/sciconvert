@@ -65,12 +65,20 @@
       .debug-tab.active {
         @apply border-gray-700 bg-gray-950 text-green-400;
       }
-      
+
       /* JSON Visualizer Styles */
-      .json-key { color: #9cdcfe; }
-      .json-string { color: #ce9178; }
-      .json-number { color: #b5cea8; }
-      .json-null { color: #569cd6; }
+      .json-key {
+        color: #9cdcfe;
+      }
+      .json-string {
+        color: #ce9178;
+      }
+      .json-number {
+        color: #b5cea8;
+      }
+      .json-null {
+        color: #569cd6;
+      }
     </style>
   </head>
   <body class="flex flex-col h-screen">
@@ -79,7 +87,7 @@
       class="bg-gray-900 text-white p-3 flex justify-between items-center shadow-lg shrink-0"
     >
       <h1 class="text-xl font-bold tracking-wider text-purple-400">
-        AI Style Replica Testbed (Structured)
+        AI Style Replica Testbed (Border Target)
       </h1>
       <div class="flex items-center gap-2">
         <span
@@ -113,34 +121,44 @@
         <div class="h-8 w-px bg-gray-700 mx-2"></div>
 
         <!-- Loop Count Input -->
-        <div class="flex items-center bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-             <input type="number" id="loop-count" value="1" min="1" max="10" class="w-12 bg-gray-800 text-white text-center text-sm outline-none py-2 border-r border-gray-700" title="Iterations">
-            <!-- Run Button -->
-            <button
-              id="run-replica-test"
-              class="bg-purple-600 hover:bg-purple-500 px-4 py-2 text-sm font-semibold transition flex items-center gap-2 h-full"
+        <div
+          class="flex items-center bg-gray-800 rounded-lg border border-gray-700 overflow-hidden"
+        >
+          <input
+            type="number"
+            id="loop-count"
+            value="1"
+            min="1"
+            max="10"
+            class="w-12 bg-gray-800 text-white text-center text-sm outline-none py-2 border-r border-gray-700"
+            title="Iterations"
+          />
+          <!-- Run Button -->
+          <button
+            id="run-replica-test"
+            class="bg-purple-600 hover:bg-purple-500 px-4 py-2 text-sm font-semibold transition flex items-center gap-2 h-full"
+          >
+            <svg
+              class="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
             >
-              <svg
-                class="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
-                ></path>
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                ></path>
-              </svg>
-              Run
-            </button>
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              ></path>
+            </svg>
+            Run
+          </button>
         </div>
       </div>
     </header>
@@ -151,8 +169,19 @@
       <div
         class="w-1/2 h-full flex flex-col relative bg-gray-700 border-r border-gray-800"
       >
-        <div class="bg-gray-800 p-2 text-white font-bold text-center">
-          Visual Test Area
+        <div
+          class="bg-gray-800 p-2 text-white font-bold text-center flex justify-between items-center"
+        >
+          <span>Visual Test Area</span>
+          <label class="text-xs flex items-center gap-1 cursor-pointer">
+            <input
+              type="checkbox"
+              id="chk-auto-align"
+              checked
+              class="rounded text-purple-500 focus:ring-purple-500"
+            />
+            Auto-Align
+          </label>
         </div>
         <div
           id="overlay-scroller"
@@ -208,21 +237,62 @@
               id="debug-render-img"
               class="max-w-full h-auto object-contain border border-gray-700 rounded-md"
             />
+            <div
+              id="diff-score-display"
+              class="mt-2 text-xs font-mono font-bold text-red-400"
+            >
+              Diff Score: <span id="diff-value">--</span>
+            </div>
           </div>
         </div>
 
         <!-- Debug Tabs -->
-        <div class="flex justify-between border-b border-gray-700 bg-gray-900 px-2 pt-2 items-end">
-            <div class="flex">
-                <button id="tab-jsonStructure" class="debug-tab active" onclick="switchDebugTab('jsonStructure')">jsonStructure</button>
-                <button id="tab-promptTemplate" class="debug-tab" onclick="switchDebugTab('promptTemplate')">promptTemplate</button>
-                <button id="tab-fullPayload" class="debug-tab" onclick="switchDebugTab('fullPayload')">fullPayload</button>
-            </div>
-            <!-- Copy Button -->
-            <button id="copy-debug-btn" class="text-xs text-gray-400 hover:text-white px-2 py-1 mb-1 flex items-center gap-1 transition">
-                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
-                Copy Data
+        <div
+          class="flex justify-between border-b border-gray-700 bg-gray-900 px-2 pt-2 items-end"
+        >
+          <div class="flex">
+            <button
+              id="tab-jsonStructure"
+              class="debug-tab active"
+              onclick="switchDebugTab('jsonStructure')"
+            >
+              jsonStructure
             </button>
+            <button
+              id="tab-promptTemplate"
+              class="debug-tab"
+              onclick="switchDebugTab('promptTemplate')"
+            >
+              promptTemplate
+            </button>
+            <button
+              id="tab-fullPayload"
+              class="debug-tab"
+              onclick="switchDebugTab('fullPayload')"
+            >
+              fullPayload
+            </button>
+          </div>
+          <!-- Copy Button -->
+          <button
+            id="copy-debug-btn"
+            class="text-xs text-gray-400 hover:text-white px-2 py-1 mb-1 flex items-center gap-1 transition"
+          >
+            <svg
+              class="w-3 h-3"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
+              ></path>
+            </svg>
+            Copy Data
+          </button>
         </div>
 
         <div class="flex-1 flex flex-col overflow-hidden bg-gray-950 relative">
@@ -232,17 +302,30 @@
             class="editor-textarea flex-1 w-full h-full p-4 outline-none text-green-400 bg-gray-950 text-xs border-none resize-none"
             placeholder="Data will appear here..."
           ></textarea>
-          
+
           <!-- Visual Viewer (For Full Payload) -->
-          <div id="debug-visual-viewer" class="absolute inset-0 w-full h-full p-4 overflow-auto bg-gray-950 text-xs font-mono text-gray-300 hidden"></div>
+          <div
+            id="debug-visual-viewer"
+            class="absolute inset-0 w-full h-full p-4 overflow-auto bg-gray-950 text-xs font-mono text-gray-300 hidden"
+          ></div>
         </div>
       </div>
     </main>
-    
+
     <!-- Image Modal -->
-    <div id="image-modal" class="fixed inset-0 bg-black bg-opacity-90 z-50 hidden flex items-center justify-center p-8" onclick="this.classList.add('hidden')">
-        <img id="modal-img" class="max-w-full max-h-full object-contain shadow-2xl border border-gray-600 rounded">
-        <span class="absolute top-4 right-4 text-white text-sm font-bold cursor-pointer hover:text-red-400">Click anywhere to close</span>
+    <div
+      id="image-modal"
+      class="fixed inset-0 bg-black bg-opacity-90 z-50 hidden flex items-center justify-center p-8"
+      onclick="this.classList.add('hidden')"
+    >
+      <img
+        id="modal-img"
+        class="max-w-full max-h-full object-contain shadow-2xl border border-gray-600 rounded"
+      />
+      <span
+        class="absolute top-4 right-4 text-white text-sm font-bold cursor-pointer hover:text-red-400"
+        >Click anywhere to close</span
+      >
     </div>
 
     <script type="module">
@@ -251,9 +334,9 @@
         "https://lsparrish.github.io/sciconvert/sample.png";
       const TEST_DIV_ID = "div-1764643541094";
 
-      // Hardcoded initial content
+      // Hardcoded initial content (do not change)
       const INITIAL_HTML_CONTENT = `
-<div id="${TEST_DIV_ID}" style="position: absolute; left: 4.92%; top: 2.34%; width: 88.80%; height: 26.53%; background: rgba(255,255,255,0.7); padding: 0px; margin: 0px; overflow-wrap: break-word; overflow: hidden; font-family: 'Times New Roman', serif;"> 
+<div id="${TEST_DIV_ID}" style="position: absolute; left: 4.92%; top: 2.34%; width: 88.80%; height: 26.53%; background: rgba(255,255,255,0.7); padding: 0px; margin: 0px; ">
 <p>Journal of the British Interplanetary Society, Vol. 36, pp. 115-128, 1983.</p><br><br><p>ORBITAL RING SYSTEMS AND JACOB'S LADDERS - II</p><br><br><p>PAUL BIRCH*</p><p>45, Brownville Road, Heaton Moor, Stockport, England.</p><br><br><p>A method of transferring payloads into space without using rockets has been presented in Part I, in which massive rings encircle the globe in a low orbit supporting stationary 'sky-hooks,' from which cables hang down to any point on the Earth's surface. Vehicles can climb up these 'ladders' into orbit, or can accelerate along the rings. The structure and deployment of such Orbital Ring Systems is examined and their varied uses considered; several scenarios are considered and shown to be economically feasible and beneficial.</p> 
 </div>`;
 
@@ -265,43 +348,50 @@
         canvas: document.getElementById("the-canvas"),
         ctx: document.getElementById("the-canvas").getContext("2d"),
         targetDivId: TEST_DIV_ID,
-        
-        // History of attempts (Base64 strings)
+
+        // History now stores rich objects: { image: base64, styles: object, score: number }
         history: [],
 
         // Debug Data Store
         debugData: {
-            jsonStructure: "// Ready to run.",
-            promptTemplate: "// No prompt generated yet.",
-            fullPayload: "{ \"status\": \"No request made yet.\" }"
+          jsonStructure: "// Ready to run.",
+          promptTemplate: "// No prompt generated yet.",
+          fullPayload: '{ "status": "No request made yet." }',
         },
-        activeDebugTab: 'jsonStructure',
+        activeDebugTab: "jsonStructure",
 
         // The structured prompt
         prompts: {
-          REPLICA_STRUCTURED: `Analyze the visual difference between the "Target Image" and "Test Render".
-I am providing a sequence of images:
-1. "Target Image" (The Goal).
-2. ...[History Images]... (Previous attempts, if any).
-3. "Current Render" (The Latest State).
+          REPLICA_STRUCTURED: `Analyze the visual difference between the "Target Image" and "Current Render".
+The goal is to minimize the "Diff Score" (visual difference).
 
-Your job is to generate CSS style adjustments for the "Current Render" to make it look exactly like the "Target Image".
-Use the History Images to see the trajectory of changes. If the Current Render is better than the History, continue in that direction. If it got worse, reverse course.
+**CRITICAL CONTEXT:**
+1. **Target Image**: Has a RED BORDER. This defines the frame of reference.
+2. **Current Render**: Is mechanically aligned to the top-left of the Target.
+3. **Problem**: The internal spacing (vertical gaps) is wrong. The second line might be too low or high.
 
-Input Data:
+**Instructions:**
+- Look at the RED BORDER on the Target. It tells you the scale.
+- Compare the vertical distance between the first line of text and the second line in both images.
+- Adjust 'top' to fix the vertical gaps.
+- Adjust 'left' to fix the position of the first letter.
+- Adjust 'font-size' and 'letter-spacing' to match the width.
+- Use relative 'em' values assuming 14px as the original size.
+- Use 2 decimal point values e.g. 1.53em NOT 1.5em.
+
+History of attempts:
+{{historyData}}
+
+Input Data (Current CSS State):
 {{jsonStructure}}
 
 Instructions:
-1. Return a JSON object where keys are the Element IDs and values are objects containing CSS properties.
-2. Focus on: 'font-size' (use 'em' relative to current), 'font-weight', 'font-style', 'text-align'.
-3. For position, use 'position: relative', 'top' (in 'em'), 'left' (in 'em').
-4. Do NOT re-emit the text content. Only style updates.
-5. If an element needs no change, do not include it.
+1. Generate NEW CSS adjustments to drive the Diff Score closer to 0.
+2. Return JSON object with style updates.
 
-Example Output Format:
+Example:
 {
-  "el-123": { "font-weight": "bold", "font-size": "1.2em", "top": "0.5em" },
-  "el-456": { "text-align": "center", "font-style": "italic" }
+  "el-123": { "font-size": "1.11em", "top": "0.53em" }
 }
 
 Respond ONLY with valid JSON.`,
@@ -322,81 +412,86 @@ Respond ONLY with valid JSON.`,
         pdfLoader: document.getElementById("pdf-loader"),
         debugSourceImg: document.getElementById("debug-source-img"),
         debugRenderImg: document.getElementById("debug-render-img"),
+        diffValue: document.getElementById("diff-value"),
         tabJson: document.getElementById("tab-jsonStructure"),
         tabPrompt: document.getElementById("tab-promptTemplate"),
         tabFull: document.getElementById("tab-fullPayload"),
         imageModal: document.getElementById("image-modal"),
         modalImg: document.getElementById("modal-img"),
+        chkAutoAlign: document.getElementById("chk-auto-align"),
       };
 
       // Modal Helper
-      window.expandImage = function(src) {
+      window.expandImage = function (src) {
         els.modalImg.src = src;
-        els.imageModal.classList.remove('hidden');
+        els.imageModal.classList.remove("hidden");
       };
 
       // Payload Rendering Helper
       function renderVisualPayload(jsonString) {
-          try {
-              const obj = JSON.parse(jsonString);
-              let html = '<div class="pl-2">';
-              
-              const renderValue = (key, val) => {
-                  if (key === 'images' && Array.isArray(val)) {
-                      // Custom Renderer for Images Array
-                      let imgHtml = '[\n';
-                      val.forEach((item) => {
-                          imgHtml += `    { <span class="json-key">"index"</span>: <span class="json-number">${item.index}</span>, <span class="json-key">"role"</span>: <span class="json-string">"${item.role}"</span>, <span class="json-key">"data"</span>: `;
-                          // The Thumbnail
-                          imgHtml += `<img src="data:${item.mimeType};base64,${item.data}" class="inline-block h-8 border border-gray-600 rounded cursor-pointer hover:scale-150 hover:border-white transition-transform origin-left z-10 relative ml-2 align-middle" onclick="expandImage(this.src)" title="Click to Expand (Length: ${item.dataLength})" />`;
-                          imgHtml += ` },\n`;
-                      });
-                      imgHtml += '  ]';
-                      return imgHtml;
-                  }
-                  
-                  if (typeof val === 'string') return `<span class="json-string">"${val.replace(/\n/g, '\\n').replace(/"/g, '\\"')}"</span>`;
-                  if (typeof val === 'number') return `<span class="json-number">${val}</span>`;
-                  if (val === null) return `<span class="json-null">null</span>`;
-                  if (typeof val === 'object') return JSON.stringify(val, null, 2); // Fallback for deep objects
-                  return val;
-              };
+        try {
+          const obj = JSON.parse(jsonString);
+          let html = '<div class="pl-2">';
 
-              // Iterating top level keys manually for simple structure
-              html += '{\n';
-              for (const key in obj) {
-                  html += `  <span class="json-key">"${key}"</span>: ${renderValue(key, obj[key])},\n`;
-              }
-              html += '}</div>';
-              
-              els.visualViewer.innerHTML = html;
-          } catch(e) {
-              els.visualViewer.innerText = "Error parsing JSON for visual view: " + e.message;
+          const renderValue = (key, val) => {
+            if (key === "images" && Array.isArray(val)) {
+              // Custom Renderer for Images Array
+              let imgHtml = "[\n";
+              val.forEach((item) => {
+                imgHtml += `    { <span class="json-key">"index"</span>: <span class="json-number">${item.index}</span>, <span class="json-key">"role"</span>: <span class="json-string">"${item.role}"</span>, <span class="json-key">"data"</span>: `;
+                // The Thumbnail
+                imgHtml += `<img src="data:${item.mimeType};base64,${item.data}" class="inline-block h-8 border border-gray-600 rounded cursor-pointer hover:scale-150 hover:border-white transition-transform origin-left z-10 relative ml-2 align-middle" onclick="expandImage(this.src)" title="Click to Expand (Length: ${item.dataLength})" />`;
+                imgHtml += ` },\n`;
+              });
+              imgHtml += "  ]";
+              return imgHtml;
+            }
+
+            if (typeof val === "string")
+              return `<span class="json-string">"${val.replace(/\n/g, "\\n").replace(/"/g, '\\"')}"</span>`;
+            if (typeof val === "number")
+              return `<span class="json-number">${val}</span>`;
+            if (val === null) return `<span class="json-null">null</span>`;
+            if (typeof val === "object") return JSON.stringify(val, null, 2); // Fallback for deep objects
+            return val;
+          };
+
+          // Iterating top level keys manually for simple structure
+          html += "{\n";
+          for (const key in obj) {
+            html += `  <span class="json-key">"${key}"</span>: ${renderValue(key, obj[key])},\n`;
           }
+          html += "}</div>";
+
+          els.visualViewer.innerHTML = html;
+        } catch (e) {
+          els.visualViewer.innerText =
+            "Error parsing JSON for visual view: " + e.message;
+        }
       }
 
       // Expose switchDebugTab globally for inline onclick
-      window.switchDebugTab = function(tabName) {
+      window.switchDebugTab = function (tabName) {
         state.activeDebugTab = tabName;
-        
+
         // Update UI Tabs
-        els.tabJson.classList.remove('active');
-        els.tabPrompt.classList.remove('active');
-        els.tabFull.classList.remove('active');
-        
-        if (tabName === 'jsonStructure') els.tabJson.classList.add('active');
-        if (tabName === 'promptTemplate') els.tabPrompt.classList.add('active');
-        if (tabName === 'fullPayload') els.tabFull.classList.add('active');
+        els.tabJson.classList.remove("active");
+        els.tabPrompt.classList.remove("active");
+        els.tabFull.classList.remove("active");
+
+        if (tabName === "jsonStructure") els.tabJson.classList.add("active");
+        if (tabName === "promptTemplate") els.tabPrompt.classList.add("active");
+        if (tabName === "fullPayload") els.tabFull.classList.add("active");
 
         // Logic to switch between Textarea and Visual Div
-        if (tabName === 'fullPayload') {
-            els.overlayHtmlInput.classList.add('hidden');
-            els.visualViewer.classList.remove('hidden');
-            renderVisualPayload(state.debugData.fullPayload);
+        if (tabName === "fullPayload") {
+          els.overlayHtmlInput.classList.add("hidden");
+          els.visualViewer.classList.remove("hidden");
+          renderVisualPayload(state.debugData.fullPayload);
         } else {
-            els.visualViewer.classList.add('hidden');
-            els.overlayHtmlInput.classList.remove('hidden');
-            els.overlayHtmlInput.value = state.debugData[tabName] || "";
+          els.visualViewer.classList.add("hidden");
+          els.overlayHtmlInput.classList.remove("hidden");
+          els.overlayHtmlInput.value = state.debugData[tabName] || "";
         }
       };
 
@@ -410,11 +505,18 @@ Respond ONLY with valid JSON.`,
         });
       }
 
-      function extractImageSnippet(pixelRect, outputScale = 1.0) {
+      // --- Ink Detection & Auto-Align Helpers ---
+
+      function extractCanvasSnippet(pixelRect, outputScale = 1.0) {
         const tempCanvas = document.createElement("canvas");
         tempCanvas.width = pixelRect.width * outputScale;
         tempCanvas.height = pixelRect.height * outputScale;
         const tempCtx = tempCanvas.getContext("2d");
+
+        // White background first
+        tempCtx.fillStyle = "#ffffff";
+        tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
         tempCtx.drawImage(
           state.canvas,
           pixelRect.x,
@@ -426,10 +528,78 @@ Respond ONLY with valid JSON.`,
           tempCanvas.width,
           tempCanvas.height,
         );
-        return tempCanvas.toDataURL("image/png").split(",")[1];
+        return tempCanvas;
       }
 
-      function getSnippetFromDiv(divId, imageScale = 1.0) {
+      // NEW: Add Simple Red Border
+      function addSimpleBorder(canvas) {
+        const w = canvas.width;
+        const h = canvas.height;
+        // Create a copy to avoid polluting the original if needed elsewhere (though here we can just modify)
+        const borderedCanvas = document.createElement("canvas");
+        borderedCanvas.width = w;
+        borderedCanvas.height = h;
+        const ctx = borderedCanvas.getContext("2d");
+
+        ctx.drawImage(canvas, 0, 0);
+
+        // Draw Red Border
+        ctx.strokeStyle = "#ff0000";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(0, 0, w, h);
+
+        return borderedCanvas;
+      }
+
+      /**
+       * Scans the canvas to find the bounding box of non-white pixels (ink).
+       * Returns normalized coordinates (0.0 - 1.0) relative to canvas size.
+       */
+      function getInkBounds(canvas) {
+        const w = canvas.width;
+        const h = canvas.height;
+        const ctx = canvas.getContext("2d");
+        const data = ctx.getImageData(0, 0, w, h).data;
+
+        let minX = w,
+          minY = h,
+          maxX = 0,
+          maxY = 0;
+        const THRESHOLD = 240; // White threshold
+
+        let found = false;
+
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const idx = (y * w + x) * 4;
+            const r = data[idx];
+            const g = data[idx + 1];
+            const b = data[idx + 2];
+
+            // If pixel is darker than threshold
+            if (r < THRESHOLD || g < THRESHOLD || b < THRESHOLD) {
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+              found = true;
+            }
+          }
+        }
+
+        if (!found) return null;
+
+        return {
+          x: minX,
+          y: minY,
+          w: maxX - minX,
+          h: maxY - minY,
+          pixelX: minX,
+          pixelY: minY,
+        };
+      }
+
+      function getSnippetCanvasFromDiv(divId, imageScale = 1.0) {
         const div = document.getElementById(divId);
         if (!div) return null;
 
@@ -441,7 +611,56 @@ Respond ONLY with valid JSON.`,
           width: (parseFloat(div.style.width) / 100) * cw,
           height: (parseFloat(div.style.height) / 100) * ch,
         };
-        return extractImageSnippet(pixelRect, imageScale);
+        return extractCanvasSnippet(pixelRect, imageScale);
+      }
+
+      // --- Diff Calculation Logic ---
+
+      function calculateImageDiff(base64A, base64B) {
+        return new Promise((resolve) => {
+          const imgA = new Image();
+          const imgB = new Image();
+          let loaded = 0;
+
+          const onImgLoad = () => {
+            loaded++;
+            if (loaded === 2) compare();
+          };
+
+          imgA.onload = onImgLoad;
+          imgB.onload = onImgLoad;
+          imgA.src = "data:image/png;base64," + base64A;
+          imgB.src = "data:image/png;base64," + base64B;
+
+          function compare() {
+            const w = imgA.width;
+            const h = imgA.height;
+            const canvas = document.createElement("canvas");
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext("2d");
+
+            ctx.drawImage(imgA, 0, 0, w, h);
+            const dataA = ctx.getImageData(0, 0, w, h).data;
+
+            ctx.clearRect(0, 0, w, h);
+            ctx.drawImage(imgB, 0, 0, w, h);
+            const dataB = ctx.getImageData(0, 0, w, h).data;
+
+            let diff = 0;
+            for (let i = 0; i < dataA.length; i += 4) {
+              const rDiff = Math.abs(dataA[i] - dataB[i]);
+              const gDiff = Math.abs(dataA[i + 1] - dataB[i + 1]);
+              const bDiff = Math.abs(dataA[i + 2] - dataB[i + 2]);
+              diff += rDiff + gDiff + bDiff;
+            }
+
+            const totalPixels = w * h;
+            const maxDiff = totalPixels * 765;
+            const score = diff / maxDiff;
+            resolve(score);
+          }
+        });
       }
 
       // --- Structured Data Helpers ---
@@ -451,34 +670,51 @@ Respond ONLY with valid JSON.`,
         if (!div) return;
         let spanCount = 0;
         function processNode(node) {
-            if (node.nodeType === 3) { // Text Node
-                if (node.textContent.trim().length > 0) {
-                   const span = document.createElement('span');
-                   span.id = `seg-${Date.now()}-${spanCount++}`;
-                   span.textContent = node.textContent;
-                   node.replaceWith(span);
-                }
-            } else if (node.nodeType === 1) { // Element
-                if (!node.id) node.id = `blk-${Date.now()}-${spanCount++}`;
-                Array.from(node.childNodes).forEach(processNode);
+          if (node.nodeType === 3) {
+            // Text Node
+            if (node.textContent.trim().length > 0) {
+              const span = document.createElement("span");
+              span.id = `seg-${Date.now()}-${spanCount++}`;
+              span.textContent = node.textContent;
+              node.replaceWith(span);
             }
+          } else if (node.nodeType === 1) {
+            // Element
+            if (!node.id) node.id = `blk-${Date.now()}-${spanCount++}`;
+            Array.from(node.childNodes).forEach(processNode);
+          }
         }
         Array.from(div.childNodes).forEach(processNode);
-        return div; 
+        return div;
       }
 
       function getStructureJson(divId) {
         const div = document.getElementById(divId);
-        const elements = div.querySelectorAll('*'); 
+        const elements = div.querySelectorAll("*");
         const structure = [];
-        elements.forEach(el => {
-            if (el.innerText && el.innerText.trim().length > 0) {
-               structure.push({
-                   id: el.id,
-                   tag: el.tagName.toLowerCase(),
-                   text: el.innerText.substring(0, 50) + (el.innerText.length>50 ? "..." : "") 
-               });
-            }
+        elements.forEach((el) => {
+          if (el.innerText && el.innerText.trim().length > 0) {
+            const styles = {};
+            if (el.style.fontSize) styles.fontSize = el.style.fontSize;
+            if (el.style.fontWeight) styles.fontWeight = el.style.fontWeight;
+            if (el.style.fontStyle) styles.fontStyle = el.style.fontStyle;
+            if (el.style.textAlign) styles.textAlign = el.style.textAlign;
+            if (el.style.lineHeight) styles.lineHeight = el.style.lineHeight;
+            if (el.style.top) styles.top = el.style.top;
+            if (el.style.left) styles.left = el.style.left;
+            if (el.style.position) styles.position = el.style.position;
+            if (el.style.marginBottom)
+              styles.marginBottom = el.style.marginBottom;
+
+            structure.push({
+              id: el.id,
+              tag: el.tagName.toLowerCase(),
+              text:
+                el.innerText.substring(0, 30) +
+                (el.innerText.length > 30 ? "..." : ""),
+              currentStyles: styles,
+            });
+          }
         });
         return structure;
       }
@@ -486,26 +722,26 @@ Respond ONLY with valid JSON.`,
       function applyStyleUpdates(updates) {
         let count = 0;
         for (const [id, styles] of Object.entries(updates)) {
-            const el = document.getElementById(id);
-            if (el) {
-                for (const [prop, val] of Object.entries(styles)) {
-                    el.style[prop] = val;
-                }
-                count++;
+          const el = document.getElementById(id);
+          if (el) {
+            for (const [prop, val] of Object.entries(styles)) {
+              el.style[prop] = val;
             }
+            count++;
+          }
         }
         return count;
       }
 
       function downscaleImage(sourceCanvas, scale) {
-         const w = sourceCanvas.width * scale;
-         const h = sourceCanvas.height * scale;
-         const tCanvas = document.createElement("canvas");
-         tCanvas.width = w;
-         tCanvas.height = h;
-         const ctx = tCanvas.getContext("2d");
-         ctx.drawImage(sourceCanvas, 0, 0, w, h);
-         return tCanvas.toDataURL("image/png").split(",")[1];
+        const w = sourceCanvas.width * scale;
+        const h = sourceCanvas.height * scale;
+        const tCanvas = document.createElement("canvas");
+        tCanvas.width = w;
+        tCanvas.height = h;
+        const ctx = tCanvas.getContext("2d");
+        ctx.drawImage(sourceCanvas, 0, 0, w, h);
+        return tCanvas.toDataURL("image/png").split(",")[1];
       }
 
       async function queryGemini(prompt, images) {
@@ -523,13 +759,16 @@ Respond ONLY with valid JSON.`,
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                  contents: [{ role: "user", parts: parts }],
-                  generationConfig: { responseMimeType: "application/json" } 
+                contents: [{ role: "user", parts: parts }],
+                generationConfig: { responseMimeType: "application/json" },
               }),
             },
           );
 
-          if (!response.ok) throw new Error(`API request failed with status: ${response.status}`);
+          if (!response.ok)
+            throw new Error(
+              `API request failed with status: ${response.status}`,
+            );
           const data = await response.json();
           const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
           return resultText;
@@ -539,119 +778,223 @@ Respond ONLY with valid JSON.`,
         }
       }
 
+      // --- Main Execution Logic ---
+
       async function runAiReplicaSingle(iterationInfo = "") {
         const divId = state.targetDivId;
         if (!divId) return;
 
         prepareDomForAnalysis(divId);
-        
+
         const AI_IMAGE_SCALE = 2.0;
         const HISTORY_SCALE = 0.5;
 
         const divEl = document.getElementById(divId);
-        
+
         els.aiStatus.textContent = `${iterationInfo} Capturing...`;
         els.aiStatus.style.display = "inline";
 
         try {
-          const base64Source = getSnippetFromDiv(divId, AI_IMAGE_SCALE);
-          
-          const canvas = await html2canvas(divEl, {
+          // 1. Initial Capture to check alignment
+          let sourceCanvas = getSnippetCanvasFromDiv(divId, AI_IMAGE_SCALE);
+          let renderCanvas = await html2canvas(divEl, {
             backgroundColor: "#ffffff",
             scale: AI_IMAGE_SCALE,
             logging: false,
             useCORS: true,
             allowTaint: true,
           });
-          const base64Render = canvas.toDataURL("image/png").split(",")[1];
-          const base64HistoryThumb = downscaleImage(canvas, HISTORY_SCALE / AI_IMAGE_SCALE);
 
+          // --- AUTO-ALIGN LOGIC (The "Mechanical Crop/Fix") ---
+          if (els.chkAutoAlign.checked) {
+            const sourceInk = getInkBounds(sourceCanvas);
+            const renderInk = getInkBounds(renderCanvas);
+
+            if (sourceInk && renderInk) {
+              const deltaX = sourceInk.pixelX - renderInk.pixelX;
+              const deltaY = sourceInk.pixelY - renderInk.pixelY;
+
+              const shiftXPct = (deltaX / sourceCanvas.width) * 100;
+              const shiftYPct = (deltaY / sourceCanvas.height) * 100;
+
+              const currentPadL = parseFloat(divEl.style.paddingLeft) || 0;
+              const currentPadT = parseFloat(divEl.style.paddingTop) || 0;
+
+              if (Math.abs(shiftXPct) > 0.1 || Math.abs(shiftYPct) > 0.1) {
+                divEl.style.paddingLeft = currentPadL + shiftXPct + "%";
+                divEl.style.paddingTop = currentPadT + shiftYPct + "%";
+
+                console.log(
+                  `[Auto-Align] Shifted: X=${shiftXPct.toFixed(2)}%, Y=${shiftYPct.toFixed(2)}%`,
+                );
+
+                renderCanvas = await html2canvas(divEl, {
+                  backgroundColor: "#ffffff",
+                  scale: AI_IMAGE_SCALE,
+                  logging: false,
+                  useCORS: true,
+                  allowTaint: true,
+                });
+              }
+            }
+          }
+
+          // 2. Prepare Images for AI and Diff
+          // Source for AI gets a BORDER
+          const sourceCanvasBordered = addSimpleBorder(sourceCanvas);
+
+          // Render stays RAW (No border)
+          const renderCanvasRaw = renderCanvas;
+
+          // 3. Convert to Base64
+          // AI sees: Bordered Source vs Raw Render
+          const base64SourceBordered = sourceCanvasBordered
+            .toDataURL("image/png")
+            .split(",")[1];
+          const base64RenderRaw = renderCanvasRaw
+            .toDataURL("image/png")
+            .split(",")[1];
+
+          // Diff Calculation: Compare Clean Source vs Clean Render (Ignoring the visual guide)
+          // This prevents the border from skewing the "success" metric,
+          // while still giving the AI the visual cue it needs.
+          const base64SourceClean = sourceCanvas
+            .toDataURL("image/png")
+            .split(",")[1];
+          const diffScore = await calculateImageDiff(
+            base64SourceClean,
+            base64RenderRaw,
+          );
+          const diffDisplayVal = (diffScore * 100).toFixed(2);
+          els.diffValue.textContent = diffDisplayVal + "%";
+
+          // History Thumbnail
+          const base64HistoryThumb = downscaleImage(
+            renderCanvasRaw,
+            HISTORY_SCALE / AI_IMAGE_SCALE,
+          );
+
+          // 4. Prepare Prompt Data
           const structure = getStructureJson(divId);
           const jsonString = JSON.stringify(structure, null, 2);
-          
+
+          let historyLog = "";
+          if (state.history.length === 0) {
+            historyLog = "No previous attempts.";
+          } else {
+            state.history.forEach((h, idx) => {
+              historyLog += `\n--- Attempt ${idx + 1} ---\n`;
+              historyLog += `Diff Score: ${(h.score * 100).toFixed(2)}%\n`;
+              const simpleStyleMap = {};
+              h.structure.forEach((item) => {
+                if (Object.keys(item.currentStyles).length > 0) {
+                  simpleStyleMap[item.id] = item.currentStyles;
+                }
+              });
+              historyLog += `Styles Used: ${JSON.stringify(simpleStyleMap)}\n`;
+            });
+          }
+
           let prompt = state.prompts.REPLICA_STRUCTURED;
           prompt = prompt.replace("{{jsonStructure}}", jsonString);
+          prompt = prompt.replace("{{historyData}}", historyLog);
 
-          const imagePayload = [base64Source, ...state.history, base64Render];
-          
+          const historyImages = state.history.map((h) => h.image);
+
+          // CRITICAL: The payload sends Bordered Source vs Raw Render
+          const imagePayload = [
+            base64SourceBordered,
+            ...historyImages,
+            base64RenderRaw,
+          ];
+
+          // 5. Update Debug View
           const debugObj = {
-             iteration: iterationInfo,
-             timestamp: new Date().toISOString(),
-             promptText: prompt,
-             images: imagePayload.map((img, i) => {
-                let label = "Unknown";
-                if (i === 0) label = "Target (Goal)";
-                else if (i === imagePayload.length - 1) label = "Current Render";
-                else label = `History Frame ${i}`;
-                
-                return {
-                    index: i + 1,
-                    role: label,
-                    dataLength: img.length,
-                    mimeType: "image/png",
-                    data: img // FULL DATA INCLUDED
-                };
-             }),
-             response: null 
+            iteration: iterationInfo,
+            currentDiffScore: diffDisplayVal + "%",
+            timestamp: new Date().toISOString(),
+            promptText: prompt,
+            images: imagePayload.map((img, i) => {
+              let label = "Unknown";
+              if (i === 0) label = "Target (Bordered)";
+              else if (i === imagePayload.length - 1)
+                label = "Current Render (Raw)";
+              else label = `History Frame ${i}`;
+              return {
+                index: i + 1,
+                role: label,
+                dataLength: img.length,
+                mimeType: "image/png",
+                data: img,
+              };
+            }),
+            response: null,
           };
 
-          state.debugData.jsonStructure = `// Iteration Info: ${iterationInfo}\n// History Length: ${state.history.length}\n// JSON Data to AI:\n${jsonString}`;
-          state.debugData.promptTemplate = `// Iteration Info: ${iterationInfo}\n// Prompt Template:\n${state.prompts.REPLICA_STRUCTURED}`;
+          state.debugData.jsonStructure = `// Iteration: ${iterationInfo}\n// Diff Score: ${diffDisplayVal}%\n\n// History Log:\n${historyLog}\n\n// JSON Data to AI:\n${jsonString}`;
+          state.debugData.promptTemplate = `// Iteration: ${iterationInfo}\n// Prompt Template:\n${state.prompts.REPLICA_STRUCTURED}`;
           state.debugData.fullPayload = JSON.stringify(debugObj, null, 2);
-          
+
           window.switchDebugTab(state.activeDebugTab);
 
-          els.debugSourceImg.src = `data:image/png;base64,${base64Source}`;
-          els.debugRenderImg.src = `data:image/png;base64,${base64Render}`;
+          // Display what we are actually diffing or sending?
+          // Let's display what we sent to AI to match the mental model.
+          els.debugSourceImg.src = `data:image/png;base64,${base64SourceBordered}`;
+          els.debugRenderImg.src = `data:image/png;base64,${base64RenderRaw}`;
 
+          // 6. Execute AI Query
           els.aiStatus.textContent = `${iterationInfo} Thinking...`;
           const resultJsonStr = await queryGemini(prompt, imagePayload);
-          
+
           const updates = JSON.parse(resultJsonStr);
-          
+
           debugObj.response = updates;
           state.debugData.fullPayload = JSON.stringify(debugObj, null, 2);
-          
+
           const responseLog = `\n\n// AI Response:\n${JSON.stringify(updates, null, 2)}`;
           state.debugData.jsonStructure += responseLog;
 
-          // Re-render current tab content
           window.switchDebugTab(state.activeDebugTab);
 
           const appliedCount = applyStyleUpdates(updates);
-          console.log(`[${iterationInfo}] Applied styles to ${appliedCount} elements.`);
+          console.log(
+            `[${iterationInfo}] Applied styles to ${appliedCount} elements.`,
+          );
 
-          state.history.push(base64HistoryThumb);
+          state.history.push({
+            image: base64HistoryThumb,
+            structure: structure,
+            score: diffScore,
+          });
 
-          return true; 
-
+          return true;
         } catch (e) {
           console.error(e);
-          if (state.activeDebugTab !== 'fullPayload') {
-             els.overlayHtmlInput.value += `\n// Error: ${e.message}`;
+          if (state.activeDebugTab !== "fullPayload") {
+            els.overlayHtmlInput.value += `\n// Error: ${e.message}`;
           } else {
-             els.visualViewer.innerHTML += `<div class="text-red-500 mt-4">Error: ${e.message}</div>`;
+            els.visualViewer.innerHTML += `<div class="text-red-500 mt-4">Error: ${e.message}</div>`;
           }
-          return false; 
+          return false;
         }
       }
 
       async function runLoop() {
-         const count = parseInt(els.loopInput.value) || 1;
-         els.runButton.disabled = true;
-         els.runButton.classList.add('opacity-50', 'cursor-not-allowed');
+        const count = parseInt(els.loopInput.value) || 1;
+        els.runButton.disabled = true;
+        els.runButton.classList.add("opacity-50", "cursor-not-allowed");
 
-         state.history = [];
+        state.history = []; // Clear history on new run
 
-         for (let i = 1; i <= count; i++) {
-             const success = await runAiReplicaSingle(`Run ${i}/${count}`);
-             if (!success) break; 
-         }
+        for (let i = 1; i <= count; i++) {
+          const success = await runAiReplicaSingle(`Run ${i}/${count}`);
+          if (!success) break;
+        }
 
-         els.aiStatus.textContent = "All Done!";
-         setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
-         els.runButton.disabled = false;
-         els.runButton.classList.remove('opacity-50', 'cursor-not-allowed');
+        els.aiStatus.textContent = "All Done!";
+        setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
+        els.runButton.disabled = false;
+        els.runButton.classList.remove("opacity-50", "cursor-not-allowed");
       }
 
       function initializeTestbed() {
@@ -671,44 +1014,50 @@ Respond ONLY with valid JSON.`,
           els.overlayWrapper.style.height = baseH + "px";
 
           els.overlayHtmlLayer.innerHTML = INITIAL_HTML_CONTENT;
-          
+
           els.pdfLoader.classList.add("hidden");
           els.runButton.addEventListener("click", runLoop);
-          
+
           els.fullscreenBtn.addEventListener("click", () => {
-             if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen();
-             } else {
-                if (document.exitFullscreen) {
-                   document.exitFullscreen();
-                }
-             }
+            if (!document.fullscreenElement) {
+              document.documentElement.requestFullscreen();
+            } else {
+              if (document.exitFullscreen) {
+                document.exitFullscreen();
+              }
+            }
           });
 
-          // Copy Button Logic (Modified to always grab raw state for fullPayload)
           els.copyDebugBtn.addEventListener("click", () => {
-             if (state.activeDebugTab === 'fullPayload') {
-                 // Copy the raw JSON state, not the visual HTML
-                 navigator.clipboard.writeText(state.debugData.fullPayload).then(() => {
-                    const originalText = els.copyDebugBtn.innerHTML;
-                    els.copyDebugBtn.innerHTML = `<span class="text-green-400">Copied!</span>`;
-                    setTimeout(() => els.copyDebugBtn.innerHTML = originalText, 1500);
-                 });
-             } else {
-                 // Standard text area copy
-                 els.overlayHtmlInput.select();
-                 document.execCommand('copy');
-                 const originalText = els.copyDebugBtn.innerHTML;
-                 els.copyDebugBtn.innerHTML = `<span class="text-green-400">Copied!</span>`;
-                 setTimeout(() => els.copyDebugBtn.innerHTML = originalText, 1500);
-             }
+            if (state.activeDebugTab === "fullPayload") {
+              navigator.clipboard
+                .writeText(state.debugData.fullPayload)
+                .then(() => {
+                  const originalText = els.copyDebugBtn.innerHTML;
+                  els.copyDebugBtn.innerHTML = `<span class="text-green-400">Copied!</span>`;
+                  setTimeout(
+                    () => (els.copyDebugBtn.innerHTML = originalText),
+                    1500,
+                  );
+                });
+            } else {
+              els.overlayHtmlInput.select();
+              document.execCommand("copy");
+              const originalText = els.copyDebugBtn.innerHTML;
+              els.copyDebugBtn.innerHTML = `<span class="text-green-400">Copied!</span>`;
+              setTimeout(
+                () => (els.copyDebugBtn.innerHTML = originalText),
+                1500,
+              );
+            }
           });
         };
 
         img.onerror = function () {
-          els.pdfLoader.children[1].textContent = "Failed to load sample image.";
+          els.pdfLoader.children[1].textContent =
+            "Failed to load sample image.";
         };
-        img.src = DEFAULT_IMAGE_URL; 
+        img.src = DEFAULT_IMAGE_URL;
       }
 
       window.onload = initializeTestbed;
