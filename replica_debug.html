@@ -121,6 +121,7 @@
       const SAMPLE_URL = "https://lsparrish.github.io/sciconvert/sample.png";
       const TEST_ID = "div-test-block";
       const AI_SCALE = 2.0;
+      let img; // Declare img globally to be accessible everywhere
 
       // Initial Content
       const INITIAL_HTML = `<div id="${TEST_ID}" style="position: absolute; left: 4.92%; top: 2.34%; width: 88.80%; height: 26.53%; background: rgba(255,255,255,0.7); padding: 0px; margin: 0px; "> 
@@ -156,9 +157,10 @@ and shown to be economically feasible and beneficial.</p></div>`;
 Goal: Issue commands to align Render to Target.
 
 COMMANDS (Array of objects):
-- Move Actions: "moveUp", "moveDown", "moveLeft", "moveRight", "grow", "shrink"
-- Font Settings: "setFontName", "setFontWeight", "setFontFamily"
-- Coefficient: 0.10 (tiny) to 5.00 (huge). 1.00 ~= 1em.
+- Move Actions: "moveUp", "moveDown", "moveLeft", "moveRight"
+- Size Actions: "grow", "shrink"
+- Font Settings: "setFontFamily" (Value: CSS font-family string), "setFontWeight" (Value: "bold", "normal", or number), "setFontSize" (Value: coefficient)
+- Coefficient: 0.10 (tiny) to 5.00 (huge). 1.00 ~= 1em for size.
 
 INPUT:
 History Scores: {{history}}
@@ -167,7 +169,8 @@ Structure (IDs, Text, Current Styles):
 
 INSTRUCTIONS:
 Return JSON object { "element-id": [ { "action": "moveUp", "coefficient": 0.50 } ] }
-Always use 2 decimal points (hundredths) for precision.
+Always use 2 decimal points (hundredths) for precision for coefficients.
+For font actions, provide the string or number value directly (no coefficient).
 Only include elements needing change. Use the "currentStyles" in the structure to inform your decision.`,
       };
 
@@ -271,16 +274,24 @@ Only include elements needing change. Use the "currentStyles" in the structure t
 
         return Array.from(div.children)
           .filter((el) => el.innerText.trim().length > 0)
-          .map((el) => ({
-            id: el.id,
-            tag: el.tagName.toLowerCase(),
-            text: el.innerText.substring(0, 30),
-            currentStyles: {
-              top: el.style.top || "0em",
-              left: el.style.left || "0em",
-              fontSize: el.style.fontSize || "1.0em",
-            },
-          }));
+          .map((el) => {
+            // Get current styles for the AI to reference
+            const computedStyle = window.getComputedStyle(el);
+
+            return {
+              id: el.id,
+              tag: el.tagName.toLowerCase(),
+              text: el.innerText.substring(0, 30),
+              currentStyles: {
+                top: el.style.top || "0em",
+                left: el.style.left || "0em",
+                fontSize: el.style.fontSize || "1.0em",
+                // New font properties from inline style or computed style
+                fontFamily: el.style.fontFamily || computedStyle.fontFamily,
+                fontWeight: el.style.fontWeight || computedStyle.fontWeight,
+              },
+            };
+          });
       }
 
       function applyCommands(updates) {
@@ -297,12 +308,30 @@ Only include elements needing change. Use the "currentStyles" in the structure t
 
           cmds.forEach((c) => {
             const v = parseFloat(c.coefficient) || 0;
+
+            // Movement and Sizing actions
             if (c.action === "moveUp") top -= v;
             if (c.action === "moveDown") top += v;
             if (c.action === "moveLeft") left -= v;
             if (c.action === "moveRight") left += v;
             if (c.action === "grow") size += v;
             if (c.action === "shrink") size = Math.max(0.1, size - v);
+
+            // Font actions (using value/string instead of coefficient)
+            if (c.action === "setFontFamily" && c.value) {
+              el.style.fontFamily = String(c.value);
+            }
+            if (c.action === "setFontWeight" && c.value) {
+              // Ensure value is a valid string (like 'bold', 'normal') or a number (like 700)
+              el.style.fontWeight = String(c.value);
+            }
+            // setFontSize is handled by grow/shrink, but we can add a direct setter for completeness
+            if (c.action === "setFontSize" && c.value) {
+              const s = parseFloat(c.value);
+              if (!isNaN(s)) {
+                el.style.fontSize = s.toFixed(2) + "em";
+              }
+            }
           });
 
           // Apply the calculated styles to the live DOM element
@@ -331,8 +360,8 @@ Only include elements needing change. Use the "currentStyles" in the structure t
         // 1. Draw the static target image (background).
         rendCtx.drawImage(targetCan, 0, 0);
 
-        // 2. Overlay the captured HTML content, which is now ALIGNED to (0, 0).
-        // No offsets required here!
+        // 2. Overlay the captured HTML content, which is now ALIGNED to (0, 0)
+        // due to the html2canvas fix.
         rendCtx.drawImage(htmlCan, 0, 0);
 
         return rendCan;
@@ -534,6 +563,51 @@ Only include elements needing change. Use the "currentStyles" in the structure t
         return { parts, payloadObj };
       }
 
+      /**
+       * Unifies the logic for capturing the fixed Target, capturing the current Render state,
+       * and generating the payload/prompt for the AI.
+       * @param {HTMLImageElement} originalImage The full background image (img).
+       * @param {boolean} isInitialRun Whether to set the fixed state.targetAI image.
+       * @param {string} iterLabel The current iteration label for logging/debugging.
+       * @returns {Promise<void>}
+       */
+      async function updateAIImagesAndPayload(
+        originalImage,
+        isInitialRun,
+        iterLabel,
+      ) {
+        const divEl = document.getElementById(TEST_ID);
+        if (!divEl) {
+          console.error("div-test-block not found in DOM.");
+          return;
+        }
+        const rect = getRect(TEST_ID);
+
+        // 1. INITIAL TARGET AI SETUP (Only run once)
+        if (isInitialRun) {
+          const srcCan = cropAndScale(rect, AI_SCALE, originalImage);
+          state.targetAI.width = srcCan.width;
+          state.targetAI.height = srcCan.height;
+          state.targetAI.getContext("2d").drawImage(srcCan, 0, 0);
+        }
+
+        // 2. CAPTURE RENDER IMAGE
+        // CRITICAL FIX: Use only scaled width/height, which causes html2canvas to capture the
+        // content aligned to (0, 0) of the resulting canvas.
+        const htmlLayerCan = await html2canvas(divEl, {
+          scale: AI_SCALE,
+          backgroundColor: null,
+          width: rect.w * AI_SCALE,
+          height: rect.h * AI_SCALE,
+        });
+
+        // B. Combine Target background and captured HTML into the final Render canvas
+        const renderCan = createCombinedRender(state.targetAI, htmlLayerCan);
+
+        // 3. Generate the prompt and payload
+        preparePayloadAndPrompt(state.targetAI, renderCan, iterLabel);
+      }
+
       // --- Main Loop ---
 
       async function runIteration(iter) {
@@ -547,27 +621,14 @@ Only include elements needing change. Use the "currentStyles" in the structure t
         els.status.textContent = `${iter} Capturing...`;
         els.status.style.display = "inline";
 
+        // 1. CAPTURE AND PREPARE IMAGES/PAYLOAD (using the unified function)
+        await updateAIImagesAndPayload(img, false, iter);
+
         const rect = getRect(TEST_ID);
-        const srcCan = state.targetAI; // Fixed Target image
+        const srcCan = state.targetAI;
+        const rendCan = state.renderAI;
 
-        // 2. Capture and Prepare Render Image for AI
-        els.status.textContent = `${iter} Capturing Render...`;
-
-        // A. CRITICAL CHANGE: Capture the HTML content using the rect's screen coordinates.
-        // This ensures the captured canvas is ALIGNED to the cropped target image.
-        const htmlLayerCan = await html2canvas(divEl, {
-          scale: AI_SCALE,
-          backgroundColor: null,
-          x: rect.x,
-          y: rect.y,
-          width: rect.w,
-          height: rect.h,
-        });
-
-        // B. Combine the Target background and the captured HTML into the final Render canvas
-        const rendCan = createCombinedRender(srcCan, htmlLayerCan);
-
-        // 3. Update the User Viewer (Display the final AI-processed image)
+        // 2. Update the User Viewer (Display the final AI-processed image)
 
         // A. Redraw the full background image (img) onto the viewCanvas
         state.viewCtx.drawImage(
@@ -592,13 +653,13 @@ Only include elements needing change. Use the "currentStyles" in the structure t
           rect.h, // Destination: back to the 1x rect location
         );
 
-        // 4. Diff & History
+        // 3. Diff & History
         const srcB64 = srcCan.toDataURL().split(",")[1];
         const rendB64 = rendCan.toDataURL().split(",")[1];
         const score = await getDiff(srcB64, rendB64);
         state.history.push((score * 100).toFixed(2) + "%");
 
-        // 5. Prompt & Payload (New helper function)
+        // 4. Prompt & Payload (Retrieve the pre-generated payload)
         const { parts, payloadObj } = preparePayloadAndPrompt(
           srcCan,
           rendCan,
@@ -609,7 +670,7 @@ Only include elements needing change. Use the "currentStyles" in the structure t
 
         if (state.currTab !== "html") window.setTab(state.currTab); // refresh view
 
-        // 6. AI Call
+        // 5. AI Call
         els.status.textContent = `${iter} Thinking...`;
         let logEntry = {
           iter,
@@ -653,33 +714,12 @@ Only include elements needing change. Use the "currentStyles" in the structure t
           if (state.currTab === "response") window.setTab("response");
 
           // --- Prepare Payload for the NEXT iteration ---
-          const nextRect = getRect(TEST_ID);
-
-          // 1. Recapture the current rendered HTML content (the result of the last command)
-          const htmlLayerCan = await html2canvas(divEl, {
-            scale: AI_SCALE,
-            backgroundColor: null,
-            x: nextRect.x,
-            y: nextRect.y,
-            width: nextRect.w,
-            height: nextRect.h,
-          });
-
-          // 2. Combine with the static target to get the *next* render image state
-          const nextRenderCan = createCombinedRender(
-            state.targetAI,
-            htmlLayerCan,
-          );
-
-          // 3. Update the state for the *next* prompt/payload
-          preparePayloadAndPrompt(
-            state.targetAI,
-            nextRenderCan,
+          // Call the unified function to prepare the next target/render images for the AI
+          await updateAIImagesAndPayload(
+            img,
+            false,
             `Pre-Run ${state.aiLog.length + 1}`,
           );
-          if (state.currTab === "payload" || state.currTab === "prompt")
-            window.setTab(state.currTab);
-          // ----------------------------------------------------
         }
       }
 
@@ -722,7 +762,7 @@ Only include elements needing change. Use the "currentStyles" in the structure t
         delimiters: [{ left: "$$", right: "$$", display: true }],
       });
 
-      const img = new Image();
+      img = new Image(); // Assign to the global img variable
       img.crossOrigin = "anonymous";
       img.onload = async () => {
         // 1. Set the size of the *container* and the *viewer canvas*
@@ -742,38 +782,8 @@ Only include elements needing change. Use the "currentStyles" in the structure t
           state.viewCanvas.height,
         );
 
-        // 4. INITIAL TARGET AI SETUP: Set the fixed Target snippet on the dedicated canvas
-        const rect = getRect(TEST_ID);
-        const srcCan = cropAndScale(rect, AI_SCALE, img);
-        state.targetAI.width = srcCan.width;
-        state.targetAI.height = srcCan.height;
-        state.targetAI.getContext("2d").drawImage(srcCan, 0, 0);
-
-        // 5. Generate the initial Render canvas and populate the payload view
-
-        // Capture the initial HTML, cropped to the rect area
-        const htmlLayerCan = await html2canvas(divEl, {
-          scale: AI_SCALE,
-          backgroundColor: null,
-          x: rect.x,
-          y: rect.y,
-          width: rect.w,
-          height: rect.h,
-        });
-
-        // Combine to get the initial render image state
-        const initialRenderCan = createCombinedRender(
-          state.targetAI,
-          htmlLayerCan,
-        );
-
-        // Generate the initial prompt and payload
-        preparePayloadAndPrompt(state.targetAI, initialRenderCan, "Initial");
-
-        // If the user starts on the payload tab, update it.
-        if (state.currTab === "payload" || state.currTab === "prompt") {
-          window.setTab(state.currTab);
-        }
+        // 4. Run the unified setup function (Setting isInitialRun to true)
+        await updateAIImagesAndPayload(img, true, "Initial");
       };
       img.onerror = () => {
         console.error("Image failed to load");
