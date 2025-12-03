@@ -173,15 +173,7 @@
           class="bg-gray-800 p-2 text-white font-bold text-center flex justify-between items-center"
         >
           <span>Visual Test Area</span>
-          <label class="text-xs flex items-center gap-1 cursor-pointer">
-            <input
-              type="checkbox"
-              id="chk-auto-align"
-              checked
-              class="rounded text-purple-500 focus:ring-purple-500"
-            />
-            Auto-Align
-          </label>
+          <!-- Removed Auto-Align Checkbox -->
         </div>
         <div
           id="overlay-scroller"
@@ -213,39 +205,6 @@
         id="debug-panel"
         class="w-1/2 h-full flex flex-col bg-gray-900 overflow-hidden"
       >
-        <div class="bg-gray-800 p-2 text-white font-bold text-center shrink-0">
-          AI Input/Output (Structured)
-        </div>
-        <div
-          id="debug-vision-content"
-          class="flex-shrink-0 flex justify-space-evenly gap-4 p-4 border-b border-gray-800"
-        >
-          <div class="flex-shrink-0 w-1/2 flex flex-col items-center">
-            <span class="text-xs font-bold text-yellow-300 mb-2">
-              TARGET (Source)
-            </span>
-            <img
-              id="debug-source-img"
-              class="max-w-full h-auto object-contain border border-gray-700 rounded-md"
-            />
-          </div>
-          <div class="flex-shrink-0 w-1/2 flex flex-col items-center">
-            <span class="text-xs font-bold text-blue-300 mb-2">
-              TEST RENDER
-            </span>
-            <img
-              id="debug-render-img"
-              class="max-w-full h-auto object-contain border border-gray-700 rounded-md"
-            />
-            <div
-              id="diff-score-display"
-              class="mt-2 text-xs font-mono font-bold text-red-400"
-            >
-              Diff Score: <span id="diff-value">--</span>
-            </div>
-          </div>
-        </div>
-
         <!-- Debug Tabs -->
         <div
           class="flex justify-between border-b border-gray-700 bg-gray-900 px-2 pt-2 items-end"
@@ -256,21 +215,28 @@
               class="debug-tab active"
               onclick="switchDebugTab('jsonStructure')"
             >
-              jsonStructure
+              HTML Div
+            </button>
+            <button
+              id="tab-latestPrompt"
+              class="debug-tab"
+              onclick="switchDebugTab('latestPrompt')"
+            >
+              Prompt Text
             </button>
             <button
               id="tab-promptTemplate"
               class="debug-tab"
               onclick="switchDebugTab('promptTemplate')"
             >
-              promptTemplate
+              Prompt Template
             </button>
             <button
               id="tab-fullPayload"
               class="debug-tab"
               onclick="switchDebugTab('fullPayload')"
             >
-              fullPayload
+              Full Payload
             </button>
           </div>
           <!-- Copy Button -->
@@ -296,7 +262,7 @@
         </div>
 
         <div class="flex-1 flex flex-col overflow-hidden bg-gray-950 relative">
-          <!-- Raw Text Editor (For JSON/Prompt) -->
+          <!-- Raw Text Editor (For JSON/Prompt/HTML) -->
           <textarea
             id="overlay-html-input"
             class="editor-textarea flex-1 w-full h-full p-4 outline-none text-green-400 bg-gray-950 text-xs border-none resize-none"
@@ -333,10 +299,11 @@
       const DEFAULT_IMAGE_URL =
         "https://lsparrish.github.io/sciconvert/sample.png";
       const TEST_DIV_ID = "div-1764643541094";
+      const AI_IMAGE_SCALE = 2.0;
 
       // Hardcoded initial content (do not change)
       const INITIAL_HTML_CONTENT = `
-<div id="${TEST_DIV_ID}" style="position: static; left: 4.92%; top: 2.34%; width: 88.80%; height: 26.53%; background: rgba(255,255,255,0.7); padding: 0px; margin: 0px; ">
+<div id="${TEST_DIV_ID}" style="position: relative; left: 4.92%; top: 2.34%; width: 88.80%; height: 26.53%; background: rgba(255,255,255,0.7); padding: 0px; margin: 0px; ">
 <p>Journal of the British Interplanetary Society, Vol. 36, pp. 115-128, 1983.</p><p>ORBITAL RING SYSTEMS AND JACOB'S LADDERS - II</p><p>PAUL BIRCH*</p><p>45, Brownville Road, Heaton Moor, Stockport, England.</p><p>A method of transferring payloads into space without using rockets has been presented in Part I, in which massive rings encircle the globe in a low orbit supporting stationary 'sky-hooks,' from which cables hang down to any point on the Earth's surface. Vehicles can climb up these 'ladders' into orbit, or can accelerate along the rings. The structure and deployment of such Orbital Ring Systems is examined and their varied uses considered; several scenarios are considered and shown to be economically feasible and beneficial.</p> 
 </div>`;
 
@@ -354,7 +321,8 @@
 
         // Debug Data Store
         debugData: {
-          jsonStructure: "// Ready to run.",
+          jsonStructure: "", // NOW UNUSED for log data
+          latestPrompt: "// No prompt generated yet.", // NEW
           promptTemplate: "// No prompt generated yet.",
           fullPayload: '{ "status": "No request made yet." }',
         },
@@ -363,35 +331,46 @@
         // The structured prompt
         prompts: {
           REPLICA_STRUCTURED: `Analyze the visual difference between the "Target Image" and "Current Render".
-The goal is to minimize the "Diff Score" (visual difference).
+The goal is to minimize the "Local Diff Score" (visual difference).
 
 **CRITICAL CONTEXT:**
-1. **Target Image**: Has a RED BORDER. This defines the frame of reference.
-2. **Current Render**: Is mechanically aligned to the top-left of the Target.
-3. **Problem**: The internal spacing (vertical gaps) is wrong. The second line might be too low or high.
+1. **Target Image**: Has a RED BORDER. This defines the exact crop boundary.
+2. **Current Render**: ALSO has a RED BORDER.
+3. **Alignment**: The RED BORDERS in both images represent the EXACT SAME coordinate space. You must align the text INSIDE the Render's border to match the text INSIDE the Target's border.
+
 
 **Instructions:**
-- Look at the RED BORDER on the Target. It tells you the scale.
-- Compare the vertical distance between the first line of text and the second line in both images.
-- Adjust 'top' to fix the vertical gaps.
-- Adjust 'left' to fix the position of the first letter.
-- Adjust 'font-size' and 'letter-spacing' to match the width.
+- Use the RED BORDER as your absolute frame of reference.
+- Compare the vertical distance (**top**) of the first line from the top red edge.
+- Compare the horizontal distance (**left**) of the text from the left red edge.
+- Adjust 'top', 'left', 'font-size', and 'letter-spacing' to make the content match.
 - Use relative 'em' values assuming 14px as the original size.
 - Use 2 decimal point values e.g. 1.53em NOT 1.5em.
 
 History of attempts:
 {{historyData}}
 
-Input Data (Current CSS State):
+Input Data (Current CSS State, including per-block scores):
 {{jsonStructure}}
 
-Instructions:
-1. Generate NEW CSS adjustments to drive the Diff Score closer to 0.
-2. Return JSON object with style updates.
 
-Example:
+localDifScore should be incremented by 0.10 if the text is covering the wrong element or a blank area.
+
+Instructions:
+1. Identify the block(s) with the highest 'localDiffScore'.
+2. Generate NEW CSS adjustments for those blocks to drive the localDiffScore closer to 0.
+3. If you need to insert an HR separator element (which is missing in the HTML but visible in the Target Image) after a specific element, include the special key "__insert_after__" in your JSON response.
+
+Example of Style Update Only:
+{ "el-123": { "position": "relative", "font-size": "1.11em", "top": "0.53em" } }
+
+Example of Style Update AND HR Insertion:
 {
-  "el-123": { "font-size": "1.11em", "top": "0.53em" }
+  "el-123": { "position": "relative", "font-size": "1.11em", "top": "0.53em" },
+  "__insert_after__": {
+    "targetId": "el-123",
+    "html": "<hr style='position:relative; top: 0.10em; left: 0%; width: 100%; border-top: 1px solid black; margin: 0.5em 0;' id='hr-123'>"
+  }
 }
 
 Respond ONLY with valid JSON.`,
@@ -410,15 +389,14 @@ Respond ONLY with valid JSON.`,
         copyDebugBtn: document.getElementById("copy-debug-btn"),
         aiStatus: document.getElementById("ai-status"),
         pdfLoader: document.getElementById("pdf-loader"),
-        debugSourceImg: document.getElementById("debug-source-img"),
-        debugRenderImg: document.getElementById("debug-render-img"),
-        diffValue: document.getElementById("diff-value"),
+        // Removed: debugSourceImg, debugRenderImg, diffValue
         tabJson: document.getElementById("tab-jsonStructure"),
         tabPrompt: document.getElementById("tab-promptTemplate"),
         tabFull: document.getElementById("tab-fullPayload"),
+        tabLatest: document.getElementById("tab-latestPrompt"),
         imageModal: document.getElementById("image-modal"),
         modalImg: document.getElementById("modal-img"),
-        chkAutoAlign: document.getElementById("chk-auto-align"),
+        // Removed chkAutoAlign
       };
 
       // Modal Helper
@@ -478,22 +456,42 @@ Respond ONLY with valid JSON.`,
         els.tabJson.classList.remove("active");
         els.tabPrompt.classList.remove("active");
         els.tabFull.classList.remove("active");
+        els.tabLatest.classList.remove("active");
 
         if (tabName === "jsonStructure") els.tabJson.classList.add("active");
         if (tabName === "promptTemplate") els.tabPrompt.classList.add("active");
         if (tabName === "fullPayload") els.tabFull.classList.add("active");
+        if (tabName === "latestPrompt") els.tabLatest.classList.add("active");
 
         // Logic to switch between Textarea and Visual Div
         if (tabName === "fullPayload") {
           els.overlayHtmlInput.classList.add("hidden");
           els.visualViewer.classList.remove("hidden");
           renderVisualPayload(state.debugData.fullPayload);
+        } else if (tabName === "jsonStructure") {
+          // SHOW LIVE HTML (Raw)
+          els.visualViewer.classList.add("hidden");
+          els.overlayHtmlInput.classList.remove("hidden");
+          // Add some newlines for readability of block elements
+          let formatted = els.overlayHtmlLayer.innerHTML;
+          formatted = formatted
+            .replace(/<\/div>/g, "</div>\n")
+            .replace(/<br>/g, "<br>\n");
+          els.overlayHtmlInput.value = formatted;
         } else {
           els.visualViewer.classList.add("hidden");
           els.overlayHtmlInput.classList.remove("hidden");
           els.overlayHtmlInput.value = state.debugData[tabName] || "";
         }
       };
+
+      // NEW: Enable editing of HTML from the textarea
+      els.overlayHtmlInput.addEventListener("input", () => {
+        if (state.activeDebugTab === "jsonStructure") {
+          els.overlayHtmlLayer.innerHTML = els.overlayHtmlInput.value;
+          updateOverlayPreview();
+        }
+      });
 
       function updateOverlayPreview(content = null) {
         renderMathInElement(els.overlayHtmlLayer, {
@@ -505,7 +503,7 @@ Respond ONLY with valid JSON.`,
         });
       }
 
-      // --- Ink Detection & Auto-Align Helpers ---
+      // --- Image Snippet Helpers ---
 
       function extractCanvasSnippet(pixelRect, outputScale = 1.0) {
         const tempCanvas = document.createElement("canvas");
@@ -535,7 +533,6 @@ Respond ONLY with valid JSON.`,
       function addSimpleBorder(canvas) {
         const w = canvas.width;
         const h = canvas.height;
-        // Create a copy to avoid polluting the original if needed elsewhere (though here we can just modify)
         const borderedCanvas = document.createElement("canvas");
         borderedCanvas.width = w;
         borderedCanvas.height = h;
@@ -549,54 +546,6 @@ Respond ONLY with valid JSON.`,
         ctx.strokeRect(0, 0, w, h);
 
         return borderedCanvas;
-      }
-
-      /**
-       * Scans the canvas to find the bounding box of non-white pixels (ink).
-       * Returns normalized coordinates (0.0 - 1.0) relative to canvas size.
-       */
-      function getInkBounds(canvas) {
-        const w = canvas.width;
-        const h = canvas.height;
-        const ctx = canvas.getContext("2d");
-        const data = ctx.getImageData(0, 0, w, h).data;
-
-        let minX = w,
-          minY = h,
-          maxX = 0,
-          maxY = 0;
-        const THRESHOLD = 240; // White threshold
-
-        let found = false;
-
-        for (let y = 0; y < h; y++) {
-          for (let x = 0; x < w; x++) {
-            const idx = (y * w + x) * 4;
-            const r = data[idx];
-            const g = data[idx + 1];
-            const b = data[idx + 2];
-
-            // If pixel is darker than threshold
-            if (r < THRESHOLD || g < THRESHOLD || b < THRESHOLD) {
-              if (x < minX) minX = x;
-              if (x > maxX) maxX = x;
-              if (y < minY) minY = y;
-              if (y > maxY) maxY = y;
-              found = true;
-            }
-          }
-        }
-
-        if (!found) return null;
-
-        return {
-          x: minX,
-          y: minY,
-          w: maxX - minX,
-          h: maxY - minY,
-          pixelX: minX,
-          pixelY: minY,
-        };
       }
 
       function getSnippetCanvasFromDiv(divId, imageScale = 1.0) {
@@ -657,66 +606,251 @@ Respond ONLY with valid JSON.`,
 
             const totalPixels = w * h;
             const maxDiff = totalPixels * 765;
+            // Normalize score to 0.0 - 1.0 range
             const score = diff / maxDiff;
             resolve(score);
           }
         });
       }
 
-      // --- Structured Data Helpers ---
+      // --- Formatting Helper for CSS Values ---
+      /**
+       * Formats a numeric CSS value (e.g., "1.5345em") to have exactly two decimal places.
+       */
+      function formatNumericStyleValue(value) {
+        if (typeof value !== "string") return value;
+        // Regex to match the number part and the unit part
+        const match = value.match(/([0-9\.-]+)(.*)/);
+        if (match) {
+          const number = parseFloat(match[1]);
+          const unit = match[2];
+          // Ensure number is formatted to 2 decimal places
+          return number.toFixed(2) + unit;
+        }
+        return value; // Return as-is if no number is found (e.g., 'relative', 'bold')
+      }
+
+      // --- Per-Block Analysis Helpers ---
 
       function prepareDomForAnalysis(divId) {
         const div = document.getElementById(divId);
         if (!div) return;
-        let spanCount = 0;
-        function processNode(node) {
-          if (node.nodeType === 3) {
-            // Text Node
-            if (node.textContent.trim().length > 0) {
-              const span = document.createElement("span");
-              span.id = `seg-${Date.now()}-${spanCount++}`;
-              span.textContent = node.textContent;
-              node.replaceWith(span);
+        let blkCount = 0;
+
+        // Helper to ensure elements have IDs
+        function ensureIds(node) {
+          if (node.nodeType === 1) {
+            // Element Node
+            if (!node.id) {
+              node.id = `blk-${Date.now()}-${blkCount++}`;
             }
-          } else if (node.nodeType === 1) {
-            // Element
-            if (!node.id) node.id = `blk-${Date.now()}-${spanCount++}`;
-            Array.from(node.childNodes).forEach(processNode);
+            // Recursively check children
+            Array.from(node.children).forEach(ensureIds);
           }
         }
-        Array.from(div.childNodes).forEach(processNode);
+
+        // Ensure IDs on the main container's direct children (the blocks we want to score)
+        Array.from(div.children).forEach(ensureIds);
         return div;
       }
 
-      function getStructureJson(divId) {
-        const div = document.getElementById(divId);
-        const elements = div.querySelectorAll("*");
-        const structure = [];
-        elements.forEach((el) => {
-          if (el.innerText && el.innerText.trim().length > 0) {
-            const styles = {};
-            if (el.style.fontSize) styles.fontSize = el.style.fontSize;
-            if (el.style.fontWeight) styles.fontWeight = el.style.fontWeight;
-            if (el.style.fontStyle) styles.fontStyle = el.style.fontStyle;
-            if (el.style.textAlign) styles.textAlign = el.style.textAlign;
-            if (el.style.lineHeight) styles.lineHeight = el.style.lineHeight;
-            if (el.style.top) styles.top = el.style.top;
-            if (el.style.left) styles.left = el.style.left;
-            if (el.style.position) styles.position = el.style.position;
-            if (el.style.marginBottom)
-              styles.marginBottom = el.style.marginBottom;
+      /**
+       * Captures the rendered image of a single element relative to its container's top-left.
+       */
+      async function captureElementRender(element, containerId, scale) {
+        const container = document.getElementById(containerId);
+        if (!container) return null;
 
-            structure.push({
-              id: el.id,
-              tag: el.tagName.toLowerCase(),
-              text:
-                el.innerText.substring(0, 30) +
-                (el.innerText.length > 30 ? "..." : ""),
-              currentStyles: styles,
-            });
+        // Temporarily move the element to a separate hidden container to capture its isolated render
+        const tempWrapper = document.createElement("div");
+        tempWrapper.style.position = "absolute";
+        tempWrapper.style.left = "-9999px"; // Hide off-screen
+        document.body.appendChild(tempWrapper);
+
+        const clonedElement = element.cloneNode(true);
+        // Set a fixed position relative to the container for clean capture
+        clonedElement.style.position = "relative";
+        clonedElement.style.top = "0";
+        clonedElement.style.left = "0";
+        tempWrapper.appendChild(clonedElement);
+
+        try {
+          const canvas = await html2canvas(clonedElement, {
+            backgroundColor: "#ffffff",
+            scale: scale,
+            logging: false,
+            useCORS: true,
+            allowTaint: true,
+            // Ensure only the cloned element's content is captured
+            width: clonedElement.offsetWidth,
+            height: clonedElement.offsetHeight,
+          });
+
+          const base64 = canvas.toDataURL("image/png").split(",")[1];
+          return base64;
+        } finally {
+          tempWrapper.remove();
+        }
+      }
+
+      /**
+       * Gets the pixel rectangle of an element relative to the main canvas (PDF).
+       */
+      function getElementPixelRect(element, containerId) {
+        const container = document.getElementById(containerId);
+        if (!container) return null;
+
+        // 1. Get container's absolute percentage position on the page
+        const containerLeftPct = parseFloat(container.style.left) || 0;
+        const containerTopPct = parseFloat(container.style.top) || 0;
+        const containerWidthPct = parseFloat(container.style.width) || 0;
+        const containerHeightPct = parseFloat(container.style.height) || 0;
+
+        // 2. Get the element's position relative to the container using DOMRect
+        const elementRect = element.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+
+        // 3. Map element's client position back to canvas coordinates
+        const cw = els.theCanvas.width;
+        const ch = els.theCanvas.height;
+
+        // Pixel offset of the element inside the container
+        const offsetX = elementRect.left - containerRect.left;
+        const offsetY = elementRect.top - containerRect.top;
+
+        // Starting pixel coordinate on the canvas (PDF)
+        const startX = (containerLeftPct / 100) * cw + offsetX;
+        const startY = (containerTopPct / 100) * ch + offsetY;
+
+        // Dimensions (must be based on native element size, not scaled DOM size)
+        const width = elementRect.width;
+        const height = elementRect.height;
+
+        // Calculate the current visual scale factor (DOM pixels / Canvas pixels)
+        const visualScale =
+          containerRect.width / ((containerWidthPct / 100) * cw);
+
+        // Convert DOM pixels to PDF Canvas pixels
+        const pixelRect = {
+          x: Math.round(startX / visualScale),
+          y: Math.round(startY / visualScale),
+          width: Math.ceil(width / visualScale),
+          height: Math.ceil(height / visualScale),
+        };
+
+        // Guard against zero dimensions (empty elements or hidden)
+        if (pixelRect.width <= 0 || pixelRect.height <= 0) return null;
+
+        return pixelRect;
+      }
+
+      /**
+       * New asynchronous function to gather all per-block data.
+       */
+      async function getDetailedStructure(divId) {
+        const div = document.getElementById(divId);
+        if (!div) return [];
+
+        // 1. Ensure all elements have IDs
+        prepareDomForAnalysis(divId);
+
+        const structure = [];
+        const elements = Array.from(div.children); // Only target direct children for blocks
+
+        // Use Promise.all to handle parallel asynchronous operations
+        const results = await Promise.all(
+          elements.map(async (el) => {
+            const hasContent = el.innerText && el.innerText.trim().length > 0;
+            const isStructural = el.tagName.toLowerCase() === "hr";
+
+            if (hasContent || isStructural) {
+              const styles = {};
+              // Capture and format styles to 2 decimal places
+              if (el.style.fontSize)
+                styles.fontSize = formatNumericStyleValue(el.style.fontSize);
+              if (el.style.fontWeight) styles.fontWeight = el.style.fontWeight;
+              if (el.style.fontStyle)
+                styles.fontStyle = formatNumericStyleValue(el.style.fontStyle);
+              if (el.style.fontFamily) styles.fontFamily = el.style.fontFamily;
+              if (el.style.top)
+                styles.top = formatNumericStyleValue(el.style.top);
+              if (el.style.left)
+                styles.left = formatNumericStyleValue(el.style.left);
+              if (el.style.position) styles.position = el.style.position;
+
+              // --- Per-Block Image Capture and Diff ---
+              const pixelRect = getElementPixelRect(el, divId);
+
+              if (!pixelRect) {
+                console.warn(
+                  `Skipping element ${el.id}: zero dimensions or invalid position.`,
+                );
+                return null;
+              }
+
+              // Capture 1: Target (from PDF canvas)
+              const targetCanvas = extractCanvasSnippet(
+                pixelRect,
+                AI_IMAGE_SCALE,
+              );
+              const base64Target = targetCanvas
+                .toDataURL("image/png")
+                .split(",")[1];
+
+              // Capture 2: Render (from HTML element)
+              const base64Render = await captureElementRender(
+                el,
+                divId,
+                AI_IMAGE_SCALE,
+              );
+
+              // Calculate Diff Score
+              const localDiffScore = await calculateImageDiff(
+                base64Target,
+                base64Render,
+              );
+
+              return {
+                id: el.id,
+                tag: el.tagName.toLowerCase(),
+                text: hasContent
+                  ? el.innerText.substring(0, 30) +
+                    (el.innerText.length > 30 ? "..." : "")
+                  : `[${el.tagName.toUpperCase()} ELEMENT]`,
+                currentStyles: styles,
+                // Format score to 2 decimal places for input consistency
+                localDiffScore: parseFloat(localDiffScore.toFixed(2)),
+              };
+            }
+            return null;
+          }),
+        );
+
+        return results.filter((r) => r !== null);
+      }
+
+      /**
+       * Processes DOM mutation commands from the AI response before applying style updates.
+       * @param {Object} updates - The raw JSON object returned by the AI.
+       */
+      function processDomMutations(updates) {
+        let inserted = false;
+        if (updates.__insert_after__) {
+          const mutation = updates.__insert_after__;
+          const targetEl = document.getElementById(mutation.targetId);
+          if (targetEl && mutation.html) {
+            targetEl.insertAdjacentHTML("afterend", mutation.html);
+            // After insertion, delete the mutation key from the updates object
+            // so it doesn't try to apply styles to a non-style key.
+            delete updates.__insert_after__;
+            inserted = true;
+          } else if (!targetEl) {
+            console.error(
+              `DOM Mutation failed: targetId "${mutation.targetId}" not found.`,
+            );
           }
-        });
-        return structure;
+        }
+        return inserted;
       }
 
       function applyStyleUpdates(updates) {
@@ -784,9 +918,6 @@ Respond ONLY with valid JSON.`,
         const divId = state.targetDivId;
         if (!divId) return;
 
-        prepareDomForAnalysis(divId);
-
-        const AI_IMAGE_SCALE = 2.0;
         const HISTORY_SCALE = 0.5;
 
         const divEl = document.getElementById(divId);
@@ -795,8 +926,10 @@ Respond ONLY with valid JSON.`,
         els.aiStatus.style.display = "inline";
 
         try {
-          // 1. Initial Capture to check alignment
+          // 1. Capture Source Image (Full Div Snippet)
           let sourceCanvas = getSnippetCanvasFromDiv(divId, AI_IMAGE_SCALE);
+
+          // 2. Capture Render Image (Full Div Snippet)
           let renderCanvas = await html2canvas(divEl, {
             backgroundColor: "#ffffff",
             scale: AI_IMAGE_SCALE,
@@ -805,60 +938,16 @@ Respond ONLY with valid JSON.`,
             allowTaint: true,
           });
 
-          // --- AUTO-ALIGN LOGIC (The "Mechanical Crop/Fix") ---
-          if (els.chkAutoAlign.checked) {
-            const sourceInk = getInkBounds(sourceCanvas);
-            const renderInk = getInkBounds(renderCanvas);
+          // 3. Perform per-block analysis and generate JSON structure
+          els.aiStatus.textContent = `${iterationInfo} Analyzing Blocks...`;
+          const structure = await getDetailedStructure(divId);
+          const jsonString = JSON.stringify(structure, null, 2);
 
-            if (sourceInk && renderInk) {
-              const deltaX = sourceInk.pixelX - renderInk.pixelX;
-              const deltaY = sourceInk.pixelY - renderInk.pixelY;
-
-              const shiftXPct = (deltaX / sourceCanvas.width) * 100;
-              const shiftYPct = (deltaY / sourceCanvas.height) * 100;
-
-              const currentPadL = parseFloat(divEl.style.paddingLeft) || 0;
-              const currentPadT = parseFloat(divEl.style.paddingTop) || 0;
-
-              if (Math.abs(shiftXPct) > 0.1 || Math.abs(shiftYPct) > 0.1) {
-                divEl.style.paddingLeft = currentPadL + shiftXPct + "%";
-                divEl.style.paddingTop = currentPadT + shiftYPct + "%";
-
-                console.log(
-                  `[Auto-Align] Shifted: X=${shiftXPct.toFixed(2)}%, Y=${shiftYPct.toFixed(2)}%`,
-                );
-
-                renderCanvas = await html2canvas(divEl, {
-                  backgroundColor: "#ffffff",
-                  scale: AI_IMAGE_SCALE,
-                  logging: false,
-                  useCORS: true,
-                  allowTaint: true,
-                });
-              }
-            }
-          }
-
-          // 2. Prepare Images for AI and Diff
-          // Source for AI gets a BORDER
-          const sourceCanvasBordered = addSimpleBorder(sourceCanvas);
-
-          // Render stays RAW (No border)
-          const renderCanvasRaw = renderCanvas;
-
-          // 3. Convert to Base64
-          // AI sees: Bordered Source vs Raw Render
-          const base64SourceBordered = sourceCanvasBordered
-            .toDataURL("image/png")
-            .split(",")[1];
-          const base64RenderRaw = renderCanvasRaw
-            .toDataURL("image/png")
-            .split(",")[1];
-
-          // Diff Calculation: Compare Clean Source vs Clean Render (Ignoring the visual guide)
-          // This prevents the border from skewing the "success" metric,
-          // while still giving the AI the visual cue it needs.
+          // 4. Calculate Global Diff Score (for logging/UI)
           const base64SourceClean = sourceCanvas
+            .toDataURL("image/png")
+            .split(",")[1];
+          const base64RenderRaw = renderCanvas
             .toDataURL("image/png")
             .split(",")[1];
           const diffScore = await calculateImageDiff(
@@ -866,25 +955,30 @@ Respond ONLY with valid JSON.`,
             base64RenderRaw,
           );
           const diffDisplayVal = (diffScore * 100).toFixed(2);
-          els.diffValue.textContent = diffDisplayVal + "%";
+          // Removed: els.diffValue.textContent = diffDisplayVal + "%"; // Update visible global score
 
-          // History Thumbnail
+          // 5. Prepare Images for AI
+          const sourceCanvasBordered = addSimpleBorder(sourceCanvas);
+          const renderCanvasBordered = addSimpleBorder(renderCanvas);
+          const base64SourceBordered = sourceCanvasBordered
+            .toDataURL("image/png")
+            .split(",")[1];
+          const base64RenderBordered = renderCanvasBordered
+            .toDataURL("image/png")
+            .split(",")[1];
           const base64HistoryThumb = downscaleImage(
-            renderCanvasRaw,
+            renderCanvas,
             HISTORY_SCALE / AI_IMAGE_SCALE,
           );
 
-          // 4. Prepare Prompt Data
-          const structure = getStructureJson(divId);
-          const jsonString = JSON.stringify(structure, null, 2);
-
+          // 6. Prepare Prompt Data
           let historyLog = "";
           if (state.history.length === 0) {
             historyLog = "No previous attempts.";
           } else {
             state.history.forEach((h, idx) => {
-              historyLog += `\n--- Attempt ${idx + 1} ---\n`;
-              historyLog += `Diff Score: ${(h.score * 100).toFixed(2)}%\n`;
+              historyLog += `\n--- Attempt ${idx + 1} (Global Diff: ${(h.score * 100).toFixed(2)}%) ---\n`;
+              // Structure is large, only log styles used
               const simpleStyleMap = {};
               h.structure.forEach((item) => {
                 if (Object.keys(item.currentStyles).length > 0) {
@@ -899,16 +993,19 @@ Respond ONLY with valid JSON.`,
           prompt = prompt.replace("{{jsonStructure}}", jsonString);
           prompt = prompt.replace("{{historyData}}", historyLog);
 
+          // Store the final, interpolated prompt text
+          state.debugData.latestPrompt = prompt;
+
           const historyImages = state.history.map((h) => h.image);
 
-          // CRITICAL: The payload sends Bordered Source vs Raw Render
+          // CRITICAL: The payload sends Bordered Source vs Bordered Render
           const imagePayload = [
             base64SourceBordered,
             ...historyImages,
-            base64RenderRaw,
+            base64RenderBordered,
           ];
 
-          // 5. Update Debug View
+          // 7. Update Debug View metadata
           const debugObj = {
             iteration: iterationInfo,
             currentDiffScore: diffDisplayVal + "%",
@@ -918,7 +1015,7 @@ Respond ONLY with valid JSON.`,
               let label = "Unknown";
               if (i === 0) label = "Target (Bordered)";
               else if (i === imagePayload.length - 1)
-                label = "Current Render (Raw)";
+                label = "Current Render (Bordered)";
               else label = `History Frame ${i}`;
               return {
                 index: i + 1,
@@ -931,18 +1028,16 @@ Respond ONLY with valid JSON.`,
             response: null,
           };
 
-          state.debugData.jsonStructure = `// Iteration: ${iterationInfo}\n// Diff Score: ${diffDisplayVal}%\n\n// History Log:\n${historyLog}\n\n// JSON Data to AI:\n${jsonString}`;
           state.debugData.promptTemplate = `// Iteration: ${iterationInfo}\n// Prompt Template:\n${state.prompts.REPLICA_STRUCTURED}`;
           state.debugData.fullPayload = JSON.stringify(debugObj, null, 2);
 
           window.switchDebugTab(state.activeDebugTab);
 
-          // Display what we are actually diffing or sending?
-          // Let's display what we sent to AI to match the mental model.
-          els.debugSourceImg.src = `data:image/png;base64,${base64SourceBordered}`;
-          els.debugRenderImg.src = `data:image/png;base64,${base64RenderRaw}`;
+          // Removed: Display what we sent to AI to match the mental model (Bordered vs Bordered)
+          // els.debugSourceImg.src = `data:image/png;base64,${base64SourceBordered}`;
+          // els.debugRenderImg.src = `data:image/png;base64,${base64RenderBordered}`;
 
-          // 6. Execute AI Query
+          // 8. Execute AI Query
           els.aiStatus.textContent = `${iterationInfo} Thinking...`;
           const resultJsonStr = await queryGemini(prompt, imagePayload);
 
@@ -951,8 +1046,8 @@ Respond ONLY with valid JSON.`,
           debugObj.response = updates;
           state.debugData.fullPayload = JSON.stringify(debugObj, null, 2);
 
-          const responseLog = `\n\n// AI Response:\n${JSON.stringify(updates, null, 2)}`;
-          state.debugData.jsonStructure += responseLog;
+          // --- Process Mutations (Must happen before applyStyleUpdates) ---
+          processDomMutations(updates);
 
           window.switchDebugTab(state.activeDebugTab);
 
