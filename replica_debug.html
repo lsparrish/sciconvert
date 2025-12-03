@@ -4,1158 +4,539 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Style Replica Test</title>
-
-    <!-- Essential Libraries for the test -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
-    <script>
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
-    </script>
+    <!-- Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.4/contrib/auto-render.min.js"></script>
     <link
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.4/katex.min.css"
     />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
 
     <style>
       body {
-        font-family: "Inter", sans-serif;
         background-color: #1f2937;
-        height: 100vh;
         overflow: hidden;
+        font-family: sans-serif;
+        height: 100vh;
       }
-      .editor-textarea {
-        font-family: "Consolas", "Monaco", "Courier New", monospace;
-        line-height: 1.6;
-        resize: none;
+      .editor {
+        font-family: monospace;
       }
-      /* Ensure AI content doesn't have default margins */
       #overlay-html-layer * {
         margin: 0;
         padding: 0;
         box-sizing: border-box;
         line-height: 1;
       }
-      #overlay-html-layer div {
-        box-sizing: border-box;
+      .tab {
+        @apply px-3 py-1 text-xs cursor-pointer text-gray-400 hover:text-white border-b-2 border-transparent;
       }
-      .loader {
-        border: 4px solid #f3f3f3;
-        border-top: 4px solid #3498db;
-        border-radius: 50%;
-        width: 30px;
-        height: 30px;
-        animation: spin 1s linear infinite;
-      }
-      @keyframes spin {
-        0% {
-          transform: rotate(0deg);
-        }
-        100% {
-          transform: rotate(360deg);
-        }
-      }
-      /* Custom Tab Styles */
-      .debug-tab {
-        @apply px-3 py-1 text-xs font-mono cursor-pointer border-t border-r border-l border-transparent text-gray-400 hover:text-white transition-colors;
-        margin-bottom: -1px;
-      }
-      .debug-tab.active {
-        @apply border-gray-700 bg-gray-950 text-green-400;
-      }
-
-      /* JSON Visualizer Styles */
-      .json-key {
-        color: #9cdcfe;
-      }
-      .json-string {
-        color: #ce9178;
-      }
-      .json-number {
-        color: #b5cea8;
-      }
-      .json-null {
-        color: #569cd6;
+      .tab.active {
+        @apply text-green-400 border-green-400 bg-gray-900;
       }
     </style>
   </head>
-  <body class="flex flex-col h-screen">
+  <body class="flex flex-col h-screen text-white">
     <!-- Header -->
     <header
-      class="bg-gray-900 text-white p-3 flex justify-between items-center shadow-lg shrink-0"
+      class="bg-gray-900 p-2 flex justify-between items-center shadow border-b border-gray-800"
     >
-      <h1 class="text-xl font-bold tracking-wider text-purple-400">
-        AI Style Replica Testbed (Border Target)
+      <h1 class="font-bold text-purple-400 tracking-wider">
+        Replica Debug: Command Strategy
       </h1>
+      <button
+        id="fullscreen-btn"
+        class="bg-gray-700 hover:bg-gray-600 p-2 rounded-lg transition text-gray-300"
+        onclick="document.documentElement.requestFullscreen()"
+      >
+        Full Screen
+      </button>
       <div class="flex items-center gap-2">
-        <span
-          id="ai-status"
-          class="text-blue-400 font-semibold mr-2 text-sm"
-          style="display: none"
-          >AI Status</span
+        <span id="ai-status" class="text-blue-400 text-xs font-mono hidden"
+          >Processing...</span
         >
-
-        <!-- Fullscreen Toggle -->
+        <input
+          type="number"
+          id="loop-count"
+          value="1"
+          min="1"
+          max="10"
+          class="w-12 bg-gray-800 text-center text-sm border border-gray-700 rounded"
+        />
         <button
-          id="fullscreen-btn"
-          class="bg-gray-700 hover:bg-gray-600 p-2 rounded-lg transition text-gray-300"
-          title="Toggle Fullscreen"
+          id="run-btn"
+          class="bg-purple-600 hover:bg-purple-500 px-3 py-1 text-sm rounded"
         >
-          <svg
-            class="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M4 8V4m0 0h4M4 4l5 5m11-5v4m0 0h-4m4 0l-5-5M4 16v4m0 0h4M4 20l5-5m11 5v-4m0 0h-4m4 0l-5 5"
-            ></path>
-          </svg>
+          Run
         </button>
-
-        <div class="h-8 w-px bg-gray-700 mx-2"></div>
-
-        <!-- Loop Count Input -->
-        <div
-          class="flex items-center bg-gray-800 rounded-lg border border-gray-700 overflow-hidden"
-        >
-          <input
-            type="number"
-            id="loop-count"
-            value="1"
-            min="1"
-            max="10"
-            class="w-12 bg-gray-800 text-white text-center text-sm outline-none py-2 border-r border-gray-700"
-            title="Iterations"
-          />
-          <!-- Run Button -->
-          <button
-            id="run-replica-test"
-            class="bg-purple-600 hover:bg-purple-500 px-4 py-2 text-sm font-semibold transition flex items-center gap-2 h-full"
-          >
-            <svg
-              class="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
-              ></path>
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              ></path>
-            </svg>
-            Run
-          </button>
-        </div>
       </div>
     </header>
 
-    <!-- Main Workspace -->
-    <main class="flex-1 flex overflow-hidden relative">
-      <!-- Left: Visual Preview -->
-      <div
-        class="w-1/2 h-full flex flex-col relative bg-gray-700 border-r border-gray-800"
-      >
-        <div
-          class="bg-gray-800 p-2 text-white font-bold text-center flex justify-between items-center"
-        >
-          <span>Visual Test Area</span>
-          <!-- Removed Auto-Align Checkbox -->
-        </div>
-        <div
-          id="overlay-scroller"
-          class="flex-1 overflow-auto flex justify-center p-8 relative"
-        >
-          <div id="overlay-wrapper" class="relative shadow-2xl origin-top">
-            <div id="overlay-canvas-mount">
-              <canvas id="the-canvas"></canvas>
-            </div>
-            <div
-              id="overlay-html-layer"
-              class="absolute inset-0 overflow-hidden z-10"
-            ></div>
+    <!-- Main -->
+    <main class="flex-1 flex overflow-hidden">
+      <!-- Left: Visual (bg-gray-800) -->
+      <div class="w-1/2 flex flex-col bg-gray-800 relative overflow-hidden">
+        <!-- REMOVED p-8 class to eliminate the thick grey border/frame. -->
+        <div class="overflow-hidden">
+          <div id="wrapper" class="bg-white text-black overflow-hidden">
+            <canvas id="the-canvas" class="absolute inset-0"></canvas>
+            <div id="overlay-html-layer"></div>
           </div>
-        </div>
-        <div
-          id="pdf-loader"
-          class="absolute inset-0 bg-gray-800 bg-opacity-75 flex flex-col items-center justify-center hidden"
-        >
-          <div class="loader mb-2"></div>
-          <span class="text-white text-sm font-semibold"
-            >Loading Sample Image...</span
-          >
         </div>
       </div>
 
-      <!-- Right: Debug/Output Panel -->
-      <div
-        id="debug-panel"
-        class="w-1/2 h-full flex flex-col bg-gray-900 overflow-hidden"
-      >
-        <!-- Debug Tabs -->
-        <div
-          class="flex justify-between border-b border-gray-700 bg-gray-900 px-2 pt-2 items-end"
-        >
-          <div class="flex">
-            <button
-              id="tab-jsonStructure"
-              class="debug-tab active"
-              onclick="switchDebugTab('jsonStructure')"
-            >
-              HTML Div
-            </button>
-            <button
-              id="tab-latestPrompt"
-              class="debug-tab"
-              onclick="switchDebugTab('latestPrompt')"
-            >
-              Prompt Text
-            </button>
-            <button
-              id="tab-promptTemplate"
-              class="debug-tab"
-              onclick="switchDebugTab('promptTemplate')"
-            >
-              Prompt Template
-            </button>
-            <button
-              id="tab-fullPayload"
-              class="debug-tab"
-              onclick="switchDebugTab('fullPayload')"
-            >
-              Full Payload
-            </button>
-          </div>
-          <!-- Copy Button -->
-          <button
-            id="copy-debug-btn"
-            class="text-xs text-gray-400 hover:text-white px-2 py-1 mb-1 flex items-center gap-1 transition"
-          >
-            <svg
-              class="w-3 h-3"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
-              ></path>
-            </svg>
-            Copy Data
+      <!-- Right: Debug -->
+      <div class="w-1/2 flex flex-col bg-gray-800">
+        <div class="flex border-b border-gray-800 bg-gray-800">
+          <button id="tab-html" class="tab active" onclick="setTab('html')">
+            HTML
+          </button>
+          <button id="tab-prompt" class="tab" onclick="setTab('prompt')">
+            Prompt Text
+          </button>
+          <button id="tab-payload" class="tab" onclick="setTab('payload')">
+            Full Payload
+          </button>
+          <button id="tab-response" class="tab" onclick="setTab('response')">
+            Response Log
           </button>
         </div>
 
-        <div class="flex-1 flex flex-col overflow-hidden bg-gray-950 relative">
-          <!-- Raw Text Editor (For JSON/Prompt/HTML) -->
+        <!-- Dual Output Container -->
+        <div class="flex-1 w-full relative">
           <textarea
-            id="overlay-html-input"
-            class="editor-textarea flex-1 w-full h-full p-4 outline-none text-green-400 bg-gray-950 text-xs border-none resize-none"
-            placeholder="Data will appear here..."
+            id="debug-textarea"
+            class="editor absolute inset-0 p-4 bg-gray-900 text-green-400 text-xs outline-none border-none resize-none"
           ></textarea>
 
-          <!-- Visual Viewer (For Full Payload) -->
           <div
-            id="debug-visual-viewer"
-            class="absolute inset-0 w-full h-full p-4 overflow-auto bg-gray-950 text-xs font-mono text-gray-300 hidden"
+            id="debug-log-view"
+            class="absolute inset-0 p-4 bg-gray-900 text-white text-xs overflow-auto hidden"
           ></div>
         </div>
       </div>
     </main>
 
-    <!-- Image Modal -->
-    <div
-      id="image-modal"
-      class="fixed inset-0 bg-black bg-opacity-90 z-50 hidden flex items-center justify-center p-8"
-      onclick="this.classList.add('hidden')"
-    >
-      <img
-        id="modal-img"
-        class="max-w-full max-h-full object-contain shadow-2xl border border-gray-600 rounded"
-      />
-      <span
-        class="absolute top-4 right-4 text-white text-sm font-bold cursor-pointer hover:text-red-400"
-        >Click anywhere to close</span
-      >
-    </div>
-
     <script type="module">
       const apiKey = "";
-      const DEFAULT_IMAGE_URL =
-        "https://lsparrish.github.io/sciconvert/sample.png";
-      const TEST_DIV_ID = "div-1764643541094";
-      const AI_IMAGE_SCALE = 2.0;
+      const SAMPLE_URL = "https://lsparrish.github.io/sciconvert/sample.png";
+      const TEST_ID = "div-test-block";
+      const AI_SCALE = 2.0;
 
-      // Hardcoded initial content (do not change)
-      const INITIAL_HTML_CONTENT = `
-<div id="${TEST_DIV_ID}" style="position: relative; left: 4.92%; top: 2.34%; width: 88.80%; height: 26.53%; background: rgba(255,255,255,0.7); padding: 0px; margin: 0px; ">
-<p>Journal of the British Interplanetary Society, Vol. 36, pp. 115-128, 1983.</p><p>ORBITAL RING SYSTEMS AND JACOB'S LADDERS - II</p><p>PAUL BIRCH*</p><p>45, Brownville Road, Heaton Moor, Stockport, England.</p><p>A method of transferring payloads into space without using rockets has been presented in Part I, in which massive rings encircle the globe in a low orbit supporting stationary 'sky-hooks,' from which cables hang down to any point on the Earth's surface. Vehicles can climb up these 'ladders' into orbit, or can accelerate along the rings. The structure and deployment of such Orbital Ring Systems is examined and their varied uses considered; several scenarios are considered and shown to be economically feasible and beneficial.</p> 
-</div>`;
+      // Initial Content
+      const INITIAL_HTML = `<div id="${TEST_ID}" style="position: relative; left: 4.92%; top: 2.34%; width: 88.80%; height: 26.53%; background: rgba(255,255,255,0.7); padding: 0px; margin: 0px; "> 
+<p>Journal of the British Interplanetary Society, Vol. 36, pp. 115-128, 1983.</p>
 
-      // Simplified State
+<p>ORBITAL RING SYSTEMS AND JACOB'S LADDERS - II</p>
+
+<p>PAUL BIRCH*</p>
+<p>45, Brownville Road, Heaton Moor, Stockport, England.</p>
+
+<p>A method of transferring payloads into space without using rockets has been presented in Part I, in which massive
+rings encircle the globe in a low orbit supporting stationary 'sky-hooks,' from which cables hang down to any point on
+the Earth's surface. Vehicles can climb up these 'ladders' into orbit, or can accelerate along the rings. The structure and
+deployment of such Orbital Ring Systems is examined and their varied uses considered; several scenarios are considered
+and shown to be economically feasible and beneficial.</p></div>`;
+
+      // State
       const state = {
-        pdfDoc: null,
-        pageNum: 1,
-        scale: 1.0,
+        history: [],
+        aiLog: [], // NEW: Stores detailed logs for response tab
+        debug: {
+          html: "",
+          prompt: "// No prompt yet",
+          payload: "// No request payload yet",
+        },
+        currTab: "html",
         canvas: document.getElementById("the-canvas"),
         ctx: document.getElementById("the-canvas").getContext("2d"),
-        targetDivId: TEST_DIV_ID,
 
-        // History now stores rich objects: { image: base64, styles: object, score: number }
-        history: [],
+        promptTemplate: `Analyze visual differences. Target has RED BORDER. Render has RED BORDER.
+Goal: Issue commands to align Render to Target.
 
-        // Debug Data Store
-        debugData: {
-          jsonStructure: "", // NOW UNUSED for log data
-          latestPrompt: "// No prompt generated yet.", // NEW
-          promptTemplate: "// No prompt generated yet.",
-          fullPayload: '{ "status": "No request made yet." }',
-        },
-        activeDebugTab: "jsonStructure",
+COMMANDS (Array of objects):
+- Actions: "moveUp", "moveDown", "moveLeft", "moveRight", "grow", "shrink", "setFont"
+- Coefficient: 0.10 (tiny) to 5.00 (huge). 1.00 ~= 1em.
 
-        // The structured prompt
-        prompts: {
-          REPLICA_STRUCTURED: `Analyze the visual difference between the "Target Image" and "Current Render".
-The goal is to minimize the "Local Diff Score" (visual difference).
+INPUT:
+History Scores: {{history}}
+Structure (IDs, Text, Current Styles): 
+{{structure}}
 
-**CRITICAL CONTEXT:**
-1. **Target Image**: Has a RED BORDER. This defines the exact crop boundary.
-2. **Current Render**: ALSO has a RED BORDER.
-3. **Alignment**: The RED BORDERS in both images represent the EXACT SAME coordinate space. You must align the text INSIDE the Render's border to match the text INSIDE the Target's border.
-
-
-**Instructions:**
-- Use the RED BORDER as your absolute frame of reference.
-- Compare the vertical distance (**top**) of the first line from the top red edge.
-- Compare the horizontal distance (**left**) of the text from the left red edge.
-- Adjust 'top', 'left', 'font-size', and 'letter-spacing' to make the content match.
-- Use relative 'em' values assuming 14px as the original size.
-- Use 2 decimal point values e.g. 1.53em NOT 1.5em.
-
-History of attempts:
-{{historyData}}
-
-Input Data (Current CSS State, including per-block scores):
-{{jsonStructure}}
-
-
-localDifScore should be incremented by 0.10 if the text is covering the wrong element or a blank area.
-
-Instructions:
-1. Identify the block(s) with the highest 'localDiffScore'.
-2. Generate NEW CSS adjustments for those blocks to drive the localDiffScore closer to 0.
-3. If you need to insert an HR separator element (which is missing in the HTML but visible in the Target Image) after a specific element, include the special key "__insert_after__" in your JSON response.
-
-Example of Style Update Only:
-{ "el-123": { "position": "relative", "font-size": "1.11em", "top": "0.53em" } }
-
-Example of Style Update AND HR Insertion:
-{
-  "el-123": { "position": "relative", "font-size": "1.11em", "top": "0.53em" },
-  "__insert_after__": {
-    "targetId": "el-123",
-    "html": "<hr style='position:relative; top: 0.10em; left: 0%; width: 100%; border-top: 1px solid black; margin: 0.5em 0;' id='hr-123'>"
-  }
-}
-
-Respond ONLY with valid JSON.`,
-        },
+INSTRUCTIONS:
+Return JSON object { "element-id": [ { "action": "moveUp", "coefficient": 0.50 } ] }
+Always use 2 decimal points (hundredths) for precision.
+Only include elements needing change. Use the "currentStyles" in the structure to inform your decision.`,
       };
 
       const els = {
-        theCanvas: document.getElementById("the-canvas"),
-        overlayHtmlLayer: document.getElementById("overlay-html-layer"),
-        overlayWrapper: document.getElementById("overlay-wrapper"),
-        overlayHtmlInput: document.getElementById("overlay-html-input"),
-        visualViewer: document.getElementById("debug-visual-viewer"),
-        runButton: document.getElementById("run-replica-test"),
+        wrapper: document.getElementById("wrapper"),
+        layer: document.getElementById("overlay-html-layer"),
+        output: document.getElementById("debug-textarea"), // Textarea for editable content
+        logView: document.getElementById("debug-log-view"), // Div for response log
+        status: document.getElementById("ai-status"),
+        runBtn: document.getElementById("run-btn"),
         loopInput: document.getElementById("loop-count"),
-        fullscreenBtn: document.getElementById("fullscreen-btn"),
-        copyDebugBtn: document.getElementById("copy-debug-btn"),
-        aiStatus: document.getElementById("ai-status"),
-        pdfLoader: document.getElementById("pdf-loader"),
-        // Removed: debugSourceImg, debugRenderImg, diffValue
-        tabJson: document.getElementById("tab-jsonStructure"),
-        tabPrompt: document.getElementById("tab-promptTemplate"),
-        tabFull: document.getElementById("tab-fullPayload"),
-        tabLatest: document.getElementById("tab-latestPrompt"),
-        imageModal: document.getElementById("image-modal"),
-        modalImg: document.getElementById("modal-img"),
-        // Removed chkAutoAlign
       };
 
-      // Modal Helper
-      window.expandImage = function (src) {
-        els.modalImg.src = src;
-        els.imageModal.classList.remove("hidden");
-      };
+      // --- UI Logic ---
+      window.setTab = (t) => {
+        state.currTab = t;
 
-      // Payload Rendering Helper
-      function renderVisualPayload(jsonString) {
-        try {
-          const obj = JSON.parse(jsonString);
-          let html = '<div class="pl-2">';
+        // Hide/Show correct output element
+        const isTextTab = t === "html" || t === "prompt" || t === "payload";
+        els.output.classList.toggle("hidden", !isTextTab);
+        els.logView.classList.toggle("hidden", isTextTab);
 
-          const renderValue = (key, val) => {
-            if (key === "images" && Array.isArray(val)) {
-              // Custom Renderer for Images Array
-              let imgHtml = "[\n";
-              val.forEach((item) => {
-                imgHtml += `    { <span class="json-key">"index"</span>: <span class="json-number">${item.index}</span>, <span class="json-key">"role"</span>: <span class="json-string">"${item.role}"</span>, <span class="json-key">"data"</span>: `;
-                // The Thumbnail
-                imgHtml += `<img src="data:${item.mimeType};base64,${item.data}" class="inline-block h-8 border border-gray-600 rounded cursor-pointer hover:scale-150 hover:border-white transition-transform origin-left z-10 relative ml-2 align-middle" onclick="expandImage(this.src)" title="Click to Expand (Length: ${item.dataLength})" />`;
-                imgHtml += ` },\n`;
-              });
-              imgHtml += "  ]";
-              return imgHtml;
-            }
-
-            if (typeof val === "string")
-              return `<span class="json-string">"${val.replace(/\n/g, "\\n").replace(/"/g, '\\"')}"</span>`;
-            if (typeof val === "number")
-              return `<span class="json-number">${val}</span>`;
-            if (val === null) return `<span class="json-null">null</span>`;
-            if (typeof val === "object") return JSON.stringify(val, null, 2); // Fallback for deep objects
-            return val;
-          };
-
-          // Iterating top level keys manually for simple structure
-          html += "{\n";
-          for (const key in obj) {
-            html += `  <span class="json-key">"${key}"</span>: ${renderValue(key, obj[key])},\n`;
+        // Update active tab buttons
+        document.querySelectorAll(".tab").forEach((el) => {
+          el.classList.remove("active");
+          if (el.id.includes(t)) {
+            el.classList.add("active");
           }
-          html += "}</div>";
+        });
 
-          els.visualViewer.innerHTML = html;
-        } catch (e) {
-          els.visualViewer.innerText =
-            "Error parsing JSON for visual view: " + e.message;
-        }
-      }
-
-      // Expose switchDebugTab globally for inline onclick
-      window.switchDebugTab = function (tabName) {
-        state.activeDebugTab = tabName;
-
-        // Update UI Tabs
-        els.tabJson.classList.remove("active");
-        els.tabPrompt.classList.remove("active");
-        els.tabFull.classList.remove("active");
-        els.tabLatest.classList.remove("active");
-
-        if (tabName === "jsonStructure") els.tabJson.classList.add("active");
-        if (tabName === "promptTemplate") els.tabPrompt.classList.add("active");
-        if (tabName === "fullPayload") els.tabFull.classList.add("active");
-        if (tabName === "latestPrompt") els.tabLatest.classList.add("active");
-
-        // Logic to switch between Textarea and Visual Div
-        if (tabName === "fullPayload") {
-          els.overlayHtmlInput.classList.add("hidden");
-          els.visualViewer.classList.remove("hidden");
-          renderVisualPayload(state.debugData.fullPayload);
-        } else if (tabName === "jsonStructure") {
-          // SHOW LIVE HTML (Raw)
-          els.visualViewer.classList.add("hidden");
-          els.overlayHtmlInput.classList.remove("hidden");
-          // Add some newlines for readability of block elements
-          let formatted = els.overlayHtmlLayer.innerHTML;
-          formatted = formatted
+        // Update content
+        if (t === "html") {
+          els.output.value = els.layer.innerHTML
             .replace(/<\/div>/g, "</div>\n")
             .replace(/<br>/g, "<br>\n");
-          els.overlayHtmlInput.value = formatted;
+        } else if (t === "response") {
+          // Render the AI Log (HTML content)
+          let logContent = state.aiLog
+            .map((entry, i) => {
+              const status = entry.success ? "SUCCESS" : "ERROR";
+              const rawResponse = entry.response
+                ? JSON.stringify(entry.response, null, 2)
+                : entry.response;
+              return `<div style="border-bottom: 1px solid #374151; padding-bottom: 1rem; margin-bottom: 1rem;">
+                        <h4 style="font-weight: bold; color: ${entry.success ? "#9be658" : "#ef4444"};">--- Iteration ${entry.iter} (${entry.timestamp}) - ${status} ---</h4>
+                        <div style="margin-top: 0.5rem; display: flex; gap: 1rem; align-items: flex-start; justify-content: space-around;">
+                            <div style="text-align: center; font-family: monospace;">
+                                Target:<br>
+                                <img src="data:image/png;base64,${entry.request.images.target}" style="width: 150px; height: auto; border: 2px solid #f97316; margin: 4px;" alt="Target Image Thumbnail" />
+                            </div>
+                            <div style="text-align: center; font-family: monospace;">
+                                Render:<br>
+                                <img src="data:image/png;base64,${entry.request.images.render}" style="width: 150px; height: auto; border: 2px solid #3b82f6; margin: 4px;" alt="Render Image Thumbnail" />
+                            </div>
+                        </div>
+                        <pre style="white-space: pre-wrap; margin-top: 0.5rem; background: #111827; padding: 0.5rem; border-radius: 4px; color: #d1d5db; font-size: 0.75rem;">Request Structure: ${JSON.stringify(entry.request.structure, null, 2).substring(0, 300) + "..."}</pre>
+                        <pre style="white-space: pre-wrap; background: #111827; padding: 0.5rem; border-radius: 4px; color: #9be658; font-size: 0.75rem;">Raw Response: ${rawResponse}</pre>
+                    </div>`;
+            })
+            .join("");
+          els.logView.innerHTML =
+            logContent ||
+            "<div style='font-family: monospace;'>// No AI responses yet.</div>";
         } else {
-          els.visualViewer.classList.add("hidden");
-          els.overlayHtmlInput.classList.remove("hidden");
-          els.overlayHtmlInput.value = state.debugData[tabName] || "";
+          // prompt or payload
+          els.output.value = state.debug[t];
         }
       };
 
-      // NEW: Enable editing of HTML from the textarea
-      els.overlayHtmlInput.addEventListener("input", () => {
-        if (state.activeDebugTab === "jsonStructure") {
-          els.overlayHtmlLayer.innerHTML = els.overlayHtmlInput.value;
-          updateOverlayPreview();
+      els.output.addEventListener("input", () => {
+        if (state.currTab === "html") {
+          els.layer.innerHTML = els.output.value;
+          renderMathInElement(els.layer, {
+            delimiters: [{ left: "$$", right: "$$", display: true }],
+          });
         }
       });
 
-      function updateOverlayPreview(content = null) {
-        renderMathInElement(els.overlayHtmlLayer, {
-          delimiters: [
-            { left: "$$", right: "$$", display: true },
-            { left: "$", right: "$", display: false },
-          ],
-          throwOnError: false,
-        });
-      }
+      // --- Core Logic ---
 
-      // --- Image Snippet Helpers ---
-
-      function extractCanvasSnippet(pixelRect, outputScale = 1.0) {
-        const tempCanvas = document.createElement("canvas");
-        tempCanvas.width = pixelRect.width * outputScale;
-        tempCanvas.height = pixelRect.height * outputScale;
-        const tempCtx = tempCanvas.getContext("2d");
-
-        // White background first
-        tempCtx.fillStyle = "#ffffff";
-        tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-
-        tempCtx.drawImage(
-          state.canvas,
-          pixelRect.x,
-          pixelRect.y,
-          pixelRect.width,
-          pixelRect.height,
-          0,
-          0,
-          tempCanvas.width,
-          tempCanvas.height,
-        );
-        return tempCanvas;
-      }
-
-      // NEW: Add Simple Red Border
-      function addSimpleBorder(canvas) {
-        const w = canvas.width;
-        const h = canvas.height;
-        const borderedCanvas = document.createElement("canvas");
-        borderedCanvas.width = w;
-        borderedCanvas.height = h;
-        const ctx = borderedCanvas.getContext("2d");
-
-        ctx.drawImage(canvas, 0, 0);
-
-        // Draw Red Border
-        ctx.strokeStyle = "#ff0000";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(0, 0, w, h);
-
-        return borderedCanvas;
-      }
-
-      function getSnippetCanvasFromDiv(divId, imageScale = 1.0) {
-        const div = document.getElementById(divId);
-        if (!div) return null;
-
-        const cw = els.theCanvas.width;
-        const ch = els.theCanvas.height;
-        const pixelRect = {
-          x: (parseFloat(div.style.left) / 100) * cw,
-          y: (parseFloat(div.style.top) / 100) * ch,
-          width: (parseFloat(div.style.width) / 100) * cw,
-          height: (parseFloat(div.style.height) / 100) * ch,
-        };
-        return extractCanvasSnippet(pixelRect, imageScale);
-      }
-
-      // --- Diff Calculation Logic ---
-
-      function calculateImageDiff(base64A, base64B) {
-        return new Promise((resolve) => {
-          const imgA = new Image();
-          const imgB = new Image();
-          let loaded = 0;
-
-          const onImgLoad = () => {
-            loaded++;
-            if (loaded === 2) compare();
-          };
-
-          imgA.onload = onImgLoad;
-          imgB.onload = onImgLoad;
-          imgA.src = "data:image/png;base64," + base64A;
-          imgB.src = "data:image/png;base64," + base64B;
-
-          function compare() {
-            const w = imgA.width;
-            const h = imgA.height;
-            const canvas = document.createElement("canvas");
-            canvas.width = w;
-            canvas.height = h;
-            const ctx = canvas.getContext("2d");
-
-            ctx.drawImage(imgA, 0, 0, w, h);
-            const dataA = ctx.getImageData(0, 0, w, h).data;
-
-            ctx.clearRect(0, 0, w, h);
-            ctx.drawImage(imgB, 0, 0, w, h);
-            const dataB = ctx.getImageData(0, 0, w, h).data;
-
-            let diff = 0;
-            for (let i = 0; i < dataA.length; i += 4) {
-              const rDiff = Math.abs(dataA[i] - dataB[i]);
-              const gDiff = Math.abs(dataA[i + 1] - dataB[i + 1]);
-              const bDiff = Math.abs(dataA[i + 2] - dataB[i + 2]);
-              diff += rDiff + gDiff + bDiff;
-            }
-
-            const totalPixels = w * h;
-            const maxDiff = totalPixels * 765;
-            // Normalize score to 0.0 - 1.0 range
-            const score = diff / maxDiff;
-            resolve(score);
-          }
-        });
-      }
-
-      // --- Formatting Helper for CSS Values ---
-      /**
-       * Formats a numeric CSS value (e.g., "1.5345em") to have exactly two decimal places.
-       */
-      function formatNumericStyleValue(value) {
-        if (typeof value !== "string") return value;
-        // Regex to match the number part and the unit part
-        const match = value.match(/([0-9\.-]+)(.*)/);
-        if (match) {
-          const number = parseFloat(match[1]);
-          const unit = match[2];
-          // Ensure number is formatted to 2 decimal places
-          return number.toFixed(2) + unit;
-        }
-        return value; // Return as-is if no number is found (e.g., 'relative', 'bold')
-      }
-
-      // --- Per-Block Analysis Helpers ---
-
-      function prepareDomForAnalysis(divId) {
-        const div = document.getElementById(divId);
-        if (!div) return;
-        let blkCount = 0;
-
-        // Helper to ensure elements have IDs
-        function ensureIds(node) {
-          if (node.nodeType === 1) {
-            // Element Node
-            if (!node.id) {
-              node.id = `blk-${Date.now()}-${blkCount++}`;
-            }
-            // Recursively check children
-            Array.from(node.children).forEach(ensureIds);
-          }
-        }
-
-        // Ensure IDs on the main container's direct children (the blocks we want to score)
-        Array.from(div.children).forEach(ensureIds);
-        return div;
-      }
-
-      /**
-       * Captures the rendered image of a single element relative to its container's top-left.
-       */
-      async function captureElementRender(element, containerId, scale) {
-        const container = document.getElementById(containerId);
-        if (!container) return null;
-
-        // Temporarily move the element to a separate hidden container to capture its isolated render
-        const tempWrapper = document.createElement("div");
-        tempWrapper.style.position = "absolute";
-        tempWrapper.style.left = "-9999px"; // Hide off-screen
-        document.body.appendChild(tempWrapper);
-
-        const clonedElement = element.cloneNode(true);
-        // Set a fixed position relative to the container for clean capture
-        clonedElement.style.position = "relative";
-        clonedElement.style.top = "0";
-        clonedElement.style.left = "0";
-        tempWrapper.appendChild(clonedElement);
-
-        try {
-          const canvas = await html2canvas(clonedElement, {
-            backgroundColor: "#ffffff",
-            scale: scale,
-            logging: false,
-            useCORS: true,
-            allowTaint: true,
-            // Ensure only the cloned element's content is captured
-            width: clonedElement.offsetWidth,
-            height: clonedElement.offsetHeight,
-          });
-
-          const base64 = canvas.toDataURL("image/png").split(",")[1];
-          return base64;
-        } finally {
-          tempWrapper.remove();
-        }
-      }
-
-      /**
-       * Gets the pixel rectangle of an element relative to the main canvas (PDF).
-       */
-      function getElementPixelRect(element, containerId) {
-        const container = document.getElementById(containerId);
-        if (!container) return null;
-
-        // 1. Get container's absolute percentage position on the page
-        const containerLeftPct = parseFloat(container.style.left) || 0;
-        const containerTopPct = parseFloat(container.style.top) || 0;
-        const containerWidthPct = parseFloat(container.style.width) || 0;
-        const containerHeightPct = parseFloat(container.style.height) || 0;
-
-        // 2. Get the element's position relative to the container using DOMRect
-        const elementRect = element.getBoundingClientRect();
-        const containerRect = container.getBoundingClientRect();
-
-        // 3. Map element's client position back to canvas coordinates
-        const cw = els.theCanvas.width;
-        const ch = els.theCanvas.height;
-
-        // Pixel offset of the element inside the container
-        const offsetX = elementRect.left - containerRect.left;
-        const offsetY = elementRect.top - containerRect.top;
-
-        // Starting pixel coordinate on the canvas (PDF)
-        const startX = (containerLeftPct / 100) * cw + offsetX;
-        const startY = (containerTopPct / 100) * ch + offsetY;
-
-        // Dimensions (must be based on native element size, not scaled DOM size)
-        const width = elementRect.width;
-        const height = elementRect.height;
-
-        // Calculate the current visual scale factor (DOM pixels / Canvas pixels)
-        const visualScale =
-          containerRect.width / ((containerWidthPct / 100) * cw);
-
-        // Convert DOM pixels to PDF Canvas pixels
-        const pixelRect = {
-          x: Math.round(startX / visualScale),
-          y: Math.round(startY / visualScale),
-          width: Math.ceil(width / visualScale),
-          height: Math.ceil(height / visualScale),
-        };
-
-        // Guard against zero dimensions (empty elements or hidden)
-        if (pixelRect.width <= 0 || pixelRect.height <= 0) return null;
-
-        return pixelRect;
-      }
-
-      /**
-       * New asynchronous function to gather all per-block data.
-       */
-      async function getDetailedStructure(divId) {
+      function getStructure(divId) {
         const div = document.getElementById(divId);
         if (!div) return [];
+        // Ensure IDs
+        Array.from(div.children).forEach((el, i) => {
+          if (!el.id) el.id = `blk-${Date.now()}-${i}`;
+        });
 
-        // 1. Ensure all elements have IDs
-        prepareDomForAnalysis(divId);
-
-        const structure = [];
-        const elements = Array.from(div.children); // Only target direct children for blocks
-
-        // Use Promise.all to handle parallel asynchronous operations
-        const results = await Promise.all(
-          elements.map(async (el) => {
-            const hasContent = el.innerText && el.innerText.trim().length > 0;
-            const isStructural = el.tagName.toLowerCase() === "hr";
-
-            if (hasContent || isStructural) {
-              const styles = {};
-              // Capture and format styles to 2 decimal places
-              if (el.style.fontSize)
-                styles.fontSize = formatNumericStyleValue(el.style.fontSize);
-              if (el.style.fontWeight) styles.fontWeight = el.style.fontWeight;
-              if (el.style.fontStyle)
-                styles.fontStyle = formatNumericStyleValue(el.style.fontStyle);
-              if (el.style.fontFamily) styles.fontFamily = el.style.fontFamily;
-              if (el.style.top)
-                styles.top = formatNumericStyleValue(el.style.top);
-              if (el.style.left)
-                styles.left = formatNumericStyleValue(el.style.left);
-              if (el.style.position) styles.position = el.style.position;
-
-              // --- Per-Block Image Capture and Diff ---
-              const pixelRect = getElementPixelRect(el, divId);
-
-              if (!pixelRect) {
-                console.warn(
-                  `Skipping element ${el.id}: zero dimensions or invalid position.`,
-                );
-                return null;
-              }
-
-              // Capture 1: Target (from PDF canvas)
-              const targetCanvas = extractCanvasSnippet(
-                pixelRect,
-                AI_IMAGE_SCALE,
-              );
-              const base64Target = targetCanvas
-                .toDataURL("image/png")
-                .split(",")[1];
-
-              // Capture 2: Render (from HTML element)
-              const base64Render = await captureElementRender(
-                el,
-                divId,
-                AI_IMAGE_SCALE,
-              );
-
-              // Calculate Diff Score
-              const localDiffScore = await calculateImageDiff(
-                base64Target,
-                base64Render,
-              );
-
-              return {
-                id: el.id,
-                tag: el.tagName.toLowerCase(),
-                text: hasContent
-                  ? el.innerText.substring(0, 30) +
-                    (el.innerText.length > 30 ? "..." : "")
-                  : `[${el.tagName.toUpperCase()} ELEMENT]`,
-                currentStyles: styles,
-                // Format score to 2 decimal places for input consistency
-                localDiffScore: parseFloat(localDiffScore.toFixed(2)),
-              };
-            }
-            return null;
-          }),
-        );
-
-        return results.filter((r) => r !== null);
+        return Array.from(div.children)
+          .filter((el) => el.innerText.trim().length > 0)
+          .map((el) => ({
+            id: el.id,
+            tag: el.tagName.toLowerCase(),
+            text: el.innerText.substring(0, 30),
+            currentStyles: {
+              top: el.style.top || "0em",
+              left: el.style.left || "0em",
+              fontSize: el.style.fontSize || "1.0em",
+            },
+          }));
       }
 
-      /**
-       * Processes DOM mutation commands from the AI response before applying style updates.
-       * @param {Object} updates - The raw JSON object returned by the AI.
-       */
-      function processDomMutations(updates) {
-        let inserted = false;
-        if (updates.__insert_after__) {
-          const mutation = updates.__insert_after__;
-          const targetEl = document.getElementById(mutation.targetId);
-          if (targetEl && mutation.html) {
-            targetEl.insertAdjacentHTML("afterend", mutation.html);
-            // After insertion, delete the mutation key from the updates object
-            // so it doesn't try to apply styles to a non-style key.
-            delete updates.__insert_after__;
-            inserted = true;
-          } else if (!targetEl) {
-            console.error(
-              `DOM Mutation failed: targetId "${mutation.targetId}" not found.`,
-            );
-          }
-        }
-        return inserted;
-      }
-
-      function applyStyleUpdates(updates) {
+      function applyCommands(updates) {
         let count = 0;
-        for (const [id, styles] of Object.entries(updates)) {
+        for (const [id, cmds] of Object.entries(updates)) {
           const el = document.getElementById(id);
-          if (el) {
-            for (const [prop, val] of Object.entries(styles)) {
-              el.style[prop] = val;
-            }
-            count++;
-          }
+          if (!el || !Array.isArray(cmds)) continue;
+
+          el.style.position = "relative";
+          let top = parseFloat(el.style.top) || 0;
+          let left = parseFloat(el.style.left) || 0;
+          let size = parseFloat(el.style.fontSize) || 1.0;
+
+          cmds.forEach((c) => {
+            const v = parseFloat(c.coefficient) || 0;
+            if (c.action === "moveUp") top -= v;
+            if (c.action === "moveDown") top += v;
+            if (c.action === "moveLeft") left -= v;
+            if (c.action === "moveRight") left += v;
+            if (c.action === "grow") size += v;
+            if (c.action === "shrink") size = Math.max(0.1, size - v);
+          });
+
+          el.style.top = top.toFixed(2) + "em";
+          el.style.left = left.toFixed(2) + "em";
+          el.style.fontSize = size.toFixed(2) + "em";
+          count++;
         }
         return count;
       }
 
-      function downscaleImage(sourceCanvas, scale) {
-        const w = sourceCanvas.width * scale;
-        const h = sourceCanvas.height * scale;
-        const tCanvas = document.createElement("canvas");
-        tCanvas.width = w;
-        tCanvas.height = h;
-        const ctx = tCanvas.getContext("2d");
-        ctx.drawImage(sourceCanvas, 0, 0, w, h);
-        return tCanvas.toDataURL("image/png").split(",")[1];
-      }
-
-      async function queryGemini(prompt, images) {
-        try {
-          const parts = [{ text: prompt }];
-          if (Array.isArray(images)) {
-            images.forEach((img) => {
-              parts.push({ inlineData: { mimeType: "image/png", data: img } });
-            });
-          }
-
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                contents: [{ role: "user", parts: parts }],
-                generationConfig: { responseMimeType: "application/json" },
-              }),
-            },
-          );
-
-          if (!response.ok)
-            throw new Error(
-              `API request failed with status: ${response.status}`,
+      async function fetchWithBackoff(parts) {
+        for (let attempt = 0; attempt < 5; attempt++) {
+          try {
+            const resp = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ contents: [{ role: "user", parts }] }),
+              },
             );
-          const data = await response.json();
-          const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          return resultText;
-        } catch (error) {
-          console.error("AI Error:", error);
-          throw error;
+
+            if (!resp.ok && resp.status === 429) {
+              const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+              await new Promise((res) => setTimeout(res, delay));
+              continue;
+            }
+            if (!resp.ok)
+              throw new Error(
+                `API error: ${resp.status} - ${await resp.text()}`,
+              );
+
+            const json = await resp.json();
+            return json.candidates?.[0]?.content?.parts?.[0]?.text;
+          } catch (e) {
+            if (attempt === 4) throw e;
+            const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+            await new Promise((res) => setTimeout(res, delay));
+          }
         }
+        throw new Error("API call failed after multiple retries.");
       }
 
-      // --- Main Execution Logic ---
+      // --- Helpers ---
 
-      async function runAiReplicaSingle(iterationInfo = "") {
-        const divId = state.targetDivId;
-        if (!divId) return;
+      function extractSnippet(rect, scale = 1) {
+        const c = document.createElement("canvas");
+        c.width = rect.w * scale;
+        c.height = rect.h * scale;
+        const ctx = c.getContext("2d");
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(
+          state.canvas,
+          rect.x,
+          rect.y,
+          rect.w,
+          rect.h,
+          0,
+          0,
+          c.width,
+          c.height,
+        );
+        return c;
+      }
 
-        const HISTORY_SCALE = 0.5;
+      function addBorder(canvas) {
+        const c = document.createElement("canvas");
+        c.width = canvas.width;
+        c.height = canvas.height;
+        const ctx = c.getContext("2d");
+        ctx.drawImage(canvas, 0, 0);
+        ctx.strokeStyle = "red";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(0, 0, c.width, c.height);
+        return c;
+      }
 
-        const divEl = document.getElementById(divId);
+      function getRect(divId) {
+        const div = document.getElementById(divId);
+        if (!div) return null;
+        const cw = state.canvas.width,
+          ch = state.canvas.height;
+        return {
+          x: (parseFloat(div.style.left) / 100) * cw,
+          y: (parseFloat(div.style.top) / 100) * ch,
+          w: (parseFloat(div.style.width) / 100) * cw,
+          h: (parseFloat(div.style.height) / 100) * ch,
+        };
+      }
 
-        els.aiStatus.textContent = `${iterationInfo} Capturing...`;
-        els.aiStatus.style.display = "inline";
+      async function getDiff(b64A, b64B) {
+        return new Promise((r) => {
+          const i1 = new Image(),
+            i2 = new Image();
+          let c = 0;
+          const onload = () => {
+            if (++c === 2) diff();
+          };
+          i1.onload = onload;
+          i2.onload = onload;
+          i1.src = "data:image/png;base64," + b64A;
+          i2.src = "data:image/png;base64," + b64B;
+          function diff() {
+            const cv = document.createElement("canvas");
+            cv.width = i1.width;
+            cv.height = i1.height;
+            const cx = cv.getContext("2d");
+            cx.drawImage(i1, 0, 0);
+            const d1 = cx.getImageData(0, 0, cv.width, cv.height).data;
+            cx.clearRect(0, 0, cv.width, cv.height);
+            cx.drawImage(i2, 0, 0);
+            const d2 = cx.getImageData(0, 0, cv.width, cv.height).data;
+            let sum = 0;
+            for (let k = 0; k < d1.length; k += 4)
+              sum +=
+                Math.abs(d1[k] - d2[k]) +
+                Math.abs(d1[k + 1] - d2[k + 1]) +
+                Math.abs(d1[k + 2] - d2[k + 2]);
+            r(sum / (i1.width * i1.height * 765));
+          }
+        });
+      }
+
+      // --- Main Loop ---
+
+      async function runIteration(iter) {
+        const divEl = document.getElementById(TEST_ID);
+        els.status.textContent = `${iter} Capturing...`;
+        els.status.style.display = "inline";
+
+        // 1. Capture
+        const rect = getRect(TEST_ID);
+        const srcCan = extractSnippet(rect, AI_SCALE);
+        const rendCan = await html2canvas(divEl, {
+          scale: AI_SCALE,
+          backgroundColor: "#fff",
+        });
+
+        // 2. Diff & History
+        const srcB64 = srcCan.toDataURL().split(",")[1];
+        const rendB64 = rendCan.toDataURL().split(",")[1];
+        const score = await getDiff(srcB64, rendB64);
+        state.history.push((score * 100).toFixed(2) + "%");
+
+        // 3. Prompt
+        const struct = getStructure(TEST_ID);
+        let prompt = state.promptTemplate
+          .replace("{{history}}", state.history.join(", "))
+          .replace("{{structure}}", JSON.stringify(struct, null, 2));
+        state.debug.prompt = prompt;
+
+        // 4. Payload (Bordered images)
+        const parts = [{ text: prompt }];
+        const borderedCanvases = [addBorder(srcCan), addBorder(rendCan)];
+        const imageBase64s = borderedCanvases.map(
+          (c) => c.toDataURL().split(",")[1],
+        );
+
+        imageBase64s.forEach((b64) => {
+          parts.push({ inlineData: { mimeType: "image/png", data: b64 } });
+        });
+
+        const payloadObj = {
+          iter,
+          score: (score * 100).toFixed(2) + "%",
+          prompt,
+          structure: struct,
+          images: {
+            target: imageBase64s[0],
+            render: imageBase64s[1],
+          },
+        };
+        const displayPayload = {
+          ...payloadObj,
+          images: {
+            target: payloadObj.images.target.substring(0, 30) + "...",
+            render: payloadObj.images.render.substring(0, 30) + "...",
+          },
+        };
+        state.debug.payload = JSON.stringify(displayPayload, null, 2);
+
+        if (state.currTab !== "html") window.setTab(state.currTab); // refresh view
+
+        // 5. AI Call
+        els.status.textContent = `${iter} Thinking...`;
+        let logEntry = {
+          iter,
+          success: false,
+          request: payloadObj,
+          response: "Error/No response",
+          timestamp: new Date().toLocaleTimeString(),
+        };
 
         try {
-          // 1. Capture Source Image (Full Div Snippet)
-          let sourceCanvas = getSnippetCanvasFromDiv(divId, AI_IMAGE_SCALE);
+          const resultJsonStr = await fetchWithBackoff(parts);
 
-          // 2. Capture Render Image (Full Div Snippet)
-          let renderCanvas = await html2canvas(divEl, {
-            backgroundColor: "#ffffff",
-            scale: AI_IMAGE_SCALE,
-            logging: false,
-            useCORS: true,
-            allowTaint: true,
-          });
-
-          // 3. Perform per-block analysis and generate JSON structure
-          els.aiStatus.textContent = `${iterationInfo} Analyzing Blocks...`;
-          const structure = await getDetailedStructure(divId);
-          const jsonString = JSON.stringify(structure, null, 2);
-
-          // 4. Calculate Global Diff Score (for logging/UI)
-          const base64SourceClean = sourceCanvas
-            .toDataURL("image/png")
-            .split(",")[1];
-          const base64RenderRaw = renderCanvas
-            .toDataURL("image/png")
-            .split(",")[1];
-          const diffScore = await calculateImageDiff(
-            base64SourceClean,
-            base64RenderRaw,
-          );
-          const diffDisplayVal = (diffScore * 100).toFixed(2);
-          // Removed: els.diffValue.textContent = diffDisplayVal + "%"; // Update visible global score
-
-          // 5. Prepare Images for AI
-          const sourceCanvasBordered = addSimpleBorder(sourceCanvas);
-          const renderCanvasBordered = addSimpleBorder(renderCanvas);
-          const base64SourceBordered = sourceCanvasBordered
-            .toDataURL("image/png")
-            .split(",")[1];
-          const base64RenderBordered = renderCanvasBordered
-            .toDataURL("image/png")
-            .split(",")[1];
-          const base64HistoryThumb = downscaleImage(
-            renderCanvas,
-            HISTORY_SCALE / AI_IMAGE_SCALE,
-          );
-
-          // 6. Prepare Prompt Data
-          let historyLog = "";
-          if (state.history.length === 0) {
-            historyLog = "No previous attempts.";
-          } else {
-            state.history.forEach((h, idx) => {
-              historyLog += `\n--- Attempt ${idx + 1} (Global Diff: ${(h.score * 100).toFixed(2)}%) ---\n`;
-              // Structure is large, only log styles used
-              const simpleStyleMap = {};
-              h.structure.forEach((item) => {
-                if (Object.keys(item.currentStyles).length > 0) {
-                  simpleStyleMap[item.id] = item.currentStyles;
-                }
-              });
-              historyLog += `Styles Used: ${JSON.stringify(simpleStyleMap)}\n`;
-            });
+          if (!resultJsonStr) {
+            throw new Error("Empty response from AI.");
           }
 
-          let prompt = state.prompts.REPLICA_STRUCTURED;
-          prompt = prompt.replace("{{jsonStructure}}", jsonString);
-          prompt = prompt.replace("{{historyData}}", historyLog);
+          // Use regex to robustly extract the JSON object, which is usually enclosed in a code block
+          const jsonMatch = resultJsonStr.match(/\{[\s\S]*\}/);
+          const updates = JSON.parse(jsonMatch ? jsonMatch[0] : "{}");
 
-          // Store the final, interpolated prompt text
-          state.debugData.latestPrompt = prompt;
+          logEntry.response = updates;
+          logEntry.success = true;
 
-          const historyImages = state.history.map((h) => h.image);
-
-          // CRITICAL: The payload sends Bordered Source vs Bordered Render
-          const imagePayload = [
-            base64SourceBordered,
-            ...historyImages,
-            base64RenderBordered,
-          ];
-
-          // 7. Update Debug View metadata
-          const debugObj = {
-            iteration: iterationInfo,
-            currentDiffScore: diffDisplayVal + "%",
-            timestamp: new Date().toISOString(),
-            promptText: prompt,
-            images: imagePayload.map((img, i) => {
-              let label = "Unknown";
-              if (i === 0) label = "Target (Bordered)";
-              else if (i === imagePayload.length - 1)
-                label = "Current Render (Bordered)";
-              else label = `History Frame ${i}`;
-              return {
-                index: i + 1,
-                role: label,
-                dataLength: img.length,
-                mimeType: "image/png",
-                data: img,
-              };
-            }),
-            response: null,
-          };
-
-          state.debugData.promptTemplate = `// Iteration: ${iterationInfo}\n// Prompt Template:\n${state.prompts.REPLICA_STRUCTURED}`;
-          state.debugData.fullPayload = JSON.stringify(debugObj, null, 2);
-
-          window.switchDebugTab(state.activeDebugTab);
-
-          // Removed: Display what we sent to AI to match the mental model (Bordered vs Bordered)
-          // els.debugSourceImg.src = `data:image/png;base64,${base64SourceBordered}`;
-          // els.debugRenderImg.src = `data:image/png;base64,${base64RenderBordered}`;
-
-          // 8. Execute AI Query
-          els.aiStatus.textContent = `${iterationInfo} Thinking...`;
-          const resultJsonStr = await queryGemini(prompt, imagePayload);
-
-          const updates = JSON.parse(resultJsonStr);
-
-          debugObj.response = updates;
-          state.debugData.fullPayload = JSON.stringify(debugObj, null, 2);
-
-          // --- Process Mutations (Must happen before applyStyleUpdates) ---
-          processDomMutations(updates);
-
-          window.switchDebugTab(state.activeDebugTab);
-
-          const appliedCount = applyStyleUpdates(updates);
+          const n = applyCommands(updates);
           console.log(
-            `[${iterationInfo}] Applied styles to ${appliedCount} elements.`,
+            `Applied ${n} updates. Score: ${(score * 100).toFixed(2)}%`,
           );
-
-          state.history.push({
-            image: base64HistoryThumb,
-            structure: structure,
-            score: diffScore,
-          });
-
-          return true;
         } catch (e) {
+          logEntry.response = `Error: ${e.message}`;
           console.error(e);
-          if (state.activeDebugTab !== "fullPayload") {
-            els.overlayHtmlInput.value += `\n// Error: ${e.message}`;
-          } else {
-            els.visualViewer.innerHTML += `<div class="text-red-500 mt-4">Error: ${e.message}</div>`;
-          }
-          return false;
+        } finally {
+          state.aiLog.unshift(logEntry);
+          if (state.currTab === "response") window.setTab("response");
         }
       }
 
-      async function runLoop() {
-        const count = parseInt(els.loopInput.value) || 1;
-        els.runButton.disabled = true;
-        els.runButton.classList.add("opacity-50", "cursor-not-allowed");
+      els.runBtn.onclick = async () => {
+        els.runBtn.disabled = true;
+        state.history = [];
+        const max = parseInt(els.loopInput.value);
+        for (let i = 1; i <= max; i++) await runIteration(`Run ${i}/${max}`);
+        els.status.style.display = "none";
+        els.runBtn.disabled = false;
+        window.setTab("html"); // show result
+      };
 
-        state.history = []; // Clear history on new run
-
-        for (let i = 1; i <= count; i++) {
-          const success = await runAiReplicaSingle(`Run ${i}/${count}`);
-          if (!success) break;
-        }
-
-        els.aiStatus.textContent = "All Done!";
-        setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
-        els.runButton.disabled = false;
-        els.runButton.classList.remove("opacity-50", "cursor-not-allowed");
-      }
-
-      function initializeTestbed() {
-        els.pdfLoader.classList.remove("hidden");
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-
-        img.onload = function () {
-          const ratio = img.height / img.width;
-          const baseW = 700;
-          const baseH = baseW * ratio;
-          state.canvas.width = baseW;
-          state.canvas.height = baseH;
-          state.ctx.drawImage(img, 0, 0, baseW, baseH);
-          state.pdfDoc = { numPages: 1, isStaticImage: true };
-          els.overlayWrapper.style.width = baseW + "px";
-          els.overlayWrapper.style.height = baseH + "px";
-
-          els.overlayHtmlLayer.innerHTML = INITIAL_HTML_CONTENT;
-
-          els.pdfLoader.classList.add("hidden");
-          els.runButton.addEventListener("click", runLoop);
-
-          els.fullscreenBtn.addEventListener("click", () => {
-            if (!document.fullscreenElement) {
-              document.documentElement.requestFullscreen();
-            } else {
-              if (document.exitFullscreen) {
-                document.exitFullscreen();
-              }
-            }
-          });
-
-          els.copyDebugBtn.addEventListener("click", () => {
-            if (state.activeDebugTab === "fullPayload") {
-              navigator.clipboard
-                .writeText(state.debugData.fullPayload)
-                .then(() => {
-                  const originalText = els.copyDebugBtn.innerHTML;
-                  els.copyDebugBtn.innerHTML = `<span class="text-green-400">Copied!</span>`;
-                  setTimeout(
-                    () => (els.copyDebugBtn.innerHTML = originalText),
-                    1500,
-                  );
-                });
-            } else {
-              els.overlayHtmlInput.select();
-              document.execCommand("copy");
-              const originalText = els.copyDebugBtn.innerHTML;
-              els.copyDebugBtn.innerHTML = `<span class="text-green-400">Copied!</span>`;
-              setTimeout(
-                () => (els.copyDebugBtn.innerHTML = originalText),
-                1500,
-              );
-            }
-          });
-        };
-
-        img.onerror = function () {
-          els.pdfLoader.children[1].textContent =
-            "Failed to load sample image.";
-        };
-        img.src = DEFAULT_IMAGE_URL;
-      }
-
-      window.onload = initializeTestbed;
+      els.layer.innerHTML = INITIAL_HTML;
+      window.setTab("html");
+      renderMathInElement(els.layer, {
+        delimiters: [{ left: "$$", right: "$$", display: true }],
+      });
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        state.canvas.width = img.width;
+        state.canvas.height = img.height;
+        state.ctx.drawImage(img, 0, 0, state.canvas.width, state.canvas.height);
+        els.wrapper.style.width = state.canvas.width + "px";
+        els.wrapper.style.height = state.canvas.height + "px";
+      };
+      img.onerror = () => {
+        console.error("Image failed to load");
+      };
+      img.src = SAMPLE_URL;
     </script>
   </body>
 </html>
