@@ -17,19 +17,13 @@
       .editor {
         font-family: monospace;
       }
-      #overlay-html-layer {
-        z-index: 0; /* Send HTML to back so it is hidden behind the canvas */
-      }
       #overlay-html-layer * {
         margin: 0;
         padding: 0;
         left: 0%;
         top: 0%;
         box-sizing: border-box;
-        line-height: 1; /* Reset to 1, as the AI will adjust font size on the p elements */
-      }
-      #view-canvas {
-        z-index: 10; /* Bring canvas to front to display the AI's actual view */
+        line-height: 1;
       }
       .tab {
         @apply px-3 py-1 text-xs cursor-pointer text-gray-400 hover:text-white border-b-2 border-transparent;
@@ -38,29 +32,40 @@
         @apply text-green-400 border-green-400 bg-gray-900;
       }
       .image-thumbnail-payload {
-          width: 100px; 
-          height: auto; 
-          margin-top: 5px;
-          border: 1px solid #4b5563; /* gray-600 */
-          border-radius: 4px;
+        width: 100px;
+        height: auto;
+        margin-top: 5px;
+        border: 1px solid #4b5563;
+        border-radius: 4px;
       }
       .log-pre {
-          white-space: pre-wrap; 
-          background: #111827; 
-          padding: 0.5rem; 
-          border-radius: 4px; 
-          color: #d1d5db; 
-          font-size: 0.7rem; 
-          max-height: 150px; 
-          overflow-y: auto;
+        white-space: pre-wrap;
+        background: #111827;
+        padding: 0.5rem;
+        border-radius: 4px;
+        color: #d1d5db;
+        font-size: 0.7rem;
+        max-height: 150px;
+        overflow-y: auto;
       }
       .log-history-entry {
-          border-bottom: 1px solid #374151; 
-          padding-bottom: 1rem; 
-          margin-bottom: 1rem;
+        border-bottom: 1px solid #374151;
+        padding-bottom: 1rem;
+        margin-bottom: 1rem;
       }
-      .mode-position { color: #60a5fa; }
-      .mode-size { color: #fca311; }
+      .mode-position {
+        color: #60a5fa;
+      }
+      .mode-size {
+        color: #fca311;
+      }
+      /* Ensure canvas elements are layered correctly */
+      #view-canvas {
+        z-index: 10;
+      }
+      #overlay-html-layer {
+        z-index: 0;
+      }
     </style>
   </head>
   <body class="flex flex-col h-screen text-white">
@@ -68,7 +73,8 @@
       class="bg-gray-900 p-2 flex justify-between items-center shadow border-b border-gray-800"
     >
       <h1 class="font-bold text-purple-400 tracking-wider">
-        Alternating Alignment Engine (<span id="current-mode-display">---</span>)
+        Alternating Alignment Engine (<span id="current-mode-display">---</span
+        >)
       </h1>
       <button
         id="fullscreen-btn"
@@ -134,27 +140,25 @@
 
     <canvas id="target-canvas-ai" style="display: none"></canvas>
     <canvas id="render-canvas-ai" style="display: none"></canvas>
-    <!-- New hidden canvas for overlap detection -->
     <canvas id="overlap-canvas" style="display: none"></canvas>
 
     <script type="module">
       const apiKey = "";
       const SAMPLE_URL = "https://lsparrish.github.io/sciconvert/sample.png";
       const TEST_ID = "div-test-block";
-      
+
       const DEFAULT_AI_SCALE = 0.5;
       const FINAL_AI_SCALE = 2.0;
 
-      // --- Focused Prompt Templates ---
-      
+      // --- FOCUSED PROMPT TEMPLATES ---
+
       // Template for POSITION Correction (Odd Runs: 1, 3, 5...)
       const POSITION_TEMPLATE = `# ROLE: FOCUSED POSITION ALIGNMENT
-You are a Visual Alignment Engine strictly focused on matching the X and Y coordinates (position) of text elements.
+You are a Visual Alignment Engine strictly focused on matching the **X and Y coordinates (position)** of text elements.
 
 # OBJECTIVE
-Analyze the provided visual inputs (Target vs. Current Render) and the structural data. Your SOLE goal is to issue JSON commands to align the top-left corner of the currently rendered text (Blue Border) to the target text (Red Border).
-Goal State: Achieve pixel-perfect overlap by adjusting only the position.
-Priority: Adjust Position first.
+Analyze the visuals (Target/Red Border vs. Current Render/Blue Border). Your SOLE goal is to issue JSON commands to align the top-left corner of the currently rendered text to the target text.
+**Priority: Adjust position (top/left) only.**
 
 {{positionCommands}}
 
@@ -164,7 +168,7 @@ Priority: Adjust Position first.
 3. Focus: Ignore size/font commands. Only adjust position.
 
 # OUTPUT RULES
-- Return ONLY a raw JSON object. No markdown formatting, no conversational text.
+- Return **ONLY** a raw JSON object. No markdown, no commentary.
 - Precision: Coefficients must use 2 decimal places (e.g., 0.50).
 - Efficiency: Only include elements that require position changes.
 
@@ -181,14 +185,18 @@ Priority: Adjust Position first.
 
       // Template for SIZE Correction (Even Runs: 2, 4, 6...)
       const SIZE_TEMPLATE = `# ROLE: FOCUSED SIZE ALIGNMENT
-You are a Visual Alignment Engine strictly focused on matching the bounding box size of text elements.
+You are a Visual Alignment Engine strictly focused on matching the **size** of text elements.
 
 # OBJECTIVE
-Analyze the provided visual inputs (Target vs. Current Render) and the structural data. Your SOLE goal is to issue JSON commands to match the width and height of the currently rendered text (Blue Border) to the target text (Red Border) by adjusting its scale.
-Goal State: Achieve pixel-perfect size match.
-Priority: Adjust Size/Scale.
+Analyze the visuals (Target/Red Border vs. Current Render/Blue Border). Your SOLE goal is to issue JSON commands to match the width and height of the currently rendered text to the target text by adjusting its scale (**fontSize**).
+**Priority: Adjust size (grow/shrink) only.**
 
 {{sizeCommands}}
+
+# OUTPUT RULES
+- Return **ONLY** a raw JSON object. No markdown, no commentary.
+- Precision: Coefficients must use 2 decimal places (e.g., 0.50).
+- Efficiency: Only include elements that require size changes.
 
 # ANALYSIS STEPS
 1. Delta Check: precise difference in current font size compared to Target size.
@@ -212,9 +220,8 @@ Priority: Adjust Size/Scale.
   ]
 }`;
 
-
-      let currentRunScale = DEFAULT_AI_SCALE; 
-      let img; 
+      let currentRunScale = DEFAULT_AI_SCALE;
+      let img;
 
       // Initial Content
       const INITIAL_HTML = `<div id="${TEST_ID}" style="position: absolute; left: 4.92%; top: 2.34%; width: 88.80%; height: 26.53%; background: rgba(255,255,255,0.7); padding: 0px; margin: 0px; "> 
@@ -234,16 +241,16 @@ and shown to be economically feasible and beneficial.</p></div>`;
       // State
       const state = {
         // history: { score: string, commands: object, resultImage: base64String, structure: { elements, maxExtent } }
-        history: [], 
-        aiLog: [], 
+        history: [],
+        aiLog: [],
         currTab: "html",
         targetAI: document.getElementById("target-canvas-ai"),
         renderAI: document.getElementById("render-canvas-ai"),
-        overlapCanvas: document.getElementById("overlap-canvas"), 
+        overlapCanvas: document.getElementById("overlap-canvas"),
         viewCanvas: document.getElementById("view-canvas"),
-        viewCtx: null, 
-        MAX_VERTICAL_EM: 10.00, 
-        
+        viewCtx: null,
+        MAX_VERTICAL_EM: 10.0,
+
         // --- NEW STATE TRACKERS ---
         currentMode: "POSITION", // Starts with POSITION
         iterationCounter: 0, // Counts total iterations executed
@@ -281,43 +288,45 @@ and shown to be economically feasible and beneficial.</p></div>`;
             .replace(/<\/div>/g, "</div>\n")
             .replace(/<br>/g, "<br>\n");
         } else if (t === "log") {
-            renderDiagnosticLog();
+          renderDiagnosticLog();
         }
       };
 
       function renderDiagnosticLog() {
-          let logContent = state.aiLog
-            .map((entry, i) => {
-              const status = entry.success ? "SUCCESS" : "ERROR";
-              const rawResponse = entry.response
-                ? JSON.stringify(entry.response, null, 2)
-                : entry.response;
-                
-              const images = entry.request?.images;
-              const score = entry.request?.score || 'N/A';
-              const mode = entry.request?.mode || 'N/A';
-              const modeClass = mode.toLowerCase();
+        let logContent = state.aiLog
+          .map((entry, i) => {
+            const status = entry.success ? "SUCCESS" : "ERROR";
+            const rawResponse = entry.response
+              ? JSON.stringify(entry.response, null, 2)
+              : entry.response;
 
-              const targetImgHtml = images?.target ? 
-                  `<img src="data:image/png;base64,${images.target}" class="image-thumbnail-payload border-red-400" alt="Target Image Thumbnail" />` : 
-                  `<div style="width: 100px; height: 60px; background: #374151; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 0.7rem;">[No Target]</div>`;
+            const images = entry.request?.images;
+            const score = entry.request?.score || "N/A";
+            const mode = entry.request?.mode || "N/A";
+            const modeClass = mode.toLowerCase();
 
-              const renderImgHtml = images?.render ? 
-                  `<img src="data:image/png;base64,${images.render}" class="image-thumbnail-payload border-blue-400" alt="Render Image Thumbnail" />` : 
-                  `<div style="width: 100px; height: 60px; background: #374151; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 0.7rem;">[No Render]</div>`;
-                
-              // Only display the prompt/structure for the latest log entry (i=0)
-              const structureSummary = i === 0 ? 
-                  `<p class="text-xs text-yellow-400 mt-2 mb-1">Structural Data (Pre-Execution):</p>
-                  <pre class="log-pre" style="color: #60a5fa; max-height: 100px;">${JSON.stringify(entry.request?.structure, null, 2)}</pre>` : 
-                  '';
-              
-              const promptText = i === 0 ? 
-                  `<p class="text-xs text-yellow-400 mt-2 mb-1">Prompt Text (Role & Structure):</p>
-                  <pre class="log-pre" style="color: #9be658; max-height: 150px;">${entry.request?.promptText}</pre>` :
-                  '';
+            const targetImgHtml = images?.target
+              ? `<img src="data:image/png;base64,${images.target}" class="image-thumbnail-payload border-red-400" alt="Target Image Thumbnail" />`
+              : `<div style="width: 100px; height: 60px; background: #374151; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 0.7rem;">[No Target]</div>`;
 
-              return `<div class="log-history-entry">
+            const renderImgHtml = images?.render
+              ? `<img src="data:image/png;base64,${images.render}" class="image-thumbnail-payload border-blue-400" alt="Render Image Thumbnail" />`
+              : `<div style="width: 100px; height: 60px; background: #374151; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 0.7rem;">[No Render]</div>`;
+
+            // Only display the prompt/structure for the latest log entry (i=0)
+            const structureSummary =
+              i === 0
+                ? `<p class="text-xs text-yellow-400 mt-2 mb-1">Structural Data (Pre-Execution):</p>
+                  <pre class="log-pre" style="color: #60a5fa; max-height: 100px;">${JSON.stringify(entry.request?.structure, null, 2)}</pre>`
+                : "";
+
+            const promptText =
+              i === 0
+                ? `<p class="text-xs text-yellow-400 mt-2 mb-1">Prompt Text (Role & Structure):</p>
+                  <pre class="log-pre" style="color: #9be658; max-height: 150px;">${entry.request?.promptText}</pre>`
+                : "";
+
+            return `<div class="log-history-entry">
                         <h4 style="font-weight: bold; color: ${entry.success ? "#9be658" : "#ef4444"};">
                           --- Iteration ${entry.iter} (${entry.timestamp}) - ${status} 
                           <span class="font-mono ${modeClass}">(${mode} MODE)</span> ---
@@ -334,11 +343,11 @@ and shown to be economically feasible and beneficial.</p></div>`;
                         ${promptText}
                         ${structureSummary}
                     </div>`;
-            })
-            .join("");
-          els.logView.innerHTML =
-            logContent ||
-            "<div style='font-family: monospace; color: #666;'>// No AI responses yet. Click 'Run' to start.</div>";
+          })
+          .join("");
+        els.logView.innerHTML =
+          logContent ||
+          "<div style='font-family: monospace; color: #666;'>// No AI responses yet. Click 'Run' to start.</div>";
       }
 
       els.output.addEventListener("input", () => {
@@ -352,7 +361,7 @@ and shown to be economically feasible and beneficial.</p></div>`;
       function getStructure(divId) {
         const div = document.getElementById(divId);
         if (!div) return { elements: [], maxExtent: "0.00" };
-        
+
         Array.from(div.children).forEach((el, i) => {
           if (!el.id) el.id = `blk-${Date.now()}-${i}`;
         });
@@ -363,12 +372,14 @@ and shown to be economically feasible and beneficial.</p></div>`;
           .filter((el) => el.innerText.trim().length > 0)
           .map((el) => {
             const computedStyle = window.getComputedStyle(el);
+            // Default to 1.0em if not explicitly set, matching INITIAL_HTML
             const currentTop = parseFloat(el.style.top) || 0;
             const currentSize = parseFloat(el.style.fontSize) || 1.0;
-            
-            const elementBottom = currentTop + currentSize; 
+
+            // This calculation is correct if top/size are in EM units relative to the container
+            const elementBottom = currentTop + currentSize;
             if (elementBottom > maxExtent) {
-                maxExtent = elementBottom;
+              maxExtent = elementBottom;
             }
 
             return {
@@ -378,7 +389,7 @@ and shown to be economically feasible and beneficial.</p></div>`;
               currentStyles: {
                 top: el.style.top || "0em",
                 left: el.style.left || "0em",
-                fontSize: el.style.fontSize || "1.0em",
+                fontSize: el.style.fontSize || "1.0em", // Ensures a value is always reported
                 fontFamily: el.style.fontFamily || computedStyle.fontFamily,
                 fontWeight: el.style.fontWeight || computedStyle.fontWeight,
               },
@@ -394,14 +405,13 @@ and shown to be economically feasible and beneficial.</p></div>`;
        * @param {string} mode - The current execution mode ("POSITION" or "SIZE").
        */
       function applyCommands(updates, mode) {
-        // Note: The logic for allowed actions is now controlled via the Prompt Template
-        // by only listing the available commands. This filtering is kept as a failsafe.
-        const allowedActions = mode === "POSITION" 
-          ? ["moveUp", "moveDown", "moveLeft", "moveRight"]
-          : ["grow", "shrink"];
+        const allowedActions =
+          mode === "POSITION"
+            ? ["moveUp", "moveDown", "moveLeft", "moveRight"]
+            : ["grow", "shrink"];
 
         let applied = {};
-        
+
         for (const [id, cmds] of Object.entries(updates)) {
           const el = document.getElementById(id);
           if (!el || !Array.isArray(cmds)) continue;
@@ -409,28 +419,28 @@ and shown to be economically feasible and beneficial.</p></div>`;
           el.style.position = "relative";
           let top = parseFloat(el.style.top) || 0;
           let left = parseFloat(el.style.left) || 0;
-          let size = parseFloat(el.style.fontSize) || 1.0; 
-          
+          let size = parseFloat(el.style.fontSize) || 1.0;
+
           let elementApplied = [];
 
           cmds.forEach((c) => {
             if (!allowedActions.includes(c.action)) return;
-            
+
             const v = parseFloat(c.coefficient) || 0;
             if (c.action === "moveUp") top -= v;
             else if (c.action === "moveDown") top += v;
             else if (c.action === "moveLeft") left -= v;
             else if (c.action === "moveRight") left += v;
-            else if (c.action === "grow") size += v; 
+            else if (c.action === "grow") size += v;
             else if (c.action === "shrink") size = Math.max(0.1, size - v);
-            
+
             elementApplied.push(c); // Record only the applied commands
           });
-          
-          if(elementApplied.length > 0) {
+
+          if (elementApplied.length > 0) {
             el.style.top = top.toFixed(2) + "em";
             el.style.left = left.toFixed(2) + "em";
-            el.style.fontSize = size.toFixed(2) + "em"; 
+            el.style.fontSize = size.toFixed(2) + "em";
             applied[id] = elementApplied;
           }
         }
@@ -438,40 +448,51 @@ and shown to be economically feasible and beneficial.</p></div>`;
       }
 
       function createOverlapCanvas(targetCan, htmlCan) {
-          const w = targetCan.width;
-          const h = targetCan.height;
-          const overlapCan = state.overlapCanvas;
-          overlapCan.width = w;
-          overlapCan.height = h;
-          const overlapCtx = overlapCan.getContext('2d');
-          
-          overlapCtx.clearRect(0, 0, w, h);
+        const w = targetCan.width;
+        const h = targetCan.height;
+        const overlapCan = state.overlapCanvas;
+        overlapCan.width = w;
+        overlapCan.height = h;
+        const overlapCtx = overlapCan.getContext("2d");
 
-          const targetData = targetCan.getContext('2d').getImageData(0, 0, w, h);
-          const htmlData = htmlCan.getContext('2d').getImageData(0, 0, w, h);
-          const overlapData = overlapCtx.createImageData(w, h);
+        overlapCtx.clearRect(0, 0, w, h);
 
-          const COLOR_THRESHOLD = 120; 
-          const ALPHA_THRESHOLD = 100;
-          const BLUE = [0, 0, 255, 255]; 
+        const targetData = targetCan.getContext("2d").getImageData(0, 0, w, h);
+        const htmlData = htmlCan.getContext("2d").getImageData(0, 0, w, h);
+        const overlapData = overlapCtx.createImageData(w, h);
 
-          for (let i = 0; i < targetData.data.length; i += 4) {
-              const avgTargetColor = (targetData.data[i] + targetData.data[i + 1] + targetData.data[i + 2]) / 3;
-              const isTargetText = avgTargetColor < COLOR_THRESHOLD;
-              
-              const isHtmlText = htmlData.data[i + 3] > ALPHA_THRESHOLD &&
-                                 (htmlData.data[i] + htmlData.data[i + 1] + htmlData.data[i + 2]) / 3 < COLOR_THRESHOLD;
-              
-              if (isTargetText && isHtmlText) {
-                  overlapData.data[i] = BLUE[0];
-                  overlapData.data[i + 1] = BLUE[1];
-                  overlapData.data[i + 2] = BLUE[2];
-                  overlapData.data[i + 3] = BLUE[3]; 
-              }
+        const COLOR_THRESHOLD = 120;
+        const ALPHA_THRESHOLD = 100;
+        const BLUE = [0, 0, 255, 255]; // Pure blue for overlap
+
+        for (let i = 0; i < targetData.data.length; i += 4) {
+          const avgTargetColor =
+            (targetData.data[i] +
+              targetData.data[i + 1] +
+              targetData.data[i + 2]) /
+            3;
+          // Check if Target has dark text
+          const isTargetText = avgTargetColor < COLOR_THRESHOLD;
+
+          // Check if HTML Render has dark text and is visible (alpha > threshold)
+          const avgHtmlColor =
+            (htmlData.data[i] + htmlData.data[i + 1] + htmlData.data[i + 2]) /
+            3;
+          const isHtmlText =
+            htmlData.data[i + 3] > ALPHA_THRESHOLD &&
+            avgHtmlColor < COLOR_THRESHOLD;
+
+          if (isTargetText && isHtmlText) {
+            // Both have text: Draw Blue for overlap
+            overlapData.data[i] = BLUE[0];
+            overlapData.data[i + 1] = BLUE[1];
+            overlapData.data[i + 2] = BLUE[2];
+            overlapData.data[i + 3] = BLUE[3];
           }
+        }
 
-          overlapCtx.putImageData(overlapData, 0, 0);
-          return overlapCan;
+        overlapCtx.putImageData(overlapData, 0, 0);
+        return overlapCan;
       }
 
       function createCombinedRender(targetCan, htmlCan) {
@@ -481,8 +502,8 @@ and shown to be economically feasible and beneficial.</p></div>`;
         const rendCtx = rendCan.getContext("2d");
 
         rendCtx.drawImage(targetCan, 0, 0);
-        const overlapCan = createOverlapCanvas(targetCan, htmlCan);
         rendCtx.drawImage(htmlCan, 0, 0);
+        const overlapCan = createOverlapCanvas(targetCan, htmlCan);
         rendCtx.drawImage(overlapCan, 0, 0);
 
         return rendCan;
@@ -505,13 +526,18 @@ and shown to be economically feasible and beneficial.</p></div>`;
               await new Promise((res) => setTimeout(res, delay));
               continue;
             }
-            if (!resp.ok) throw new Error(`API error: ${resp.status} - ${await resp.text()}`);
+            if (!resp.ok)
+              throw new Error(
+                `API error: ${resp.status} - ${await resp.text()}`,
+              );
 
             const json = await resp.json();
             return json.candidates?.[0]?.content?.parts?.[0]?.text;
           } catch (e) {
             if (attempt === 4) throw e;
-            await new Promise((res) => setTimeout(res, Math.pow(2, attempt) * 1000));
+            await new Promise((res) =>
+              setTimeout(res, Math.pow(2, attempt) * 1000),
+            );
           }
         }
         throw new Error("API call failed after multiple retries.");
@@ -524,7 +550,17 @@ and shown to be economically feasible and beneficial.</p></div>`;
         const ctx = c.getContext("2d");
         ctx.fillStyle = "#fff";
         ctx.fillRect(0, 0, c.width, c.height);
-        ctx.drawImage(source, rect.x, rect.y, rect.w, rect.h, 0, 0, c.width, c.height);
+        ctx.drawImage(
+          source,
+          rect.x,
+          rect.y,
+          rect.w,
+          rect.h,
+          0,
+          0,
+          c.width,
+          c.height,
+        );
         return c;
       }
 
@@ -543,7 +579,8 @@ and shown to be economically feasible and beneficial.</p></div>`;
       function getRect(divId) {
         const div = document.getElementById(divId);
         if (!div) return null;
-        const cw = state.viewCanvas.width, ch = state.viewCanvas.height;
+        const cw = state.viewCanvas.width,
+          ch = state.viewCanvas.height;
         return {
           x: (parseFloat(div.style.left) / 100) * cw,
           y: (parseFloat(div.style.top) / 100) * ch,
@@ -556,21 +593,42 @@ and shown to be economically feasible and beneficial.</p></div>`;
         const rect = getRect(TEST_ID);
         if (!rect || !state.viewCtx || !img) return;
         const rendCan = state.renderAI;
-        state.viewCtx.drawImage(img, 0, 0, state.viewCanvas.width, state.viewCanvas.height);
-        state.viewCtx.drawImage(rendCan, 0, 0, rendCan.width, rendCan.height, rect.x, rect.y, rect.w, rect.h);
+        state.viewCtx.drawImage(
+          img,
+          0,
+          0,
+          state.viewCanvas.width,
+          state.viewCanvas.height,
+        );
+        state.viewCtx.drawImage(
+          rendCan,
+          0,
+          0,
+          rendCan.width,
+          rendCan.height,
+          rect.x,
+          rect.y,
+          rect.w,
+          rect.h,
+        );
       }
 
       async function getDiff(b64A, b64B) {
         return new Promise((r) => {
-          const i1 = new Image(), i2 = new Image();
+          const i1 = new Image(),
+            i2 = new Image();
           let c = 0;
-          const onload = () => { if (++c === 2) diff(); };
-          i1.onload = onload; i2.onload = onload;
+          const onload = () => {
+            if (++c === 2) diff();
+          };
+          i1.onload = onload;
+          i2.onload = onload;
           i1.src = "data:image/png;base64," + b64A;
           i2.src = "data:image/png;base64," + b64B;
           function diff() {
             const cv = document.createElement("canvas");
-            cv.width = i1.width; cv.height = i1.height;
+            cv.width = i1.width;
+            cv.height = i1.height;
             const cx = cv.getContext("2d");
             cx.drawImage(i1, 0, 0);
             const d1 = cx.getImageData(0, 0, cv.width, cv.height).data;
@@ -579,68 +637,86 @@ and shown to be economically feasible and beneficial.</p></div>`;
             const d2 = cx.getImageData(0, 0, cv.width, cv.height).data;
             let sum = 0;
             for (let k = 0; k < d1.length; k += 4)
-              sum += Math.abs(d1[k] - d2[k]) + Math.abs(d1[k + 1] - d2[k + 1]) + Math.abs(d1[k + 2] - d2[k + 2]);
+              sum +=
+                Math.abs(d1[k] - d2[k]) +
+                Math.abs(d1[k + 1] - d2[k + 1]) +
+                Math.abs(d1[k + 2] - d2[k + 2]);
             r(sum / (i1.width * i1.height * 765));
           }
         });
       }
 
-      function preparePayloadAndPrompt(targetCanvas, renderCanvas, iterLabel, currentMode, currentTemplate) {
+      function preparePayloadAndPrompt(
+        targetCanvas,
+        renderCanvas,
+        iterLabel,
+        currentMode,
+        currentTemplate,
+      ) {
         const divEl = document.getElementById(TEST_ID);
         if (!divEl) {
-            return { parts: [{ text: "// Error: Content not found" }] };
+          return { parts: [{ text: "// Error: Content not found" }] };
         }
 
         // 1. Get Current Structure and Max Extent (Pre-Delta)
-        const { elements: currentElements, maxExtent } = getStructure(TEST_ID); 
-        
+        const { elements: currentElements, maxExtent } = getStructure(TEST_ID);
         // --- DELTA CALCULATION & COMMAND INJECTION ---
         const previousHistoryForDelta = state.history[1];
-        const commandsFromPreviousRun = state.history[0] ? state.history[0].commands : {}; 
-        
+        const commandsFromPreviousRun = state.history[0]
+          ? state.history[0].commands
+          : {};
         let augmentedElements = currentElements;
 
-        if (previousHistoryForDelta && previousHistoryForDelta.structure && previousHistoryForDelta.structure.elements) {
-            const previousElements = previousHistoryForDelta.structure.elements;
-            
-            augmentedElements = currentElements.map(currentEl => {
-                const prevEl = previousElements.find(el => el.id === currentEl.id);
-                
-                const deltaStyles = {};
-                
-                if (prevEl) {
-                    const currentTop = parseFloat(currentEl.currentStyles.top);
-                    const prevTop = parseFloat(prevEl.currentStyles.top);
-                    deltaStyles.top = (currentTop - prevTop).toFixed(2) + 'em';
+        if (
+          previousHistoryForDelta &&
+          previousHistoryForDelta.structure &&
+          previousHistoryForDelta.structure.elements
+        ) {
+          const previousElements = previousHistoryForDelta.structure.elements;
 
-                    const currentLeft = parseFloat(currentEl.currentStyles.left);
-                    const prevLeft = parseFloat(prevEl.currentStyles.left);
-                    deltaStyles.left = (currentLeft - prevLeft).toFixed(2) + 'em';
+          augmentedElements = currentElements.map((currentEl) => {
+            const prevEl = previousElements.find(
+              (el) => el.id === currentEl.id,
+            );
 
-                    const currentSize = parseFloat(currentEl.currentStyles.fontSize);
-                    const prevSize = parseFloat(prevEl.currentStyles.fontSize);
-                    deltaStyles.fontSize = (currentSize - prevSize).toFixed(2) + 'em';
-                }
+            const deltaStyles = {};
 
-                const commandsAppliedToThisElement = commandsFromPreviousRun[currentEl.id] || [];
-                
-                return {
-                    ...currentEl,
-                    deltaStyles: prevEl ? deltaStyles : { top: '0.00em', left: '0.00em', fontSize: '0.00em' },
-                    commandsAppliedInLastStep: commandsAppliedToThisElement
-                };
-            });
+            if (prevEl) {
+              const currentTop = parseFloat(currentEl.currentStyles.top);
+              const prevTop = parseFloat(prevEl.currentStyles.top);
+              deltaStyles.top = (currentTop - prevTop).toFixed(2) + "em";
+
+              const currentLeft = parseFloat(currentEl.currentStyles.left);
+              const prevLeft = parseFloat(prevEl.currentStyles.left);
+              deltaStyles.left = (currentLeft - prevLeft).toFixed(2) + "em";
+
+              const currentSize = parseFloat(currentEl.currentStyles.fontSize);
+              const prevSize = parseFloat(prevEl.currentStyles.fontSize);
+              deltaStyles.fontSize = (currentSize - prevSize).toFixed(2) + "em";
+            }
+
+            const commandsAppliedToThisElement =
+              commandsFromPreviousRun[currentEl.id] || [];
+
+            return {
+              ...currentEl,
+              deltaStyles: prevEl
+                ? deltaStyles
+                : { top: "0.00em", left: "0.00em", fontSize: "0.00em" },
+              commandsAppliedInLastStep: commandsAppliedToThisElement,
+            };
+          });
         }
-        
         // 2. Build Constraint Warning and Dynamic Command Lists
         const maxLimit = state.MAX_VERTICAL_EM.toFixed(2);
         const overLimit = parseFloat(maxExtent) >= parseFloat(maxLimit);
-        const remaining = (parseFloat(maxLimit) - parseFloat(maxExtent)).toFixed(2);
+        const remaining = (
+          parseFloat(maxLimit) - parseFloat(maxExtent)
+        ).toFixed(2);
 
         // --- Dynamic Command List Generation ---
         let positionCommandsString;
         let sizeCommandsString;
-        
         const ALL_POSITION_COMMANDS = `
 # AVAILABLE COMMANDS (STRICTLY LIMITED TO POSITION)
 1. Move: "moveUp", "moveDown", "moveLeft", "moveRight" (Coefficient: 0.10 to 5.00).
@@ -664,57 +740,67 @@ and shown to be economically feasible and beneficial.</p></div>`;
 `;
 
         if (overLimit) {
-            positionCommandsString = RESTRICTED_POSITION_COMMANDS;
-            sizeCommandsString = RESTRICTED_SIZE_COMMANDS;
+          positionCommandsString = RESTRICTED_POSITION_COMMANDS;
+          sizeCommandsString = RESTRICTED_SIZE_COMMANDS;
         } else {
-            positionCommandsString = ALL_POSITION_COMMANDS;
-            sizeCommandsString = ALL_SIZE_COMMANDS;
+          positionCommandsString = ALL_POSITION_COMMANDS;
+          sizeCommandsString = ALL_SIZE_COMMANDS;
         }
         // --- End Dynamic Command List Generation ---
-        
-        // Simplify constraint text - removing explicit 'AVOID' instructions
-        let constraintText = `\n\n***********************************\n`;
-        constraintText += `*** VERTICAL CONSTRAINT STATUS ***\n`;
-        constraintText += `MAXIMUM vertical extent allowed for all content is ${maxLimit}em.\n`;
-        constraintText += `CURRENT vertical extent (bottom edge of lowest element) is ${maxExtent}em.\n`;
-        
-        if (overLimit) {
-            constraintText += `STATUS: LIMIT REACHED. The toolset for this run has been restricted to only permit movement that reduces vertical space (UP/LEFT/RIGHT or SHRINK).\n`;
-        } else {
-            constraintText += `STATUS: Within limit. Space remaining: ${remaining}em. All commands are available.\n`;
-        }
-        constraintText += `***********************************\n\n`;
 
+        // Simplify constraint text
+        let constraintText = `\n\n*** VERTICAL CONSTRAINT STATUS ***\n`;
+        constraintText += `MAX: ${maxLimit}em. CURRENT: ${maxExtent}em. REMAINING: ${remaining}em.\n`;
+        if (overLimit) {
+          constraintText += `STATUS: LIMIT REACHED. Toolset restricted to UP/LEFT/RIGHT/SHRINK.\n`;
+        }
+        constraintText += `**********************************\n\n`;
 
         // Replace the placeholders in the chosen template
-        let finalPromptText = currentTemplate.replace("{{structure}}", JSON.stringify(augmentedElements, null, 2));
-        finalPromptText = finalPromptText.replace("{{constraint}}", constraintText);
-        
-        // Apply dynamic command lists
-        finalPromptText = finalPromptText.replace("{{positionCommands}}", positionCommandsString);
-        finalPromptText = finalPromptText.replace("{{sizeCommands}}", sizeCommandsString);
+        let finalPromptText = currentTemplate.replace(
+          "{{structure}}",
+          JSON.stringify(augmentedElements, null, 2),
+        );
+        finalPromptText = finalPromptText.replace(
+          "{{constraint}}",
+          constraintText,
+        );
 
+        // Apply dynamic command lists
+        finalPromptText = finalPromptText.replace(
+          "{{positionCommands}}",
+          positionCommandsString,
+        );
+        finalPromptText = finalPromptText.replace(
+          "{{sizeCommands}}",
+          sizeCommandsString,
+        );
 
         // --- Prepare Payload Parts (Interleaved) ---
         const parts = [];
 
         // 3. History (if any)
         const chronologicalHistory = state.history.slice(0, 3).reverse();
-        
         if (chronologicalHistory.length > 0) {
-            parts.push({ text: "### HISTORY OF RECENT ACTIONS (Oldest to Newest):\n" });
-            chronologicalHistory.forEach((h, i) => {
-                const currentRun = parseInt(iterLabel.match(/\d+/)?.[0] || "1", 10);
-                const stepNum = currentRun - (state.history.length - i); 
-                
-                const stepText = `\n--- Step ${Math.max(0, stepNum)} ---\nDelta Score (Pre-Command): ${h.score}\nCommands Executed: ${JSON.stringify(h.commands)}\nRESULTING FRAME (below):`;
-                
-                parts.push({ text: stepText });
-                parts.push({ inlineData: { mimeType: "image/png", data: h.resultImage } });
+          parts.push({
+            text: "### HISTORY OF RECENT ACTIONS (Oldest to Newest):\n",
+          });
+          chronologicalHistory.forEach((h, i) => {
+            const currentRun = parseInt(iterLabel.match(/\d+/)?.[0] || "1", 10);
+            const stepNum = currentRun - (state.history.length - i);
+
+            const stepText = `\n--- Step ${Math.max(0, stepNum)} ---\nDelta Score (Pre-Command): ${h.score}\nCommands Executed: ${JSON.stringify(h.commands)}\nRESULTING FRAME (below):`;
+
+            parts.push({ text: stepText });
+            parts.push({
+              inlineData: { mimeType: "image/png", data: h.resultImage },
             });
-            parts.push({ text: "\n----------------\n" });
+          });
+          parts.push({ text: "\n----------------\n" });
         } else {
-            parts.push({ text: "(No history available yet. This is the first step.)\n" });
+          parts.push({
+            text: "(No history available yet. This is the first step.)\n",
+          });
         }
 
         // 4. Current Context
@@ -724,39 +810,52 @@ and shown to be economically feasible and beneficial.</p></div>`;
         const renderBase64 = borderedRender.toDataURL().split(",")[1];
 
         // The prompt text goes first
-        parts.push({ text: finalPromptText + "\n\n--- VISUAL INPUTS ---\n1. TARGET (Red Border):\n" });
-        parts.push({ inlineData: { mimeType: "image/png", data: targetBase64 } });
-        
+        parts.push({
+          text:
+            finalPromptText +
+            "\n\n--- VISUAL INPUTS ---\n1. TARGET (Red Border):\n",
+        });
+        parts.push({
+          inlineData: { mimeType: "image/png", data: targetBase64 },
+        });
+
         parts.push({ text: "\n2. CURRENT RENDER (Blue Border):\n" });
-        parts.push({ inlineData: { mimeType: "image/png", data: renderBase64 } });
+        parts.push({
+          inlineData: { mimeType: "image/png", data: renderBase64 },
+        });
 
         // --- Full Payload Object for Logging ---
         const payloadObj = {
-            iter: iterLabel || "Initial",
-            mode: currentMode,
-            score: "Calculated Pre-Execution",
-            constraint: { maxLimit, currentExtent: maxExtent },
-            promptText: finalPromptText, 
-            structure: augmentedElements,
-            images: { 
-                target: targetBase64,
-                render: renderBase64
-            },
-            history: chronologicalHistory.map((h, i) => {
-                const currentRun = parseInt(iterLabel.match(/\d+/)?.[0] || "1", 10);
-                const step = currentRun - (state.history.length - i);
-                return {
-                    step: Math.max(0, step),
-                    score: h.score,
-                    commands: h.commands,
-                }
-            })
+          iter: iterLabel || "Initial",
+          mode: currentMode,
+          score: "Calculated Pre-Execution",
+          constraint: { maxLimit, currentExtent: maxExtent },
+          promptText: finalPromptText,
+          structure: augmentedElements,
+          images: {
+            target: targetBase64,
+            render: renderBase64,
+          },
+          history: chronologicalHistory.map((h, i) => {
+            const currentRun = parseInt(iterLabel.match(/\d+/)?.[0] || "1", 10);
+            const step = currentRun - (state.history.length - i);
+            return {
+              step: Math.max(0, step),
+              score: h.score,
+              commands: h.commands,
+            };
+          }),
         };
 
         return { parts, payloadObj };
       }
 
-      async function updateAIImagesAndPayload(originalImage, isInitialRun, iterLabel, scale) {
+      async function updateAIImagesAndPayload(
+        originalImage,
+        isInitialRun,
+        iterLabel,
+        scale,
+      ) {
         const divEl = document.getElementById(TEST_ID);
         if (!divEl) return;
         const rect = getRect(TEST_ID);
@@ -769,7 +868,7 @@ and shown to be economically feasible and beneficial.</p></div>`;
         }
 
         const htmlLayerCan = await html2canvas(divEl, {
-          scale: scale, 
+          scale: scale,
           backgroundColor: null,
           width: rect.w,
           height: rect.h,
@@ -777,33 +876,48 @@ and shown to be economically feasible and beneficial.</p></div>`;
 
         let scaledTargetCan = state.targetAI;
         if (scale !== DEFAULT_AI_SCALE) {
-             scaledTargetCan = cropAndScale(rect, scale, originalImage);
+          scaledTargetCan = cropAndScale(rect, scale, originalImage);
         }
 
         const renderCan = createCombinedRender(scaledTargetCan, htmlLayerCan);
-        
+
         // This call is just to prepare the payload object in memory, we don't use its 'parts'
-        const { payloadObj } = preparePayloadAndPrompt(scaledTargetCan, renderCan, iterLabel, state.currentMode, state.currentMode === "POSITION" ? POSITION_TEMPLATE : SIZE_TEMPLATE);
+        const { payloadObj } = preparePayloadAndPrompt(
+          scaledTargetCan,
+          renderCan,
+          iterLabel,
+          state.currentMode,
+          state.currentMode === "POSITION" ? POSITION_TEMPLATE : SIZE_TEMPLATE,
+        );
 
         if (isInitialRun) {
-            const resultB64 = renderCan.toDataURL().split(",")[1];
-            const { elements: initialElements, maxExtent: initialExtent } = getStructure(TEST_ID);
+          const resultB64 = renderCan.toDataURL().split(",")[1];
+          const { elements: initialElements, maxExtent: initialExtent } =
+            getStructure(TEST_ID);
 
-            if (state.history.length === 0 || state.history[state.history.length - 1].commands !== null) { 
-                 state.history.unshift({
-                    score: '0.00%', 
-                    commands: {},
-                    resultImage: resultB64,
-                    structure: { elements: initialElements, maxExtent: initialExtent }
-                });
-            }
+          if (
+            state.history.length === 0 ||
+            state.history[state.history.length - 1].commands !== null
+          ) {
+            state.history.unshift({
+              score: "0.00%",
+              commands: {},
+              resultImage: resultB64,
+              structure: {
+                elements: initialElements,
+                maxExtent: initialExtent,
+              },
+            });
+          }
         }
       }
 
       async function runIteration(i, max) {
         state.iterationCounter++;
-        state.currentMode = state.iterationCounter % 2 === 1 ? "POSITION" : "SIZE";
-        const currentTemplate = state.currentMode === "POSITION" ? POSITION_TEMPLATE : SIZE_TEMPLATE;
+        state.currentMode =
+          state.iterationCounter % 2 === 1 ? "POSITION" : "SIZE";
+        const currentTemplate =
+          state.currentMode === "POSITION" ? POSITION_TEMPLATE : SIZE_TEMPLATE;
 
         els.modeDisplay.textContent = state.currentMode;
         els.modeDisplay.className = `mode-${state.currentMode.toLowerCase()}`;
@@ -812,14 +926,13 @@ and shown to be economically feasible and beneficial.</p></div>`;
         if (!divEl) return;
 
         const iter = `Run ${i}/${max}`;
-        
-        currentRunScale = (i === max) ? FINAL_AI_SCALE : DEFAULT_AI_SCALE;
+
+        currentRunScale = i === max ? FINAL_AI_SCALE : DEFAULT_AI_SCALE;
 
         els.status.textContent = `${iter} Capturing for ${state.currentMode}... (Scale: ${currentRunScale})`;
         els.status.style.display = "inline";
 
         await updateAIImagesAndPayload(img, false, iter, currentRunScale);
-        
         const srcCan = state.targetAI;
         const rendCan = state.renderAI;
 
@@ -828,7 +941,13 @@ and shown to be economically feasible and beneficial.</p></div>`;
         const deltaScore = await getDiff(srcB64, rendB64);
         const scoreString = (deltaScore * 100).toFixed(2) + "%";
 
-        const { parts, payloadObj } = preparePayloadAndPrompt(srcCan, rendCan, iter, state.currentMode, currentTemplate);
+        const { parts, payloadObj } = preparePayloadAndPrompt(
+          srcCan,
+          rendCan,
+          iter,
+          state.currentMode,
+          currentTemplate,
+        );
         payloadObj.score = scoreString;
 
         if (state.currTab === "log") renderDiagnosticLog();
@@ -854,27 +973,46 @@ and shown to be economically feasible and beneficial.</p></div>`;
 
           // --- CRITICAL FILTERING STEP ---
           const appliedCommands = applyCommands(updates, state.currentMode);
-          
-          await updateAIImagesAndPayload(img, false, `${iter} (Post-Apply)`, DEFAULT_AI_SCALE);
+
+          await updateAIImagesAndPayload(
+            img,
+            false,
+            `${iter} (Post-Apply)`,
+            DEFAULT_AI_SCALE,
+          );
           const resultB64 = state.renderAI.toDataURL().split(",")[1];
 
-          const { elements: postCommandElements, maxExtent: postCommandExtent } = getStructure(TEST_ID);
+          const {
+            elements: postCommandElements,
+            maxExtent: postCommandExtent,
+          } = getStructure(TEST_ID);
 
           state.history.unshift({
             score: scoreString,
             commands: appliedCommands,
-            resultImage: resultB64, 
-            structure: { elements: postCommandElements, maxExtent: postCommandExtent }
+            resultImage: resultB64,
+            structure: {
+              elements: postCommandElements,
+              maxExtent: postCommandExtent,
+            },
           });
 
-          console.log(`Applied ${Object.keys(appliedCommands).length} updates in ${state.currentMode} mode. Score: ${scoreString}`);
-          
-          await updateAIImagesAndPayload(img, false, `Pre-Run ${i+1}/${max}`, currentRunScale);
+          console.log(
+            `Applied ${Object.keys(appliedCommands).length} updates in ${state.currentMode} mode. Score: ${scoreString}`,
+          );
+
+          await updateAIImagesAndPayload(
+            img,
+            false,
+            `Pre-Run ${i + 1}/${max}`,
+            currentRunScale,
+          );
           drawCombinedRenderToView();
 
-          els.output.value = els.layer.innerHTML.replace(/<\/div>/g, "</div>\n").replace(/<br>/g, "<br>\n");
+          els.output.value = els.layer.innerHTML
+            .replace(/<\/div>/g, "</div>\n")
+            .replace(/<br>/g, "<br>\n");
           if (state.currTab === "html") window.setTab("html");
-
         } catch (e) {
           logEntry.response = `Error: ${e.message}`;
           console.error(e);
@@ -882,24 +1020,38 @@ and shown to be economically feasible and beneficial.</p></div>`;
           state.aiLog.unshift(logEntry);
           if (state.currTab === "log") renderDiagnosticLog();
 
-          await updateAIImagesAndPayload(img, false, `Pre-Run ${i+1}/${max}`, currentRunScale);
+          await updateAIImagesAndPayload(
+            img,
+            false,
+            `Pre-Run ${i + 1}/${max}`,
+            currentRunScale,
+          );
           drawCombinedRenderToView();
         }
       }
 
       els.runBtn.onclick = async () => {
         els.runBtn.disabled = true;
-        state.history = []; 
-        state.aiLog = []; 
+        state.history = [];
+        state.aiLog = [];
         state.iterationCounter = 0; // Reset counter
 
-        await updateAIImagesAndPayload(img, true, "Initial Baseline Reset", DEFAULT_AI_SCALE);
+        els.layer.innerHTML = INITIAL_HTML;
+        els.output.value = INITIAL_HTML.replace(/<\/div>/g, "</div>\n").replace(
+          /<br>/g,
+          "</p>\n<p>",
+        );
+        await updateAIImagesAndPayload(
+          img,
+          true,
+          "Initial Baseline Reset",
+          DEFAULT_AI_SCALE,
+        );
 
         const max = parseInt(els.loopInput.value);
         for (let i = 1; i <= max; i++) await runIteration(i, max);
-        
         els.layer.innerHTML = els.output.value;
-        drawCombinedRenderToView(); 
+        drawCombinedRenderToView();
         els.status.style.display = "none";
         els.runBtn.disabled = false;
         window.setTab("html");
@@ -908,21 +1060,30 @@ and shown to be economically feasible and beneficial.</p></div>`;
       };
 
       // Initialization
-      els.output.value = INITIAL_HTML.replace(/<\/div>/g, "</div>\n").replace(/<br>/g, "<br>\n");
+      els.output.value = INITIAL_HTML.replace(/<\/div>/g, "</div>\n").replace(
+        /<br>/g,
+        "</p>\n<p>",
+      );
       els.layer.innerHTML = INITIAL_HTML;
       window.setTab("html");
       els.modeDisplay.textContent = "READY";
 
-
       img = new Image();
       img.crossOrigin = "anonymous";
       img.onload = async () => {
-        state.viewCanvas.width = img.width; state.viewCanvas.height = img.height;
-        els.wrapper.style.width = state.viewCanvas.width + "px"; els.wrapper.style.height = state.viewCanvas.height + "px";
+        state.viewCanvas.width = img.width;
+        state.viewCanvas.height = img.height;
+        els.wrapper.style.width = state.viewCanvas.width + "px";
+        els.wrapper.style.height = state.viewCanvas.height + "px";
         state.viewCtx = state.viewCanvas.getContext("2d");
-        state.viewCtx.drawImage(img, 0, 0, state.viewCanvas.width, state.viewCanvas.height);
-        
-        await updateAIImagesAndPayload(img, true, "Initial", DEFAULT_AI_SCALE); 
+        state.viewCtx.drawImage(
+          img,
+          0,
+          0,
+          state.viewCanvas.width,
+          state.viewCanvas.height,
+        );
+        await updateAIImagesAndPayload(img, true, "Initial", DEFAULT_AI_SCALE);
 
         drawCombinedRenderToView();
       };
