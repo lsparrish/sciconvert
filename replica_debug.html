@@ -245,7 +245,7 @@ Minimize blue pixels which do not correspond.
 # RESPONSE FORMAT
 {
   "element-id": [
-    { "action": "grow", "changeAmount": 0.25, "${PROBABILITY_FIELD}": 0.10 } // dampenFutureChanges is (0.00 to 1.00)
+    { "action": "grow", "changeAmount": 0.25, "${PROBABILITY_FIELD}": 0.10 }
   ]
 }`;
 
@@ -459,16 +459,19 @@ and shown to be economically feasible and beneficial.</p></div>`;
       function applyCommands(updates, mode) {
         const allowedMoveActions =
           mode === "POSITION"
-            ? ["moveUp", "moveDown", "moveLeft", "moveRight"]
+            ? ["moveUp", "moveDown", "moveLeft", "moveRight", "moveTogether", "moveApart"]
             : ["grow", "shrink"];
 
         const PROBABILITY_FIELD = "dampenFutureChanges";
+        const elementMap = Array.from(document.getElementById(TEST_ID).children)
+                             .reduce((map, el) => { map[el.id] = el; return map; }, {});
+        const elementIds = Object.keys(elementMap);
 
         let applied = {};
         let totalProbability = 0;
 
         for (const [id, cmds] of Object.entries(updates)) {
-          const el = document.getElementById(id);
+          const el = elementMap[id];
           if (!el || !Array.isArray(cmds)) continue;
 
           el.style.position = "relative";
@@ -481,32 +484,48 @@ and shown to be economically feasible and beneficial.</p></div>`;
 
           cmds.forEach((c) => {
             const v = parseFloat(c.changeAmount) || 0;
+            const action = c.action;
             
             // 1. Extract Probability from the command object
             if (c[PROBABILITY_FIELD] !== undefined) {
               const pValue = parseFloat(c[PROBABILITY_FIELD]) || 0;
-              // Sum probability, clamp changeAmount between 0 and 1
-              // NOTE: This sums probability from ALL commands, assuming the AI might output multiple commands 
-              // for different reasons, although typically we expect one primary action per element.
               totalProbability += Math.min(1.0, Math.max(0.0, pValue));
             }
 
-            // 2. Apply Move/Size Action
-            if (allowedMoveActions.includes(c.action)) {
-              if (c.action === "moveUp") top -= v;
-              else if (c.action === "moveDown") top += v;
-              else if (c.action === "moveLeft") left -= v;
-              else if (c.action === "moveRight") left += v;
-              else if (c.action === "grow") size += v;
-              else if (c.action === "shrink") size = Math.max(0.1, size - v);
+            // 2. Apply Move/Size/Group Action
+            if (allowedMoveActions.includes(action)) {
+              if (action === "moveUp") top -= v;
+              else if (action === "moveDown") top += v;
+              else if (action === "moveLeft") left -= v;
+              else if (action === "moveRight") left += v;
+              else if (action === "grow") size += v;
+              else if (action === "shrink") size = Math.max(0.1, size - v);
+              else if (action === "moveTogether" || action === "moveApart") {
+                // Apply vertical change to subsequent elements
+                const isMoveApart = action === "moveApart";
+                const direction = isMoveApart ? 1 : -1;
+                const startingIndex = elementIds.indexOf(id);
+
+                if (startingIndex !== -1) {
+                    for (let i = startingIndex + 1; i < elementIds.length; i++) {
+                        const targetId = elementIds[i];
+                        const targetEl = elementMap[targetId];
+                        if (targetEl) {
+                            let targetTop = parseFloat(targetEl.style.top) || 0;
+                            targetTop += v * direction;
+                            targetEl.style.top = targetTop.toFixed(2) + "em";
+                        }
+                    }
+                }
+              }
 
               elementApplied.push(c);
               elementHasMoveAction = true;
             }
-            // Ignore any action that is not a move/size command
+            // Ignore any action that is not a recognized move/size command
           });
 
-          // Only apply styles if a change (move/size) actually happened to prevent redundant updates
+          // Only apply styles if a change (move/size) actually happened to the originating element
           if (elementHasMoveAction) {
             el.style.top = top.toFixed(2) + "em";
             el.style.left = left.toFixed(2) + "em";
@@ -514,9 +533,6 @@ and shown to be economically feasible and beneficial.</p></div>`;
           }
 
           if (elementApplied.length > 0) {
-            // NOTE: We rely on the totalProbability variable, not the individual command probability fields,
-            // for the final skip logic. We keep the commands (including probability field) in history for 
-            // the Diagnostic Log only.
             applied[id] = elementApplied;
           }
         }
@@ -743,6 +759,7 @@ and shown to be economically feasible and beneficial.</p></div>`;
           ? state.history[0].commands
           : {};
         let augmentedElements = currentElements;
+        const PROBABILITY_FIELD = "dampenFutureChanges";
 
         if (
           previousHistoryForDelta &&
@@ -803,18 +820,23 @@ and shown to be economically feasible and beneficial.</p></div>`;
         // --- Dynamic Command List Generation ---
         let positionCommandsString;
         let sizeCommandsString;
+        
+        // --- POSITION COMMANDS INCLUDE GROUP ACTIONS ---
         const ALL_POSITION_COMMANDS = `
 # AVAILABLE COMMANDS (STRICTLY LIMITED TO POSITION)
-1. Move: "moveUp", "moveDown", "moveLeft", "moveRight" (Coefficient: 0.10 to 5.00).
-   - NOTE: Each move command should optionally include a "${PROBABILITY_FIELD}" (0.00 to 1.00) field.
+1. Single Move: "moveUp", "moveDown", "moveLeft", "moveRight" (Coefficient: 0.10 to 5.00, or up to 20.00 for vertical distance correction).
+2. Group Vertical Adjustment (moves subsequent elements): "moveTogether" (reduces vertical space), "moveApart" (increases vertical space). (Coefficient: 0.10 to 5.00).
+   - NOTE: Each command should optionally include a "${PROBABILITY_FIELD}" (0.00 to 1.00) field.
 `;
         const RESTRICTED_POSITION_COMMANDS = `
 # AVAILABLE COMMANDS (STRICTLY LIMITED TO POSITION)
-1. Move: "moveUp", "moveLeft", "moveRight" (Coefficient: 0.10 to 5.00).
+1. Single Move: "moveUp", "moveLeft", "moveRight" (Coefficient: 0.10 to 5.00, or up to 20.00 for vertical distance correction).
    // Note: "moveDown" is disabled due to vertical constraint (${maxExtent}em >= ${maxLimit}em).
-   - NOTE: Each move command should optionally include a "${PROBABILITY_FIELD}" (0.00 to 1.00) field.
+2. Group Vertical Adjustment (moves subsequent elements): "moveTogether" (reduces vertical space only). (Coefficient: 0.10 to 5.00).
+   // Note: "moveApart" is disabled due to vertical constraint.
+   - NOTE: Each command should optionally include a "${PROBABILITY_FIELD}" (0.00 to 1.00) field.
 `;
-
+        // --- SIZE COMMANDS (UNCHANGED) ---
         const ALL_SIZE_COMMANDS = `
 # AVAILABLE COMMANDS (STRICTLY LIMITED TO SIZE)
 1. Size: "grow", "shrink" (Coefficient: 0.10 to 5.00).
@@ -842,7 +864,7 @@ and shown to be economically feasible and beneficial.</p></div>`;
         let constraintText = `\n\n*** VERTICAL CONSTRAINT STATUS ***\n`;
         constraintText += `MAX: ${maxLimit}em. CURRENT: ${maxExtent}em. REMAINING: ${remaining}em.\n`;
         if (overLimit) {
-          constraintText += `STATUS: LIMIT REACHED. Toolset restricted to UP/LEFT/RIGHT/SHRINK.\n`;
+          constraintText += `STATUS: LIMIT REACHED. Toolset restricted to UP/LEFT/RIGHT/SHRINK/MOVETOGETHER.\n`;
         }
         constraintText += `**********************************\n\n`;
 
