@@ -28,6 +28,8 @@
 
     <!-- html2canvas for DOM screenshots -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
+    <!-- REMOVED: gif.js library -->
 
     <style>
       /* Custom Scrollbar for better aesthetics */
@@ -206,6 +208,23 @@
         height: auto;
         object-fit: contain;
         border: 1px solid #555;
+      }
+
+      /* History Strip Styling */
+      #debug-history-strip {
+        padding: 10px 20px;
+      }
+      #history-images-container {
+        display: flex;
+        gap: 0.75rem;
+        height: 6rem; /* fixed height for history strip */
+        align-items: center;
+        overflow-x: auto;
+      }
+      #history-images-container img {
+        height: 100%;
+        width: auto;
+        flex-shrink: 0;
       }
 
       /* --- Context Menu Styles (Simplified/Stripped) --- */
@@ -545,7 +564,7 @@
                 id="btn-ai-replica-edit"
                 class="action-btn text-blue-600 hover:text-blue-700"
                 onclick="runAiReplica()"
-                title="AI Replica Style Match"
+                title="AI Replica Style Match (Single Step)"
               >
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -555,8 +574,27 @@
                     d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
                   ></path>
                 </svg>
-                <span>AI Style</span>
+                <span>AI Style (1x)</span>
               </button>
+              
+              <!-- NEW BUTTON FOR LOOPING -->
+              <button
+                id="btn-ai-loop-edit"
+                class="action-btn text-indigo-600 hover:text-indigo-700"
+                onclick="runAiReplicaLoop(5)"
+                title="Automatically run AI Replica 5 times to refine alignment"
+              >
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11.816 6H15m4.418-9a8 8 0 10-15.356 2m15.356-2H15"
+                  ></path>
+                </svg>
+                <span>Run 5x</span>
+              </button>
+              
               <button
                 id="btn-ai-font-edit"
                 class="action-btn text-purple-600 hover:text-purple-700"
@@ -778,9 +816,9 @@
         <!-- 6. Debug Images Container (NEW TAB CONTENT) -->
         <div
           id="editor-container-debug"
-          class="absolute inset-0 hidden flex flex-col p-4 bg-gray-800"
+          class="absolute inset-0 hidden flex flex-col p-4 bg-gray-800 overflow-y-auto"
         >
-          <!-- Image Comparison Row -->
+          <!-- Image Comparison Row (Source vs. Current) -->
           <div
             id="debug-vision-content-tab"
             class="flex-shrink-0 flex justify-space-evenly gap-4"
@@ -799,10 +837,34 @@
                 id="debug-render-label"
                 class="text-sm font-bold text-blue-300 mb-2"
               >
-                TEST RENDER (HTML Output)
+                CURRENT RENDER (HTML Output)
               </span>
               <img id="debug-render-img" alt="Current HTML Render" />
             </div>
+          </div>
+
+          <!-- NEW: History Strip -->
+          <div
+            id="debug-history-strip"
+            class="flex-shrink-0 mt-4 p-2 bg-gray-900 rounded-lg shadow-inner overflow-x-auto whitespace-nowrap"
+          >
+            <div class="flex justify-between items-center mb-2">
+                <span class="text-xs font-semibold text-gray-400 align-middle"
+                    >Past Attempts (Max 4):</span
+                >
+                <button 
+                    id="btn-toggle-playback" 
+                    class="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 text-xs rounded font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    onclick="toggleHistoryPlayback()"
+                    disabled
+                >
+                    <span id="playback-text">Play History</span>
+                </button>
+            </div>
+            <div
+              id="history-images-container"
+              class="inline-flex gap-3 h-24"
+            ></div>
           </div>
 
           <!-- HTML Content Area -->
@@ -936,45 +998,44 @@
 
         // Interaction Target
         targetDivId: null,
+        
+        // Playback State
+        isPlaybackActive: false,
+        playbackInterval: null,
+        playbackFrames: [],
+        originalRenderSource: null,
+        
+        // Loop State
+        isLoopRunning: false, // NEW: Prevent parallel AI calls
 
         isLogActive: false, // New state variable
+        // REMOVED: isEditorFocused: false, // NEW: Track editor focus state
 
         // AI Prompts (Editable content stored here)
         prompts: {
           DIGITIZE_TEXT:
             "Transcribe the text in this image. Return ONLY the raw text, preserving line breaks. Do not include markdown blocks or commentary. If it is a mathematical formula, return the KaTeX equivalent enclosed in dollar signs ($...$ or $$...$$).",
-          REPLICA_STYLE: `You are a Visual CSS Alignment Engine. 
-I am providing two images ("Target Image" and "Test Render").
-I am also providing the current HTML of the text block corresponding exactly to the Test Render.
+          REPLICA_STYLE: `You are a Visual CSS Alignment Engine dedicated to achieving maximum visual fidelity to the source document.
+I am providing a sequence of images and the corresponding HTML content to help you make pixel-perfect corrections.
 
-Image 1: The "Target Image" (Source scanned image) -- make the HTML like this.
-Image 2: The "Test Render" (Browser rendering) -- Use this to understand what the provided HTML currently does.
+Image 1: The "TARGET IMAGE" (Source scanned image). This is the final goal.
+Image 2: The "CURRENT RENDER" (Browser rendering of the provided HTML). This is the state to be corrected.
+Images 3 to {{imageCount}}: These are "PAST ATTEMPTS" (Historical Renders from newest to oldest). Use these to analyze the effect of recent changes and understand the correction trajectory.
 
-CHALLENGE: Make the alignment and typography in Image 2 as close as possible in appearance to Image 1.
+CHALLENGE: Make the alignment and typography in the CURRENT RENDER as close as possible in appearance to the TARGET IMAGE.
 
 CRITICAL CONSTRAINTS:
 1. You MUST use inline styling on <span> or other appropriate structural HTML elements (like <p> or <h1>).
 2. The (Bounding Box) is for informational purposes only. It shows the width and height. Do not add a enclosing div with these properties.
 3. Use the properties **position, top, left, font-size, text-align, font-family, font-weight, and font-style** applied to the internal elements (<span>, <p>, etc.) to correct each element. Use 'position: relative;' along with 'top' and 'left' (using 'em' units) to achieve precise vertical or horizontal placement. Do NOT use these: line-height, margin, padding.
-4. Changes to the style values must be in a direction that improves upon the current parameters shown in the test case, such that the HTML to be rendered will more closely resemble the Target Image.
-5. Deeply consider for each element whether it needs to be smaller, larger, up, down, left, right. 
-6. Picture the words like puzzle pieces that you can shrink or grow. Reaching the correct size is one "click", reaching the correct distance values is another "click".
-7. Consider standardizing on all fonts having the same font-size, with relative modifiers for each style.
-8. Use at least two digits of precision in specifying relative fonts (em).
+4. Changes to the style values must be in a direction that improves upon the current parameters shown in the CURRENT RENDER.
+5. Study the PASE ATTEMPTS to avoid repeating prior ineffective corrections.
 
 --- CURRENT STATE FOR TEST RENDER ---
+(Image Count): {{imageCount}}
 (Bounding Box): {{promptDimensions}}
 (Content HTML): {{content}}
 ------------------------------------
-
---- EXAMPLE -------------------------
-EXAMPLE FROM:
-Journal of the British Interplanetary Society, Vol. 36, pp. 115-128, 1983.
-EXAMPLE TO:
-<p style="font-style: italic; position: relative; top: 3%; left: 3.4%; font-size: 0.63em;">Journal of the British Interplanetary Society, Vol. 36, pp. 115-128, 1983.</p>
--------------------------------------
-
-Note that results can only be better or worse, so this is not a creative endeavor. Set TEMPERATURE=0 and make small changes to each element in the manner you think they should change to more closely resemble the Target.
 
 Respond ONLY with the corrected inner HTML, no commentary or markdown apart from HTML comments.`,
           FONT_STYLE: `Analyze the typography in this image snippet. 
@@ -1036,6 +1097,54 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
           request.onerror = (e) => reject(e);
         });
       }
+      
+      /**
+       * Helper to clone the element and strip non-internal CSS properties
+       * before sending the HTML string to the AI.
+       */
+      var getDivData = function (divElement) {
+        const style = divElement.getAttribute("style") || "";
+
+        // Extract percentage values for positioning and sizing
+        const leftMatch = style.match(/left:\s*([^;]+)/i);
+        const topMatch = style.match(/top:\s*([^;]+)/i);
+        const widthMatch = style.match(/width:\s*([^;]+)/i);
+        const heightMatch = style.match(/height:\s*([^;]+)/i);
+
+        const left = leftMatch ? leftMatch[1].trim() : "0%";
+        const top = topMatch ? topMatch[1].trim() : "0%";
+        const width = widthMatch ? widthMatch[1].trim() : "auto";
+        const height = heightMatch ? heightMatch[1].trim() : "auto";
+
+        return {
+          id: divElement.id,
+          content: divElement.innerHTML,
+          left: left,
+          top: top,
+          width: width,
+          height: height,
+        };
+      };
+      
+      /**
+       * Extracts a base64 string from a given div's coordinates on the PDF canvas,
+       * using the specified scale for high-resolution output.
+       */
+      function getSnippetFromDiv(divId, imageScale = 1.0) {
+        const div = document.getElementById(divId);
+        if (!div) return null;
+
+        const cw = els.theCanvas.width;
+        const ch = els.theCanvas.height;
+        const pixelRect = {
+          x: (parseFloat(div.style.left) / 100) * cw,
+          y: (parseFloat(div.style.top) / 100) * ch,
+          width: (parseFloat(div.style.width) / 100) * cw,
+          height: (parseFloat(div.style.height) / 100) * ch,
+        };
+        return extractImageSnippet(pixelRect, imageScale); // Pass the scale
+      }
+
 
       // --- DOM Elements ---
       const els = {
@@ -1101,6 +1210,13 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         debugSourceImg: document.getElementById("debug-source-img"), // New
         debugRenderImg: document.getElementById("debug-render-img"), // New
         closeDebugVision: document.getElementById("close-debug-vision"), // Not used in tab view
+        historyImagesContainer: document.getElementById(
+          "history-images-container",
+        ), // NEW: History container
+        
+        // NEW Playback elements
+        btnTogglePlayback: document.getElementById("btn-toggle-playback"),
+        playbackText: document.getElementById("playback-text"),
 
         // New Debug Tab Container
         editorContainerDebug: document.getElementById("editor-container-debug"),
@@ -1122,6 +1238,319 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         editorContainerMd: document.getElementById("editor-container-md"),
         previewContainer: document.getElementById("preview-container"),
       };
+
+      // --- AI Log Logic (Placed high for visibility) ---
+      function updateLogVisibility() {
+        if (aiQueryLog.length > 0) {
+          els.showAiLog.classList.remove("hidden");
+        }
+      }
+
+      function renderAiLog() {
+        let logContent = `// === AI Query Log (${aiQueryLog.length} entries - Latest First) ===\n\n`;
+
+        // Note: Log entries are added to the start of the array (unshift), so map in order.
+        aiQueryLog.forEach((entry, index) => {
+          const status = entry.success ? "SUCCESS" : "ERROR";
+          logContent += `// [${index + 1}] ${entry.timestamp} - Status: ${status}\n`;
+          logContent += `// PROMPT:\n${entry.prompt}\n\n`;
+          logContent += `// RESPONSE:\n${entry.response}\n\n`;
+          logContent += "-------------------------------------------------\n\n";
+        });
+
+        return logContent;
+      }
+      // ---------------------------------------------------
+      
+      /**
+       * Extracts a base64 string from a given rect on the current canvas, applying an optional scale.
+       */
+      function extractImageSnippet(pixelRect, outputScale = 1.0) {
+        const tempCanvas = document.createElement("canvas");
+        // Scale the output canvas dimensions
+        tempCanvas.width = pixelRect.width * outputScale;
+        tempCanvas.height = pixelRect.height * outputScale;
+        const tempCtx = tempCanvas.getContext("2d");
+        // Draw the source snippet to the new scaled dimensions
+        tempCtx.drawImage(
+          state.canvas,
+          pixelRect.x,
+          pixelRect.y,
+          pixelRect.width,
+          pixelRect.height,
+          0,
+          0,
+          tempCanvas.width, // Scaled Target Width
+          tempCanvas.height, // Scaled Target Height
+        );
+        return tempCanvas.toDataURL("image/png").split(",")[1];
+      }
+      
+      function parseAIJson(text) {
+        try {
+          // Try to find a JSON block first
+          const jsonMatch = text.match(/\{[\s\S]*\}/);
+          if (jsonMatch) return JSON.parse(jsonMatch[0]);
+          return JSON.parse(text);
+        } catch (e) {
+          return null;
+        }
+      }
+      
+      /**
+       * Helper: Get Div ID from Editor Cursor
+       * Returns the ID of the outer-most, currently selected div, or null if outside a div.
+       */
+      function getTargetDivIdFromCursor() {
+        const cursor = els.overlayHtmlInput.selectionStart;
+        const text = els.overlayHtmlInput.value;
+        let openIndex = -1;
+        let balance = 0;
+
+        for (let i = cursor - 1; i >= 0; i--) {
+          if (text.substring(i, i + 4) === "<div") {
+            if (balance === 0) {
+              openIndex = i;
+              break;
+            }
+            balance--;
+          } else if (text.substring(i, i + 5) === "/div>") {
+            balance++;
+          }
+        }
+
+        if (openIndex !== -1) {
+          const tagEnd = text.indexOf(">", openIndex);
+          if (tagEnd !== -1) {
+            const tagContent = text.substring(openIndex, tagEnd);
+            const match = tagContent.match(/id=["']([^"']+)["']/);
+            return match ? match[1] : null;
+          }
+        }
+        return null;
+      }
+      
+      // Playback Control Functions
+      function stopPlayback() {
+          if (!state.isPlaybackActive) return;
+
+          state.isPlaybackActive = false;
+          clearTimeout(state.playbackInterval);
+          // Set button text to the default
+          els.playbackText.textContent = "Play History"; 
+          
+          // Restore the final frame (Current Render)
+          if (state.originalRenderSource) {
+              els.debugRenderImg.src = state.originalRenderSource;
+          }
+          
+          // Clear all thumbnail highlights
+          const thumbnails = els.historyImagesContainer.children;
+          for (let i = 0; i < thumbnails.length; i++) {
+              thumbnails[i].style.border = 'none';
+          }
+          
+          // Re-enable edit action bar based on selection
+          updateEditBarState();
+      }
+      
+      function startPlayback() {
+          // Check: We need at least one history frame (total frames >= 2, one history + current render)
+          if (state.isPlaybackActive || state.playbackFrames.length < 2) return;
+
+          // 1. Store the original state before starting playback
+          state.originalRenderSource = els.debugRenderImg.src;
+          state.isPlaybackActive = true;
+          // Set button text for playing
+          els.playbackText.textContent = "Stop Playback";
+          
+          // Disable edit action bar to prevent changes during playback visualization
+          els.editActionBar.classList.add("disabled-bar"); 
+
+          // 2. Start the cycle from the first frame (index 0)
+          cycleHistoryFrame(state.playbackFrames, 0);
+      }
+      
+      /**
+       * Cycles through the historical frames in the debug panel.
+       */
+      function cycleHistoryFrame(frames, currentFrameIndex) {
+          if (!state.isPlaybackActive) return;
+
+          const frame = frames[currentFrameIndex];
+          if (frame) {
+              // Display the frame in the main render pane
+              els.debugRenderImg.src = `data:image/png;base64,${frame}`;
+              
+              // Clear all thumbnail highlights
+              const thumbnails = els.historyImagesContainer.children;
+              for (let i = 0; i < thumbnails.length; i++) {
+                  thumbnails[i].style.border = 'none';
+              }
+              
+              // Highlight the corresponding thumbnail in the strip (History frames only)
+              // The frames array is [History 1, ..., History N, Current Render]
+              const historyFramesCount = frames.length - 1;
+              if (currentFrameIndex < historyFramesCount) {
+                  const thumbnailIndex = currentFrameIndex;
+                  if (thumbnailIndex >= 0 && thumbnailIndex < thumbnails.length) {
+                    thumbnails[thumbnailIndex].style.border = '2px solid #6366f1'; // Indigo-500
+                  }
+              }
+
+              // Move to the next frame
+              let nextIndex = currentFrameIndex + 1;
+              if (nextIndex >= frames.length) {
+                  // Loop back to the start
+                  nextIndex = 0;
+              }
+              
+              // Set next frame in the interval
+              state.playbackInterval = setTimeout(() => {
+                  cycleHistoryFrame(frames, nextIndex);
+              }, 600); // 600ms delay per frame
+          } else {
+              // Something went wrong, stop playback
+              stopPlayback();
+          }
+      }
+      
+      window.toggleHistoryPlayback = function() {
+          if (state.isPlaybackActive) {
+              stopPlayback();
+          } else {
+              startPlayback();
+          }
+      }
+
+      /**
+       * NEW: Function to manage the state of the edit bar and target DIV.
+       * Enables the bar if we are NOT looping or logging, restoring general editing capability.
+       */
+      function updateEditBarState() {
+        // Stop playback if user interacts
+        if(state.isPlaybackActive) {
+            stopPlayback(); 
+        }
+
+        const divId = getTargetDivIdFromCursor();
+        state.targetDivId = divId; // Always set targetDivId based on cursor position
+
+        // 1. Manage Global Disabled State (Loop/Log)
+        if (state.isLogActive || state.isLoopRunning) {
+          els.editActionBar.classList.add("disabled-bar");
+        } else {
+          // FIX: Enable the bar if we are NOT looping or logging. 
+          // This is the core fix for enabling the bar when cursor is between divs.
+          els.editActionBar.classList.remove("disabled-bar"); 
+        }
+        
+        // 2. Manage Visual Box State (Only draw box if a DIV is targeted)
+        if (divId) {
+          const divElement = document.getElementById(divId);
+          if (divElement) {
+            // Draw the box around the targeted DIV for visual feedback
+            const cw = els.theCanvas.width;
+            const ch = els.theCanvas.height;
+            const l = (parseFloat(divElement.style.left) / 100) * cw;
+            const t = (parseFloat(divElement.style.top) / 100) * ch;
+            const w = (parseFloat(divElement.style.width) / 100) * cw;
+            const h = (parseFloat(divElement.style.height) / 100) * ch;
+
+            els.selectionBox.style.left = l + "px";
+            els.selectionBox.style.top = t + "px";
+            els.selectionBox.style.width = w + "px";
+            els.selectionBox.style.height = h + "px";
+            els.selectionBox.style.display = "block";
+            els.selectionBox.classList.add("edit-mode");
+          }
+        } else {
+          // If no DIV is targeted, hide the box.
+          els.selectionBox.style.display = "none";
+          els.selectionBox.classList.remove("edit-mode");
+        }
+      }
+      
+      /**
+       * Generic Gemini API Call Wrapper
+       * UPDATED: Robust Array Handling for Images and Logging
+       */
+      async function queryGemini(prompt, images) {
+        // NOTE: Status update relies on the caller to set "AI Processing (1x)..." or "AI Processing Step X..."
+        
+        let resultText = "";
+
+        // 1. Prepare Log Entry (strictly append-only)
+        const logEntry = {
+          timestamp: new Date().toLocaleTimeString(),
+          prompt: prompt,
+          response: "Awaiting response...",
+          success: false,
+        };
+        aiQueryLog.unshift(logEntry); // Add to start of log
+        updateLogVisibility(); // Ensure log button is visible
+        if (state.isLogActive) toggleAiLog(); // Refresh log view if active
+
+
+        try {
+          // Construct the prompt parts
+          const parts = [{ text: prompt }];
+
+          if (Array.isArray(images)) {
+            // Multiple images
+            images.forEach((img) => {
+              parts.push({ inlineData: { mimeType: "image/png", data: img } });
+            });
+          } else if (images) {
+            // Single image
+            parts.push({ inlineData: { mimeType: "image/png", data: images } });
+          }
+
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [
+                  {
+                    role: "user",
+                    parts: parts,
+                  },
+                ],
+              }),
+            },
+          );
+
+          if (!response.ok) {
+            const errorBody = await response.text();
+            throw new Error(
+              `API request failed with status: ${response.status}. Body: ${errorBody}`,
+            );
+          }
+          const data = await response.json();
+
+          resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+          // 2. Update Log on Success
+          logEntry.response = resultText || "No text response received.";
+          logEntry.success = true;
+          if (state.isLogActive) toggleAiLog();
+
+          return resultText;
+        } catch (error) {
+          console.error("AI Error:", error);
+          
+          // 2. Update Log on Error
+          logEntry.response = `Error: ${error.message}`;
+          logEntry.success = false;
+          if (state.isLogActive) toggleAiLog();
+
+          // NOTE: DO NOT SET STATUS HERE. Let caller handle visual status update and hiding.
+
+          throw error;
+        }
+      }
 
       // --- Persistence ---
       function initPersistence() {
@@ -1146,6 +1575,8 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
 
         // Initial bar state check
         updateEditBarState();
+        
+        // REMOVED: Focus/blur handlers for isEditorFocused as it's no longer used for bar state
       }
 
       // NEW: Function to format state.prompts back into the editor's markdown format
@@ -1392,194 +1823,6 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         els.nextBtn.disabled = num >= state.pdfDoc.numPages;
       }
 
-      /**
-       * Extracts a base64 string from a given rect on the current canvas, applying an optional scale.
-       */
-      function extractImageSnippet(pixelRect, outputScale = 1.0) {
-        const tempCanvas = document.createElement("canvas");
-        // Scale the output canvas dimensions
-        tempCanvas.width = pixelRect.width * outputScale;
-        tempCanvas.height = pixelRect.height * outputScale;
-        const tempCtx = tempCanvas.getContext("2d");
-        // Draw the source snippet to the new scaled dimensions
-        tempCtx.drawImage(
-          state.canvas,
-          pixelRect.x,
-          pixelRect.y,
-          pixelRect.width,
-          pixelRect.height,
-          0,
-          0,
-          tempCanvas.width, // Scaled Target Width
-          tempCanvas.height, // Scaled Target Height
-        );
-        return tempCanvas.toDataURL("image/png").split(",")[1];
-      }
-
-      /**
-       * Helper to clone the element and strip non-internal CSS properties
-       * before sending the HTML string to the AI.
-       * * MODIFIED: Now extracts all bounding box coordinates.
-       */
-      var getDivData = function (divElement) {
-        const style = divElement.getAttribute("style") || "";
-
-        // Extract percentage values for positioning and sizing
-        const leftMatch = style.match(/left:\s*([^;]+)/i);
-        const topMatch = style.match(/top:\s*([^;]+)/i);
-        const widthMatch = style.match(/width:\s*([^;]+)/i);
-        const heightMatch = style.match(/height:\s*([^;]+)/i);
-
-        const left = leftMatch ? leftMatch[1].trim() : "0%";
-        const top = topMatch ? topMatch[1].trim() : "0%";
-        const width = widthMatch ? widthMatch[1].trim() : "auto";
-        const height = heightMatch ? heightMatch[1].trim() : "auto";
-
-        return {
-          id: divElement.id,
-          content: divElement.innerHTML,
-          left: left,
-          top: top,
-          width: width,
-          height: height,
-        };
-      };
-
-      // --- AI Log Logic ---
-      function updateLogVisibility() {
-        if (aiQueryLog.length > 0) {
-          els.showAiLog.classList.remove("hidden");
-        }
-      }
-
-      function renderAiLog() {
-        let logContent = `// === AI Query Log (${aiQueryLog.length} entries - Latest First) ===\n\n`;
-
-        // Note: Log entries are added to the start of the array (unshift), so map in order.
-        aiQueryLog.forEach((entry, index) => {
-          const status = entry.success ? "SUCCESS" : "ERROR";
-          logContent += `// [${index + 1}] ${entry.timestamp} - Status: ${status}\n`;
-          logContent += `// PROMPT:\n${entry.prompt}\n\n`;
-          logContent += `// RESPONSE:\n${entry.response}\n\n`;
-          logContent += "-------------------------------------------------\n\n";
-        });
-
-        return logContent;
-      }
-
-      window.toggleAiLog = function () {
-        state.isLogActive = !state.isLogActive;
-
-        if (state.isLogActive) {
-          // Show Log
-          els.overlayHtmlInput.value = renderAiLog();
-          els.overlayHtmlInput.readOnly = true;
-          els.editorTitle.textContent = "AI LOG";
-          els.showAiLog.textContent = "[Show HTML]";
-          els.editActionBar.classList.add("disabled-bar"); // Always disable bar when in log view
-        } else {
-          // Show HTML
-          loadContentForCurrentPage(false); // Reload current page HTML content
-          els.overlayHtmlInput.readOnly = false;
-          els.editorTitle.textContent = "OVERLAY HTML";
-          els.showAiLog.textContent = "[AI Log]";
-          updateEditBarState(); // Re-evaluate bar state based on cursor
-        }
-      };
-
-      /**
-       * Generic Gemini API Call Wrapper
-       * UPDATED: Robust Array Handling for Images and Logging
-       */
-      async function queryGemini(prompt, images) {
-        els.aiStatus.style.display = "inline";
-        els.aiStatus.textContent = "AI Processing...";
-
-        // 1. Prepare Log Entry (strictly append-only)
-        const logEntry = {
-          timestamp: new Date().toLocaleTimeString(),
-          prompt: prompt,
-          response: "Awaiting response...",
-          success: false,
-        };
-        aiQueryLog.unshift(logEntry); // Add to start of log
-        updateLogVisibility(); // Ensure log button is visible
-        if (state.isLogActive) toggleAiLog(); // Refresh log view if active
-
-        let resultText = "";
-
-        try {
-          // Construct the prompt parts
-          const parts = [{ text: prompt }];
-
-          if (Array.isArray(images)) {
-            // Multiple images
-            images.forEach((img) => {
-              parts.push({ inlineData: { mimeType: "image/png", data: img } });
-            });
-          } else if (images) {
-            // Single image
-            parts.push({ inlineData: { mimeType: "image/png", data: images } });
-          }
-
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                contents: [
-                  {
-                    role: "user",
-                    parts: parts,
-                  },
-                ],
-              }),
-            },
-          );
-
-          if (!response.ok)
-            throw new Error(
-              `API request failed with status: ${response.status}`,
-            );
-          const data = await response.json();
-
-          resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-          els.aiStatus.textContent = "Done!";
-          setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
-
-          // 2. Update Log on Success
-          logEntry.response = resultText || "No text response received.";
-          logEntry.success = true;
-          if (state.isLogActive) toggleAiLog();
-
-          return resultText;
-        } catch (error) {
-          console.error("AI Error:", error);
-          els.aiStatus.textContent = "Error!";
-          setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
-
-          // 2. Update Log on Error
-          logEntry.response = `Error: ${error.message}`;
-          logEntry.success = false;
-          if (state.isLogActive) toggleAiLog();
-
-          throw error;
-        }
-      }
-
-      function parseAIJson(text) {
-        try {
-          // Try to find a JSON block first
-          const jsonMatch = text.match(/\{[\s\S]*\}/);
-          if (jsonMatch) return JSON.parse(jsonMatch[0]);
-          return JSON.parse(text);
-        } catch (e) {
-          return null;
-        }
-      }
-
       // --- DOM Modification Helpers (Non-AI) ---
 
       // 1. Unified Parser for DOM Updates (Robust)
@@ -1600,13 +1843,28 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         return false;
       }
 
+      // --- Public Event Handlers (Relies on functions defined above) ---
+
       window.updateStyle = function (property, value) {
         if (!state.targetDivId) return;
 
         updateDOMWithCallback((doc) => {
           const target = doc.getElementById(state.targetDivId);
           if (target) {
-            target.style[property] = value;
+            
+            if (property === 'font-weight') {
+                // Precision: Toggle bold/normal based on current value
+                const currentWeight = target.style.fontWeight || 'normal';
+                if (currentWeight === 'bold' || currentWeight === '700') {
+                    target.style.fontWeight = 'normal';
+                } else {
+                    target.style.fontWeight = 'bold';
+                }
+            } else {
+                // For font-family, text-align, etc., just set the value
+                target.style[property] = value;
+            }
+            
             return true;
           }
           return false;
@@ -1618,6 +1876,10 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         updateDOMWithCallback((doc) => {
           const target = doc.getElementById(state.targetDivId);
           if (target) {
+            // NEW: Clean up history entry for the deleted div
+            const divHistoryKey = `history_div_${state.targetDivId}`;
+            delete transcriptionData[divHistoryKey];
+
             target.remove();
             state.targetDivId = null;
             window.closeSelection(); // Hide the box and disable edit bar
@@ -1674,8 +1936,357 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         }
       };
 
-      // --- Debug Vision Logic (New) ---
+      window.toggleAiLog = function () {
+        state.isLogActive = !state.isLogActive;
 
+        if (state.isLogActive) {
+          // Show Log
+          els.overlayHtmlInput.value = renderAiLog();
+          els.overlayHtmlInput.readOnly = true;
+          els.editorTitle.textContent = "AI LOG";
+          els.showAiLog.textContent = "[Show HTML]";
+          els.editActionBar.classList.add("disabled-bar"); // Always disable bar when in log view
+        } else {
+          // Show HTML
+          loadContentForCurrentPage(false); // Reload current page HTML content
+          els.overlayHtmlInput.readOnly = false;
+          els.editorTitle.textContent = "OVERLAY HTML";
+          els.showAiLog.textContent = "[AI Log]";
+          updateEditBarState(); // Re-evaluate bar state based on cursor
+        }
+      };
+      
+      /**
+       * Core logic for AI Replica run. Separated for looping.
+       */
+      async function runReplicaCore() {
+          const divId = state.targetDivId;
+          if (!divId) throw new Error("No target DIV.");
+          if (typeof html2canvas === "undefined") throw new Error("html2canvas not loaded.");
+
+          const AI_IMAGE_SCALE = 2.0;
+          const divEl = document.getElementById(divId);
+          if (!divEl) throw new Error("DIV element missing.");
+          
+          // 1. Capture Source and Current Render
+          const base64Source = getSnippetFromDiv(divId, AI_IMAGE_SCALE);
+
+          const canvas = await html2canvas(divEl, {
+              backgroundColor: "#ffffff",
+              scale: AI_IMAGE_SCALE,
+              logging: false,
+              useCORS: true,
+              allowTaint: true,
+          });
+          const base64Render = canvas.toDataURL("image/png").split(",")[1];
+
+          // 2. Get State & History
+          const internalState = getDivData(divEl);
+          const promptDimensions = `
+Bounding Box (Container Constraints, relative to page): W:${internalState.width}, H:${internalState.height}.
+Internal Alignment Context: The origin (0,0) of the cropped image is the top-left corner of the Bounding Box. The task is to align content within these boundaries.
+`;
+          const divHistoryKey = `history_div_${divId}`;
+          let history = JSON.parse(transcriptionData[divHistoryKey] || "[]");
+
+          const imagesForAI = [base64Source, base64Render, ...history];
+          const imageCount = imagesForAI.length;
+
+          // 3. Prepare Prompt
+          let prompt = state.prompts.REPLICA_STYLE;
+          prompt = prompt.replace("{{imageCount}}", imageCount.toString());
+          prompt = prompt.replace("{{promptDimensions}}", promptDimensions);
+          prompt = prompt.replace("{{content}}", internalState.content);
+
+          // 4. Query AI
+          // NOTE: queryGemini handles the AI Processing message internally, but the caller handles the immediate start message.
+          const resultHtml = await queryGemini(prompt, imagesForAI);
+
+          // 5. Validation and History Update
+          const cleanedHtml = resultHtml
+              .replace(/```html/g, "")
+              .replace(/```/g, "")
+              .trim();
+
+          // Check for empty or near-empty content (Humility)
+          if (!cleanedHtml || cleanedHtml.length < 5) {
+             throw new Error("AI returned empty or insufficient HTML content.");
+          }
+
+
+          // The current render becomes the newest history entry (it was the input)
+          history.unshift(base64Render); 
+          if (history.length > 4) {
+              history = history.slice(0, 4);
+          }
+          transcriptionData[divHistoryKey] = JSON.stringify(history);
+
+          // 6. Apply new content
+          updateDivContent(divId, cleanedHtml);
+      }
+
+      // 1. Replica: VISUAL COMPARISON (Single run)
+      window.runAiReplica = async function () {
+          if (!state.targetDivId) {
+              els.aiStatus.style.display = "inline";
+              els.aiStatus.textContent = "Error: Select DIV first";
+              setTimeout(() => els.aiStatus.style.display = "none", 3000);
+              return;
+          }
+          
+          // FIX: Show immediate processing status before starting core logic
+          els.aiStatus.style.display = "inline";
+          els.aiStatus.textContent = "AI Processing (1x)..."; 
+          
+          // Disable controls for single run
+          els.editActionBar.classList.add("disabled-bar");
+          
+          try {
+              await runReplicaCore();
+              els.aiStatus.textContent = "Done!";
+          } catch (e) {
+              // FIX: Explicitly report error status to the user
+              console.error("AI Replica run failed:", e);
+              els.aiStatus.textContent = "Error! Check Log.";
+          } finally {
+              setTimeout(() => els.aiStatus.style.display = "none", 2000);
+              // Re-enable controls, relying on updateEditBarState to check selection
+              updateEditBarState();
+              showDebugView(); // Always refresh to show the final result and updated history
+          }
+      };
+
+
+      // 2. NEW: Looping function
+      window.runAiReplicaLoop = async function(count) {
+          if (!state.targetDivId) {
+              els.aiStatus.style.display = "inline";
+              els.aiStatus.textContent = "Error: Select DIV first";
+              setTimeout(() => els.aiStatus.style.display = "none", 3000);
+              return;
+          }
+          if (state.isLoopRunning) return;
+          
+          // 1. Setup Loop State
+          state.isLoopRunning = true;
+          els.aiStatus.style.display = "inline";
+          els.editActionBar.classList.add("disabled-bar"); // Disable all controls
+          els.btnTogglePlayback.disabled = true;
+          els.playbackText.textContent = "Loop Running...";
+          
+          let successfulSteps = 0; // NEW: Track successful steps for precise error reporting
+
+          try {
+              for (let i = 1; i <= count; i++) {
+                  els.aiStatus.textContent = `AI Processing Step ${i} of ${count}...`;
+                  
+                  // Run the core logic
+                  await runReplicaCore(); 
+                  
+                  successfulSteps = i; // Increment successful steps count
+                  
+                  // Pause briefly to ensure DOM renders and user sees progress
+                  await new Promise(resolve => setTimeout(resolve, 100)); 
+              }
+              els.aiStatus.textContent = "Loop Finished!";
+
+          } catch (e) {
+              // FIX: Report loop error visually. Use the successfully completed step count.
+              console.error("AI Loop terminated early:", e);
+              els.aiStatus.textContent = `Loop Error after Step ${successfulSteps}! Check Log.`;
+          } finally {
+              // 2. Cleanup Loop State
+              state.isLoopRunning = false;
+              setTimeout(() => els.aiStatus.style.display = "none", 2000);
+              // Re-enable controls, relying on updateEditBarState to check selection
+              updateEditBarState(); 
+              showDebugView(); // Final refresh to show the result and playable history
+          }
+      }
+
+
+      // 3. Match Font: Style Heuristics only (CSS on Container)
+      window.runAiFont = async function () {
+        const divId = state.targetDivId;
+        if (!divId) {
+            els.aiStatus.style.display = "inline";
+            els.aiStatus.textContent = "Error: Select DIV first";
+            setTimeout(() => els.aiStatus.style.display = "none", 3000);
+            return;
+        }
+        if (state.isLoopRunning) return; // Prevent run during loop
+        
+        // FIX: Show immediate processing status before starting core logic
+        els.aiStatus.style.display = "inline";
+        els.aiStatus.textContent = "AI Processing (Font)...";
+        
+        els.editActionBar.classList.add("disabled-bar");
+
+        const base64 = getSnippetFromDiv(divId);
+
+        // Use the editable prompt
+        const prompt = state.prompts.FONT_STYLE;
+
+        try {
+          const resultText = await queryGemini(prompt, base64);
+          if (!resultText) {
+            console.error("AI Font failed: received null/undefined result.");
+            throw new Error("AI returned empty result for font style.");
+          }
+
+          const styles = parseAIJson(resultText);
+
+          if (styles) {
+            updateDOMWithCallback((doc) => {
+              const target = doc.getElementById(divId);
+              if (target) {
+                if (styles.fontFamily)
+                  target.style.fontFamily = styles.fontFamily;
+                if (styles.fontWeight)
+                  target.style.fontWeight = styles.fontWeight;
+                if (styles.fontStyle) target.style.fontStyle = styles.fontStyle;
+                if (styles.textAlign) target.style.textAlign = styles.textAlign;
+                if (styles.fontSize) target.style.fontSize = styles.fontSize;
+                return true;
+              }
+              return false;
+            });
+          }
+          els.aiStatus.textContent = "Done!";
+          setTimeout(() => els.aiStatus.style.display = "none", 2000);
+          els.editActionBar.classList.remove("disabled-bar");
+        } catch (e) {
+          console.error("AI Font failed:", e);
+          els.aiStatus.textContent = "Error! Check Log.";
+          setTimeout(() => els.aiStatus.style.display = "none", 2000);
+          els.editActionBar.classList.remove("disabled-bar");
+        }
+      };
+
+      // 4. Flow: Text Only (Clean Transcription)
+      window.runAiText = async function () {
+        const divId = state.targetDivId;
+        if (!divId) {
+            els.aiStatus.style.display = "inline";
+            els.aiStatus.textContent = "Error: Select DIV first";
+            setTimeout(() => els.aiStatus.style.display = "none", 3000);
+            return;
+        }
+        if (state.isLoopRunning) return; // Prevent run during loop
+        
+        // FIX: Show immediate processing status before starting core logic
+        els.aiStatus.style.display = "inline";
+        els.aiStatus.textContent = "AI Processing (Text)...";
+        
+        els.editActionBar.classList.add("disabled-bar");
+
+        const base64 = getSnippetFromDiv(divId);
+
+        // Use the editable prompt
+        const prompt = state.prompts.TEXT_ONLY;
+
+        try {
+          const resultHtml = await queryGemini(prompt, base64);
+
+          const cleanedHtml = resultHtml
+              .replace(/```html/g, "")
+              .replace(/```/g, "")
+              .trim();
+              
+          if (!cleanedHtml) {
+            throw new Error("AI returned empty result for text transcription.");
+          }
+
+          updateDivContent(divId, cleanedHtml);
+          els.aiStatus.textContent = "Done!";
+          setTimeout(() => els.aiStatus.style.display = "none", 2000);
+          els.editActionBar.classList.remove("disabled-bar");
+        } catch (e) {
+          console.error("AI Text failed:", e);
+          els.aiStatus.textContent = "Error! Check Log.";
+          setTimeout(() => els.aiStatus.style.display = "none", 2000);
+          els.editActionBar.classList.remove("disabled-bar");
+        }
+      };
+
+      // Helpers
+      window.closeSelection = function () {
+        els.selectionBox.style.display = "none";
+        els.selectionBox.classList.remove("edit-mode");
+        els.contextMenu.style.display = "none";
+        els.actionBar.style.display = "none";
+        els.editActionBar.classList.add("disabled-bar"); // Disable edit bar
+        state.targetDivId = null;
+      };
+
+      function insertDiv(content, styles = {}) {
+        const rect = state.selectionRect;
+        const l = rect.left.toFixed(2);
+        const t = rect.top.toFixed(2);
+        const w = rect.width.toFixed(2);
+        const h = rect.height.toFixed(2);
+        const id = `div-${Date.now()}`;
+
+        // BUG FIX: Removed HTML entity escaping (e.g., < to &lt;) to prevent breaking KaTeX
+        // and structural HTML returned by the AI. Only convert newlines to <br>.
+        const cleanContent = content.replace(/\n/g, "<br>");
+
+        // HEURISTIC UPDATE:
+        // 1. Padding: 0px (User Request)
+        // 2. Margin: 0px (User Request)
+        // 3. Line-height: 1.0 (Strict print alignment)
+        // 4. Font-size: 14px (Starting point)
+
+        let styleStr = `position: absolute; left: ${l}%; top: ${t}%; width: ${w}%; height: ${h}%; background: rgba(255,255,255,0.7); padding: 0px; margin: 0px; overflow-wrap: break-word; overflow: hidden;`;
+        
+        appendHtml(`<div id="${id}" style="${styleStr}">${cleanContent}</div>`);
+
+        // Trigger Smart Fit Heuristic after DOM update
+      }
+
+      function insertImage(dataUrl) {
+        const l = state.selectionRect.left.toFixed(2);
+        const t = state.selectionRect.top.toFixed(2);
+        const w = state.selectionRect.width.toFixed(2);
+        const h = state.selectionRect.height.toFixed(2);
+        appendHtml(
+          `<img src="${dataUrl}" style="position: absolute; left: ${l}%; top: ${t}%; width: ${w}%; height: ${h}%; object-fit: contain;" />`,
+        );
+      }
+
+      function appendHtml(str) {
+        const input = els.overlayHtmlInput;
+        input.value = input.value + str;
+        updateOverlayPreview();
+        saveContent();
+      }
+
+      function updateDivContent(divId, newContent) {
+        // FIX: Add robust check for null/undefined content immediately.
+        if (!newContent) {
+          console.error(
+            `AI response returned empty content (undefined or null) for div ${divId}. Skipping update.`,
+          );
+          els.aiStatus.textContent = "AI Error (Empty Response)";
+          setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
+          els.editActionBar.classList.remove("disabled-bar");
+          return;
+        }
+
+        updateDOMWithCallback((doc) => {
+          const target = doc.getElementById(divId);
+          if (target) {
+            // Apply new inner HTML
+            target.innerHTML = newContent;
+            return true;
+          }
+          return false;
+        });
+        // Re-run fitting if content changed (may be needed if content structure changes height)
+        els.editActionBar.classList.remove("disabled-bar");
+      }
+
+      
       /**
        * Shows the captured images and HTML in the Debug tab.
        */
@@ -1684,22 +2295,66 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
         renderB64,
         promptDimensions,
         htmlContent,
+        history, // NEW
       ) {
-        // Update content
+        // Stop any active playback before rendering new data
+        stopPlayback();
+        
+        // 1. Update content
         els.debugSourceImg.src = `data:image/png;base64,${sourceB64}`;
         els.debugRenderImg.src = `data:image/png;base64,${renderB64}`;
-
-        // Populate the new HTML content textarea
+        // Store current render source for restoration after playback
+        state.originalRenderSource = `data:image/png;base64,${renderB64}`;
+        
+        // FIX: Set the value of the debug HTML content textarea
         els.debugHtmlContent.value = htmlContent;
 
-        // Switch to the debug tab to display the content immediately
-        switchMainView("debug");
+        // 2. Setup Playback Frames
+        // Frames are ordered: [History 1, ..., History N, Current Render]
+        const historyOldestFirst = [...history].reverse(); 
+        const playbackFrames = [
+            ...historyOldestFirst.map(b64 => b64), // History frames
+            renderB64 // Current render (final frame)
+        ];
+        state.playbackFrames = playbackFrames;
+        
+        // 3. Render History Images (Thumbnails)
+        els.historyImagesContainer.innerHTML = ""; // Clear previous
+        
+        if (historyOldestFirst.length > 0) {
+            historyOldestFirst.forEach((b64, index) => {
+                const imgContainer = document.createElement("div");
+                imgContainer.className =
+                    "inline-block relative h-full bg-gray-800 rounded-md shadow-md";
+                imgContainer.style.width = "auto";
+                imgContainer.style.aspectRatio = "1 / 1";
+                imgContainer.title = `Attempt #${index + 1}`; 
 
-        // Optional: Log the dimensions for future reference in the console/log tab
+                const img = document.createElement("img");
+                img.src = `data:image/png;base64,${b64}`;
+                img.className =
+                    "h-full w-auto object-contain rounded-md border border-gray-700 transition-all";
+
+                imgContainer.appendChild(img);
+                els.historyImagesContainer.appendChild(imgContainer);
+            });
+            // FIX: Ensure play button text is set correctly when history exists
+            els.playbackText.textContent = "Play History"; 
+            // Enable playback if there is at least one history frame
+            els.btnTogglePlayback.disabled = false;
+        } else {
+            // Disable playback if no history
+            els.btnTogglePlayback.disabled = true;
+        }
+
+
+        // 4. Switch to the debug tab
+        switchMainView("debug");
         console.log("Debug Images Context:", promptDimensions);
       }
 
       window.showDebugView = function () {
+        // ... (function body remains the same, but relies on the updated showAiVisionDebug)
         if (!state.targetDivId) {
           console.warn("No active DIV selected for debug view.");
           return;
@@ -1746,129 +2401,124 @@ Do NOT include markdown formatting. Just the raw JSON string.`,
 Bounding Box (Container Constraints, relative to page): W:${internalState.width}, H:${internalState.height}.
 Internal Alignment Context: The origin (0,0) of the cropped image is the top-left corner of the Bounding Box. The task is to align content within these boundaries.
 `;
+            // Load history from persistence for the current div
+            const divHistoryKey = `history_div_${state.targetDivId}`;
+            const history = JSON.parse(
+              transcriptionData[divHistoryKey] || "[]",
+            );
 
             showAiVisionDebug(
               base64Source,
               base64Render,
               promptDimensions,
               internalState.content,
-            ); // Pass HTML content here
+              history, // Pass history
+            );
           })
           .catch((e) => {
             console.error("Debug capture failed", e);
           });
       };
 
-      // Removed modal closing logic, as it's now a persistent tab
-      // els.closeDebugVision.addEventListener("click", () => { ... });
+      // --- Core Application Logic ---
+      els.upload.addEventListener("change", function (e) {
+        var file = e.target.files[0];
+        if (file.type !== "application/pdf") return;
+        state.pageNum = 1;
+        localStorage.setItem(STORAGE_KEY_FILENAME, file.name);
+        els.restoredFilename.textContent = file.name;
+        els.restoreBadge.classList.add("hidden");
+        savePDFToDB(file).catch((err) =>
+          console.error("Error saving PDF to DB:", err),
+        );
+        var fileReader = new FileReader();
+        fileReader.onload = function () {
+          var typedarray = new Uint8Array(this.result);
+          loadPDF(typedarray, 1);
+        };
+        fileReader.readAsArrayBuffer(file);
+      });
 
-      // --- Selection & Interaction Logic ---
+      // window.updatePreview is now unused
 
-      // 1. Shared Logic to Activate Edit Mode for a Div
-      function activateDivEditMode(divElement, clickEvent = null) {
-        if (!divElement) return;
-        state.targetDivId = divElement.id;
-
-        // Hide non-editing bars
-        els.contextMenu.style.display = "none";
-        els.actionBar.style.display = "none";
-
-        // Enable the Edit Action Bar (which is always visible)
-        els.editActionBar.classList.remove("disabled-bar");
-
-        // Calculate Position
-        const cw = els.theCanvas.width;
-        const ch = els.theCanvas.height;
-        const l = (parseFloat(divElement.style.left) / 100) * cw;
-        const t = (parseFloat(divElement.style.top) / 100) * ch;
-        const w = (parseFloat(divElement.style.width) / 100) * cw;
-        const h = (parseFloat(divElement.style.height) / 100) * ch;
-
-        // Draw Box
-        els.selectionBox.style.left = l + "px";
-        els.selectionBox.style.top = t + "px";
-        els.selectionBox.style.width = w + "px";
-        els.selectionBox.style.height = h + "px";
-        els.selectionBox.style.display = "block";
-        els.selectionBox.classList.add("edit-mode");
-
-        // Auto Scroll to view if offscreen (only if in overlay view)
-        if (state.activeTab === "overlay") {
-          divElement.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
+      function updateOverlayPreview() {
+        els.overlayHtmlLayer.innerHTML = els.overlayHtmlInput.value;
+        renderMathInElement(els.overlayHtmlLayer, {
+          delimiters: [
+            { left: "$$", right: "$$", display: true },
+            { left: "$", right: "$", display: false },
+          ],
+          throwOnError: false,
+        });
       }
 
-      // Helper: Get Div ID from Editor Cursor
-      function getTargetDivIdFromCursor() {
-        const cursor = els.overlayHtmlInput.selectionStart;
-        const text = els.overlayHtmlInput.value;
-        let openIndex = -1;
-        let balance = 0;
+      function switchMainView(viewId) {
+        saveContent();
+        state.activeTab = viewId;
+        
+        // Ensure playback is stopped when switching tabs
+        stopPlayback();
 
-        for (let i = cursor - 1; i >= 0; i--) {
-          if (text.substring(i, i + 4) === "<div") {
-            if (balance === 0) {
-              openIndex = i;
-              break;
-            }
-            balance--;
-          } else if (text.substring(i, i + 5) === "/div>") {
-            balance++;
-          }
-        }
+        const containers = {
+          source: els.sourceContainer, // Kept hidden/background container
+          overlay: els.overlayContainer,
+          write: els.editorContainerMd, // Kept hidden/background container
+          preview: els.previewContainer, // Kept hidden/background container
+          prompts: els.editorContainerPrompts,
+          debug: els.editorContainerDebug, // New debug container
+        };
+        const buttons = {
+          overlay: els.tabOverlay,
+          prompts: els.tabPrompts,
+          debug: els.tabDebug, // New debug button
+        };
 
-        if (openIndex !== -1) {
-          const tagEnd = text.indexOf(">", openIndex);
-          if (tagEnd !== -1) {
-            const tagContent = text.substring(openIndex, tagEnd);
-            const match = tagContent.match(/id=["']([^"']+)["']/);
-            return match ? match[1] : null;
-          }
-        }
-        return null;
-      }
-
-      // NEW: Function to manage the state of the edit bar
-      function updateEditBarState() {
-        // If log is active, keep the bar disabled
+        // Always revert from log view when switching tabs
         if (state.isLogActive) {
-          els.editActionBar.classList.add("disabled-bar");
-          return;
+          state.isLogActive = false;
         }
 
-        const divId = getTargetDivIdFromCursor();
-
-        if (divId) {
-          els.editActionBar.classList.remove("disabled-bar");
-          state.targetDivId = divId; // Set target ID immediately on cursor focus
-        } else {
-          els.editActionBar.classList.add("disabled-bar");
-          state.targetDivId = null;
-          els.selectionBox.style.display = "none"; // Also hide the box when cursor leaves the div
-          els.selectionBox.classList.remove("edit-mode");
+        // Handle content initialization based on viewId
+        if (viewId === "overlay") {
+          // The canvas is mounted to overlayCanvasMount in the Overlay tab
+          if (!els.overlayCanvasMount.contains(els.theCanvas))
+            els.overlayCanvasMount.appendChild(els.theCanvas);
+          updateOverlayPreview();
+        } else if (viewId === "prompts") {
+          // Ensure the editor reflects the current in-memory state when loading the tab
+          els.promptInput.value = formatPromptsForEditor(state.prompts);
         }
+        // Note: The Debug tab content is set inside runAiReplica or showDebugView
+
+        // FIX: Add null check for containers and buttons before accessing classList
+        Object.values(containers).forEach((c) => {
+          if (c) c.classList.add("hidden");
+        });
+        Object.values(buttons).forEach((b) => {
+          if (b) b.classList.remove("active");
+        });
+
+        if (containers[viewId]) containers[viewId].classList.remove("hidden");
+        if (buttons[viewId]) buttons[viewId].classList.add("active");
       }
 
+      els.overlayHtmlInput.addEventListener("input", () => {
+        if (!state.isLogActive) {
+          updateOverlayPreview();
+          saveContent();
+        }
+      });
+      
       // 2. Editor Interaction (Listeners)
       els.overlayHtmlInput.addEventListener("input", updateEditBarState);
       els.overlayHtmlInput.addEventListener("click", updateEditBarState);
-      els.overlayHtmlInput.addEventListener("keyup", updateEditBarState); // Ensure it catches arrow key movement
+      els.overlayHtmlInput.addEventListener("keyup", updateEditBarState); 
 
-      // Right click on editor to trigger action bar (Kept as a fallback, but primary activation is left click on canvas)
-      els.overlayHtmlInput.addEventListener("contextmenu", (e) => {
-        if (state.isLogActive) return; // Ignore input when log is active
-
-        const divId = getTargetDivIdFromCursor();
-        if (divId) {
-          const divEl = document.getElementById(divId);
-          if (divEl) {
-            e.preventDefault(); // Stop native menu
-            // Use left-click activation logic for visual feedback
-            activateDivEditMode(divEl, e);
-          }
-        }
-      });
-
+      // Listener for the prompt input: saves and parses the text immediately upon input change
+      els.promptInput.addEventListener("input", savePrompts);
+      // Also save/parse on blur/change for reliable update if a paste occurs
+      els.promptInput.addEventListener("blur", savePrompts);
+      
       // 3. Mouse Interaction (Canvas)
       function getPointerPos(e) {
         const rect = els.selectionLayer.getBoundingClientRect();
@@ -1877,9 +2527,6 @@ Internal Alignment Context: The origin (0,0) of the cropped image is the top-lef
           y: e.clientY - rect.top,
         };
       }
-
-      // Context Menu Handler (Right Click) - REMOVED - Unified interaction is in mouseup
-      // els.selectionLayer.addEventListener('contextmenu', (e) => { ... });
 
       els.selectionLayer.addEventListener("mousedown", (e) => {
         if (e.button !== 0) return;
@@ -1911,6 +2558,34 @@ Internal Alignment Context: The origin (0,0) of the cropped image is the top-lef
         els.selectionBox.style.height = height + "px";
       });
 
+      function activateDivEditMode(divElement, clickEvent = null) {
+        if (!divElement) return;
+        state.targetDivId = divElement.id;
+
+        // Hide non-editing bars
+        els.contextMenu.style.display = "none";
+        els.actionBar.style.display = "none";
+
+        // Enable the Edit Action Bar (which is always visible)
+        els.editActionBar.classList.remove("disabled-bar");
+
+        // Calculate Position
+        const cw = els.theCanvas.width;
+        const ch = els.theCanvas.height;
+        const l = (parseFloat(divElement.style.left) / 100) * cw;
+        const t = (parseFloat(divElement.style.top) / 100) * ch;
+        const w = (parseFloat(divElement.style.width) / 100) * cw;
+        const h = (parseFloat(divElement.style.height) / 100) * ch;
+
+        // Draw Box
+        els.selectionBox.style.left = l + "px";
+        els.selectionBox.style.top = t + "px";
+        els.selectionBox.style.width = w + "px";
+        els.selectionBox.style.height = h + "px";
+        els.selectionBox.style.display = "block";
+        els.selectionBox.classList.add("edit-mode");
+      }
+
       els.selectionLayer.addEventListener("mouseup", (e) => {
         if (!state.isSelecting) return;
         state.isSelecting = false;
@@ -1933,6 +2608,11 @@ Internal Alignment Context: The origin (0,0) of the cropped image is the top-lef
           // Clicked on an existing div. Activate edit mode for it.
           activateDivEditMode(clickedDiv, e);
           els.actionBar.style.display = "none"; // Ensure new selection bar is hidden
+          
+          // FIX: Force focus on the editor to ensure state.targetDivId is picked up 
+          // by the editor's event listeners, making the AI buttons functional.
+          els.overlayHtmlInput.focus();
+          
           return;
         }
 
@@ -1984,7 +2664,7 @@ Internal Alignment Context: The origin (0,0) of the cropped image is the top-lef
         els.actionBar.style.top = barTop + "px";
         els.actionBar.style.display = "flex";
       });
-
+      
       document.addEventListener("click", (e) => {
         // If we click outside the whole editor pane (including the action bar)
         if (e.target.closest("#overlay-container") === null) {
@@ -1992,448 +2672,16 @@ Internal Alignment Context: The origin (0,0) of the cropped image is the top-lef
         }
       });
 
-      // --- Logic Hooks ---
-
-      els.chkShowSource.addEventListener("change", (e) => {
-        els.overlayCanvasMount.style.opacity = e.target.checked ? "1" : "0";
-      });
-      els.chkShowOverlay.addEventListener("change", (e) => {
-        els.overlayHtmlLayer.style.display = e.target.checked
-          ? "block"
-          : "none";
-      });
-
-      els.btnCreateDiv.addEventListener("click", () => {
-        insertDiv("Placeholder Content");
-        window.closeSelection();
-      });
-
-      els.btnCopyImage.addEventListener("click", () => {
-        const base64 = extractImageSnippet({
-          x: state.selectionRect.pixelX,
-          y: state.selectionRect.pixelY,
-          width: state.selectionRect.pixelW,
-          height: state.selectionRect.pixelH,
-        });
-        insertImage(`data:image/png;base64,${base64}`);
-        window.closeSelection();
-      });
-
-      // Simplified Digitize (Text Only)
-      els.btnDigitize.addEventListener("click", async () => {
-        window.closeSelection();
-        const base64 = extractImageSnippet({
-          x: state.selectionRect.pixelX,
-          y: state.selectionRect.pixelY,
-          width: state.selectionRect.pixelW,
-          height: state.selectionRect.pixelH,
-        });
-
-        // Use the editable prompt
-        const prompt = state.prompts.DIGITIZE_TEXT;
-
-        try {
-          const resultText = await queryGemini(prompt, base64);
-          // The insertDiv function now handles the heuristic padding reset
-          insertDiv(resultText.trim());
-        } catch (e) {
-          /* Error handled in wrapper */
-        }
-      });
-
-      // === AI Style Features (Refactored to global functions) ===
-
-      /**
-       * Extracts a base64 string from a given div's coordinates on the PDF canvas,
-       * using the specified scale for high-resolution output.
-       */
-      function getSnippetFromDiv(divId, imageScale = 1.0) {
-        const div = document.getElementById(divId);
-        if (!div) return null;
-
-        const cw = els.theCanvas.width;
-        const ch = els.theCanvas.height;
-        const pixelRect = {
-          x: (parseFloat(div.style.left) / 100) * cw,
-          y: (parseFloat(div.style.top) / 100) * ch,
-          width: (parseFloat(div.style.width) / 100) * cw,
-          height: (parseFloat(div.style.height) / 100) * ch,
-        };
-        return extractImageSnippet(pixelRect, imageScale); // Pass the scale
-      }
-
-      /**
-       * Helper to clone the element and strip non-internal CSS properties
-       * before sending the HTML string to the AI.
-       * * MODIFIED: Now extracts all bounding box coordinates.
-       */
-      var getDivData = function (divElement) {
-        const style = divElement.getAttribute("style") || "";
-
-        // Extract percentage values for positioning and sizing
-        const leftMatch = style.match(/left:\s*([^;]+)/i);
-        const topMatch = style.match(/top:\s*([^;]+)/i);
-        const widthMatch = style.match(/width:\s*([^;]+)/i);
-        const heightMatch = style.match(/height:\s*([^;]+)/i);
-
-        const left = leftMatch ? leftMatch[1].trim() : "0%";
-        const top = topMatch ? topMatch[1].trim() : "0%";
-        const width = widthMatch ? widthMatch[1].trim() : "auto";
-        const height = heightMatch ? heightMatch[1].trim() : "auto";
-
-        return {
-          id: divElement.id,
-          content: divElement.innerHTML,
-          left: left,
-          top: top,
-          width: width,
-          height: height,
-        };
-      };
-
-      // 1. Replica: VISUAL COMPARISON (Now expects inner HTML string)
-      window.runAiReplica = async function () {
-        const divId = state.targetDivId;
-        if (!divId) return;
-        els.editActionBar.classList.add("disabled-bar");
-
-        if (typeof html2canvas === "undefined") {
-          return;
-        }
-
-        // Define the high-resolution scale we want for both images
-        const AI_IMAGE_SCALE = 2.0;
-
-        // 1. Capture Source Image (PDF Snippet) at the desired high resolution
-        const base64Source = getSnippetFromDiv(divId, AI_IMAGE_SCALE);
-
-        const divEl = document.getElementById(divId);
-        if (!divEl) return;
-
-        els.aiStatus.style.display = "inline";
-        els.aiStatus.textContent = "Capturing...";
-
-        try {
-          // Capture the current appearance of the element we are trying to fix
-          const canvas = await html2canvas(divEl, {
-            backgroundColor: "#ffffff", // 2. Capture Render Image (HTML Snippet) using the same high-resolution scale
-            scale: AI_IMAGE_SCALE,
-            logging: false,
-            useCORS: true,
-            allowTaint: true,
-          });
-          const base64Render = canvas.toDataURL("image/png").split(",")[1];
-
-          // 1. Get current state to send to AI
-          const internalState = getDivData(divEl);
-
-          // CRITICAL FIX: Simplify metadata to only contain what's relevant to the internal alignment task (W/H and origin)
-          const promptDimensions = `
-Bounding Box (Container Constraints, relative to page): W:${internalState.width}, H:${internalState.height}.
-Internal Alignment Context: The origin (0,0) of the cropped image is the top-left corner of the Bounding Box. The task is to align content within these boundaries.
-`;
-
-          // Show the comparison in the dedicated debug tab
-          showAiVisionDebug(
-            base64Source,
-            base64Render,
-            promptDimensions,
-            internalState.content,
-          ); // Pass HTML content here
-
-          // Use the editable prompt and substitute current dimensions and content
-          let prompt = state.prompts.REPLICA_STYLE;
-          prompt = prompt.replace("{{promptDimensions}}", promptDimensions);
-          prompt = prompt.replace("{{content}}", internalState.content);
-
-          // Query AI, expecting the raw new INNER HTML of the div
-          const resultHtml = await queryGemini(prompt, [
-            base64Source,
-            base64Render,
-          ]);
-
-          // Check if AI actually returned content. If not, log error and exit gracefully.
-          if (!resultHtml) {
-            els.aiStatus.textContent = "AI Error (Empty Response)";
-            setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
-            els.editActionBar.classList.remove("disabled-bar");
-            console.error(
-              "AI Replica failed: received null/undefined resultHtml.",
-            );
-            return;
-          }
-
-          // Use a function to update the content, preserving the outer positional styles
-          updateDivContent(divId, resultHtml);
-        } catch (e) {
-          console.error(e);
-          els.editActionBar.classList.remove("disabled-bar");
-        }
-      };
-
-      // 2. Match Font: Style Heuristics only (CSS on Container)
-      window.runAiFont = async function () {
-        const divId = state.targetDivId;
-        if (!divId) return;
-        els.editActionBar.classList.add("disabled-bar");
-
-        const base64 = getSnippetFromDiv(divId);
-
-        // Use the editable prompt
-        const prompt = state.prompts.FONT_STYLE;
-
-        try {
-          const resultText = await queryGemini(prompt, base64);
-          if (!resultText) {
-            console.error("AI Font failed: received null/undefined result.");
-            els.aiStatus.textContent = "AI Error (Empty Response)";
-            setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
-            els.editActionBar.classList.remove("disabled-bar");
-            return;
-          }
-
-          const styles = parseAIJson(resultText);
-
-          if (styles) {
-            updateDOMWithCallback((doc) => {
-              const target = doc.getElementById(divId);
-              if (target) {
-                if (styles.fontFamily)
-                  target.style.fontFamily = styles.fontFamily;
-                if (styles.fontWeight)
-                  target.style.fontWeight = styles.fontWeight;
-                if (styles.fontStyle) target.style.fontStyle = styles.fontStyle;
-                if (styles.textAlign) target.style.textAlign = styles.textAlign;
-                if (styles.fontSize) target.style.fontSize = styles.fontSize;
-                return true;
-              }
-              return false;
-            });
-          }
-          els.editActionBar.classList.remove("disabled-bar");
-        } catch (e) {
-          console.error(e);
-          els.editActionBar.classList.remove("disabled-bar");
-        }
-      };
-
-      // 3. Flow: Text Only (Clean Transcription)
-      window.runAiText = async function () {
-        const divId = state.targetDivId;
-        if (!divId) return;
-        els.editActionBar.classList.add("disabled-bar");
-
-        const base64 = getSnippetFromDiv(divId);
-
-        // Use the editable prompt
-        const prompt = state.prompts.TEXT_ONLY;
-
-        try {
-          const resultHtml = await queryGemini(prompt, base64);
-
-          if (!resultHtml) {
-            console.error("AI Text failed: received null/undefined result.");
-            els.aiStatus.textContent = "AI Error (Empty Response)";
-            setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
-            els.editActionBar.classList.remove("disabled-bar");
-            return;
-          }
-
-          updateDivContent(divId, resultHtml);
-          els.editActionBar.classList.remove("disabled-bar");
-        } catch (e) {
-          console.error(e);
-          els.editActionBar.classList.remove("disabled-bar");
-        }
-      };
-
-      // Helpers
-      window.closeSelection = function () {
-        els.selectionBox.style.display = "none";
-        els.selectionBox.classList.remove("edit-mode");
-        els.contextMenu.style.display = "none";
-        els.actionBar.style.display = "none";
-        els.editActionBar.classList.add("disabled-bar"); // Disable edit bar
-        state.targetDivId = null;
-      };
-
-      function insertDiv(content, styles = {}) {
-        const rect = state.selectionRect;
-        const l = rect.left.toFixed(2);
-        const t = rect.top.toFixed(2);
-        const w = rect.width.toFixed(2);
-        const h = rect.height.toFixed(2);
-        const id = `div-${Date.now()}`;
-
-        const safeContent = content
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/\n/g, "<br>");
-
-        // HEURISTIC UPDATE:
-        // 1. Padding: 0px (User Request)
-        // 2. Margin: 0px (User Request)
-        // 3. Line-height: 1.0 (Strict print alignment)
-        // 4. Font-size: 14px (Starting point)
-
-        let styleStr = `position: absolute; left: ${l}%; top: ${t}%; width: ${w}%; height: ${h}%; background: rgba(255,255,255,0.7); padding: 0px; margin: 0px; overflow-wrap: break-word; overflow: hidden;`;
-        //let there be no font styling in this div, as it serves as container.
-        //styleStr += ` font-size: 14px; line-height: 1.0; font-family: 'Times New Roman', serif;`;
-
-        appendHtml(`<div id="${id}" style="${styleStr}">${safeContent}</div>`);
-
-        // Trigger Smart Fit Heuristic after DOM update
-      }
-
-      function insertImage(dataUrl) {
-        const l = state.selectionRect.left.toFixed(2);
-        const t = state.selectionRect.top.toFixed(2);
-        const w = state.selectionRect.width.toFixed(2);
-        const h = state.selectionRect.height.toFixed(2);
-        appendHtml(
-          `<img src="${dataUrl}" style="position: absolute; left: ${l}%; top: ${t}%; width: ${w}%; height: ${h}%; object-fit: contain;" />`,
-        );
-      }
-
-      function appendHtml(str) {
-        const input = els.overlayHtmlInput;
-        input.value = input.value + str;
-        updateOverlayPreview();
-        saveContent();
-      }
-
-      function updateDivContent(divId, newContent) {
-        // FIX: Add robust check for null/undefined content immediately.
-        if (!newContent) {
-          console.error(
-            `AI response returned empty content (undefined or null) for div ${divId}. Skipping update.`,
-          );
-          els.aiStatus.textContent = "AI Error (Empty Response)";
-          setTimeout(() => (els.aiStatus.style.display = "none"), 2000);
-          els.editActionBar.classList.remove("disabled-bar");
-          return;
-        }
-
-        updateDOMWithCallback((doc) => {
-          const target = doc.getElementById(divId);
-          if (target) {
-            const cleanedContent = newContent
-              .replace(/```html/g, "")
-              .replace(/```/g, "")
-              .trim();
-
-            // Apply new inner HTML
-            target.innerHTML = cleanedContent;
-
-            // NOTE: The previous check for wrapped content is complex and potentially prone to false positives/negatives,
-            // but the core fix is ensuring we only replace innerHTML, which is maintained.
-
-            return true;
-          }
-          return false;
-        });
-        // Re-run fitting if content changed (may be needed if content structure changes height)
-        els.editActionBar.classList.remove("disabled-bar");
-      }
-
-      // --- Added for context menu click handlers ---
-      els.workspace = document.getElementById("workspace");
-
-      // --- Core Application Logic ---
-      els.upload.addEventListener("change", function (e) {
-        var file = e.target.files[0];
-        if (file.type !== "application/pdf") return;
-        state.pageNum = 1;
-        localStorage.setItem(STORAGE_KEY_FILENAME, file.name);
-        els.restoredFilename.textContent = file.name;
-        els.restoreBadge.classList.add("hidden");
-        savePDFToDB(file).catch((err) =>
-          console.error("Error saving PDF to DB:", err),
-        );
-        var fileReader = new FileReader();
-        fileReader.onload = function () {
-          var typedarray = new Uint8Array(this.result);
-          loadPDF(typedarray, 1);
-        };
-        fileReader.readAsArrayBuffer(file);
-      });
-
-      // window.updatePreview is now unused
-
-      function updateOverlayPreview() {
-        els.overlayHtmlLayer.innerHTML = els.overlayHtmlInput.value;
-        renderMathInElement(els.overlayHtmlLayer, {
-          delimiters: [
-            { left: "$$", right: "$$", display: true },
-            { left: "$", right: "$", display: false },
-          ],
-          throwOnError: false,
-        });
-      }
-
-      function switchMainView(viewId) {
-        saveContent();
-        state.activeTab = viewId;
-
-        const containers = {
-          source: els.sourceContainer, // Kept hidden/background container
-          overlay: els.overlayContainer,
-          write: els.editorContainerMd, // Kept hidden/background container
-          preview: els.previewContainer, // Kept hidden/background container
-          prompts: els.editorContainerPrompts,
-          debug: els.editorContainerDebug, // New debug container
-        };
-        const buttons = {
-          overlay: els.tabOverlay,
-          prompts: els.tabPrompts,
-          debug: els.tabDebug, // New debug button
-        };
-
-        // Always revert from log view when switching tabs
-        if (state.isLogActive) {
-          state.isLogActive = false;
-        }
-
-        // Handle content initialization based on viewId
-        if (viewId === "overlay") {
-          // The canvas is mounted to overlayCanvasMount in the Overlay tab
-          if (!els.overlayCanvasMount.contains(els.theCanvas))
-            els.overlayCanvasMount.appendChild(els.theCanvas);
-          updateOverlayPreview();
-        } else if (viewId === "prompts") {
-          // Ensure the editor reflects the current in-memory state when loading the tab
-          els.promptInput.value = formatPromptsForEditor(state.prompts);
-        }
-        // Note: The Debug tab content is set inside runAiReplica or showDebugView
-
-        // FIX: Add null check for containers and buttons before accessing classList
-        Object.values(containers).forEach((c) => {
-          if (c) c.classList.add("hidden");
-        });
-        Object.values(buttons).forEach((b) => {
-          if (b) b.classList.remove("active");
-        });
-
-        if (containers[viewId]) containers[viewId].classList.remove("hidden");
-        if (buttons[viewId]) buttons[viewId].classList.add("active");
-      }
-
-      els.overlayHtmlInput.addEventListener("input", () => {
-        if (!state.isLogActive) {
-          updateOverlayPreview();
-          saveContent();
-        }
-      });
-
-      // Listener for the prompt input: saves and parses the text immediately upon input change
-      els.promptInput.addEventListener("input", savePrompts);
-      // Also save/parse on blur/change for reliable update if a paste occurs
-      els.promptInput.addEventListener("blur", savePrompts);
 
       els.tabOverlay.addEventListener("click", () => switchMainView("overlay"));
       els.tabPrompts.addEventListener("click", () => switchMainView("prompts"));
-      els.tabDebug.addEventListener("click", () => switchMainView("debug")); // New tab listener
+      els.tabDebug.addEventListener("click", () => { 
+        if(state.targetDivId) {
+            showDebugView();
+        } else {
+            switchMainView("debug");
+        }
+      });
 
       els.prevBtn.addEventListener("click", () => {
         if (state.pdfDoc && !state.pdfDoc.isStaticImage && state.pageNum > 1) {
