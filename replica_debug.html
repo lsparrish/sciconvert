@@ -150,6 +150,8 @@
       const DEFAULT_AI_SCALE = 0.5;
       const FINAL_AI_SCALE = 2.0;
 
+      const PROBABILITY_FIELD = "probabilityOfSuccess"; // New field name
+
       // --- FOCUSED PROMPT TEMPLATES ---
 
       // Template for POSITION Correction (Odd Runs: 1, 3, 5...)
@@ -179,7 +181,7 @@ Analyze the visuals (Target/Red Border vs. Current Render/Blue Border). Your SOL
 # RESPONSE FORMAT
 {
   "element-id": [
-    { "action": "moveUp", "coefficient": 0.50 }
+    { "action": "moveUp", "coefficient": 0.50, "${PROBABILITY_FIELD}": 0.90 } // probabilityOfSuccess is (0.00 to 1.00)
   ]
 }`;
 
@@ -203,12 +205,6 @@ Analyze the visuals (Target/Red Border vs. Current Render/Blue Border). Your SOL
 2. History Check: Did the previous size change overshoot? If yes, apply damping.
 3. Constraint Check: Ensure 'grow' does not violate the max vertical extent.
 4. Focus: Ignore position/font commands. Only adjust size.
-
-# OUTPUT RULES
-- Return ONLY a raw JSON object. No markdown formatting, no conversational text.
-- Precision: Coefficients must use 2 decimal places (e.g., 0.50).
-- Efficiency: Only include elements that require size changes.
-
 # INPUT DATA
 {{constraint}}
 {{structure}}
@@ -216,7 +212,7 @@ Analyze the visuals (Target/Red Border vs. Current Render/Blue Border). Your SOL
 # RESPONSE FORMAT
 {
   "element-id": [
-    { "action": "grow", "coefficient": 0.25 }
+    { "action": "grow", "coefficient": 0.25, "${PROBABILITY_FIELD}": 0.90 } // probabilityOfSuccess is (0.00 to 1.00)
   ]
 }`;
 
@@ -240,7 +236,7 @@ and shown to be economically feasible and beneficial.</p></div>`;
 
       // State
       const state = {
-        // history: { score: string, commands: object, resultImage: base64String, structure: { elements, maxExtent } }
+        // history: { score: string, commands: object, resultImage: base64String, structure: { elements, maxExtent }, probabilityScore: number }
         history: [],
         aiLog: [],
         currTab: "html",
@@ -254,6 +250,8 @@ and shown to be economically feasible and beneficial.</p></div>`;
         // --- NEW STATE TRACKERS ---
         currentMode: "POSITION", // Starts with POSITION
         iterationCounter: 0, // Counts total iterations executed
+        skipNextPosition: false, // Flag to skip the next POSITION run
+        skipNextSize: false, // Flag to skip the next SIZE run
         // --------------------------
       };
 
@@ -295,7 +293,17 @@ and shown to be economically feasible and beneficial.</p></div>`;
       function renderDiagnosticLog() {
         let logContent = state.aiLog
           .map((entry, i) => {
-            const status = entry.success ? "SUCCESS" : "ERROR";
+            const status = entry.success
+              ? "SUCCESS"
+              : entry.skipped
+                ? "SKIPPED"
+                : "ERROR";
+            const statusColor = entry.success
+              ? "#9be658"
+              : entry.skipped
+                ? "#fcd34d"
+                : "#ef4444";
+
             const rawResponse = entry.response
               ? JSON.stringify(entry.response, null, 2)
               : entry.response;
@@ -304,6 +312,9 @@ and shown to be economically feasible and beneficial.</p></div>`;
             const score = entry.request?.score || "N/A";
             const mode = entry.request?.mode || "N/A";
             const modeClass = mode.toLowerCase();
+            const probScore = entry.request?.probabilityScore
+              ? ` | Prob. Sum: ${entry.request.probabilityScore.toFixed(2)}`
+              : "";
 
             const targetImgHtml = images?.target
               ? `<img src="data:image/png;base64,${images.target}" class="image-thumbnail-payload border-red-400" alt="Target Image Thumbnail" />`
@@ -326,18 +337,21 @@ and shown to be economically feasible and beneficial.</p></div>`;
                   <pre class="log-pre" style="color: #9be658; max-height: 150px;">${entry.request?.promptText}</pre>`
                 : "";
 
+            const commandDisplay = entry.skipped
+              ? `<p class="text-xs text-yellow-400 mt-1 mb-1">Skipped. Probability Sum (${entry.request.probabilityScore.toFixed(2)}) > 1.00.</p>`
+              : `<p class="text-xs text-yellow-400 mt-1 mb-1">Raw Commands Executed:</p><pre class="log-pre" style="color: #fca311; max-height: 80px;">${rawResponse}</pre>`;
+
             return `<div class="log-history-entry">
-                        <h4 style="font-weight: bold; color: ${entry.success ? "#9be658" : "#ef4444"};">
+                        <h4 style="font-weight: bold; color: ${statusColor};">
                           --- Iteration ${entry.iter} (${entry.timestamp}) - ${status} 
-                          <span class="font-mono ${modeClass}">(${mode} MODE)</span> ---
+                          <span class="font-mono ${modeClass}">(${mode} MODE)${probScore}</span> ---
                         </h4>
                         <div style="margin-top: 0.5rem; display: flex; gap: 1rem; align-items: flex-start;">
                             <div style="text-align: center; font-family: monospace;">Target:<br>${targetImgHtml}</div>
                             <div style="text-align: center; font-family: monospace;">Render:<br>${renderImgHtml}</div>
                             <div class="flex-1">
                                 <p style="color: #60a5fa; margin-top: 0.5rem; font-family: monospace; font-size: 0.8rem;">Pre-Execution Delta Score: ${score}</p>
-                                <p class="text-xs text-yellow-400 mt-1 mb-1">Raw Commands Executed:</p>
-                                <pre class="log-pre" style="color: #fca311; max-height: 80px;">${rawResponse}</pre>
+                                ${commandDisplay}
                             </div>
                         </div>
                         ${promptText}
@@ -400,17 +414,22 @@ and shown to be economically feasible and beneficial.</p></div>`;
       }
 
       /**
-       * Applies commands, strictly filtering them based on the current execution mode.
+       * Applies commands, strictly filtering them based on the current execution mode,
+       * and extracts the total probability score.
        * @param {object} updates - The parsed JSON commands from the AI.
        * @param {string} mode - The current execution mode ("POSITION" or "SIZE").
+       * @returns {{appliedCommands: object, probabilityScore: number}}
        */
       function applyCommands(updates, mode) {
-        const allowedActions =
+        const allowedMoveActions =
           mode === "POSITION"
             ? ["moveUp", "moveDown", "moveLeft", "moveRight"]
             : ["grow", "shrink"];
 
+        const PROBABILITY_FIELD = "probabilityOfSuccess";
+
         let applied = {};
+        let totalProbability = 0;
 
         for (const [id, cmds] of Object.entries(updates)) {
           const el = document.getElementById(id);
@@ -422,29 +441,62 @@ and shown to be economically feasible and beneficial.</p></div>`;
           let size = parseFloat(el.style.fontSize) || 1.0;
 
           let elementApplied = [];
+          let elementHasMoveAction = false;
 
           cmds.forEach((c) => {
-            if (!allowedActions.includes(c.action)) return;
-
             const v = parseFloat(c.coefficient) || 0;
-            if (c.action === "moveUp") top -= v;
-            else if (c.action === "moveDown") top += v;
-            else if (c.action === "moveLeft") left -= v;
-            else if (c.action === "moveRight") left += v;
-            else if (c.action === "grow") size += v;
-            else if (c.action === "shrink") size = Math.max(0.1, size - v);
 
-            elementApplied.push(c); // Record only the applied commands
+            // 1. Extract Probability from the command object
+            if (c[PROBABILITY_FIELD] !== undefined) {
+              const pValue = parseFloat(c[PROBABILITY_FIELD]) || 0;
+              // Sum probability, clamp coefficient between 0 and 1
+              totalProbability += Math.min(1.0, Math.max(0.0, pValue));
+            }
+
+            // 2. Apply Move/Size Action
+            if (allowedMoveActions.includes(c.action)) {
+              if (c.action === "moveUp") top -= v;
+              else if (c.action === "moveDown") top += v;
+              else if (c.action === "moveLeft") left -= v;
+              else if (c.action === "moveRight") left += v;
+              else if (c.action === "grow") size += v;
+              else if (c.action === "shrink") size = Math.max(0.1, size - v);
+
+              elementApplied.push(c);
+              elementHasMoveAction = true;
+            }
+            // Ignore any action that is not a move/size command
           });
 
-          if (elementApplied.length > 0) {
+          // Only apply styles if a change (move/size) actually happened to prevent redundant updates
+          if (elementHasMoveAction) {
             el.style.top = top.toFixed(2) + "em";
             el.style.left = left.toFixed(2) + "em";
             el.style.fontSize = size.toFixed(2) + "em";
+          }
+
+          if (elementApplied.length > 0) {
+            // Re-inject the probability field into the applied command list for logging/history accuracy
+            // Note: Since only one primary action is expected per element, we attach the total probability
+            // calculated for that element to the first command object, for history consistency.
+            if (
+              elementHasMoveAction &&
+              elementApplied[0] &&
+              elementApplied[0][PROBABILITY_FIELD] === undefined
+            ) {
+              // Find the first command object that actually caused a style change and apply the probability
+              // (or just use the calculated total probability if not explicitly present).
+              const primaryAction = elementApplied.find((c) =>
+                allowedMoveActions.includes(c.action),
+              );
+              if (primaryAction) {
+                primaryAction[PROBABILITY_FIELD] = totalProbability;
+              }
+            }
             applied[id] = elementApplied;
           }
         }
-        return applied;
+        return { appliedCommands: applied, probabilityScore: totalProbability };
       }
 
       function createOverlapCanvas(targetCan, htmlCan) {
@@ -789,7 +841,11 @@ and shown to be economically feasible and beneficial.</p></div>`;
             const currentRun = parseInt(iterLabel.match(/\d+/)?.[0] || "1", 10);
             const stepNum = currentRun - (state.history.length - i);
 
-            const stepText = `\n--- Step ${Math.max(0, stepNum)} ---\nDelta Score (Pre-Command): ${h.score}\nCommands Executed: ${JSON.stringify(h.commands)}\nRESULTING FRAME (below):`;
+            const probSum = h.probabilityScore
+              ? ` | Prob. Sum: ${h.probabilityScore.toFixed(2)}`
+              : "";
+
+            const stepText = `\n--- Step ${Math.max(0, stepNum)}${probSum} ---\nDelta Score (Pre-Command): ${h.score}\nCommands Executed: ${JSON.stringify(h.commands)}\nRESULTING FRAME (below):`;
 
             parts.push({ text: stepText });
             parts.push({
@@ -843,6 +899,7 @@ and shown to be economically feasible and beneficial.</p></div>`;
               step: Math.max(0, step),
               score: h.score,
               commands: h.commands,
+              probabilityScore: h.probabilityScore || 0,
             };
           }),
         };
@@ -907,6 +964,7 @@ and shown to be economically feasible and beneficial.</p></div>`;
                 elements: initialElements,
                 maxExtent: initialExtent,
               },
+              probabilityScore: 0,
             });
           }
         }
@@ -919,13 +977,73 @@ and shown to be economically feasible and beneficial.</p></div>`;
         const currentTemplate =
           state.currentMode === "POSITION" ? POSITION_TEMPLATE : SIZE_TEMPLATE;
 
-        els.modeDisplay.textContent = state.currentMode;
-        els.modeDisplay.className = `mode-${state.currentMode.toLowerCase()}`;
+        // --- PROBABILITY CHECK FOR SKIPPING & DECAY LOGIC ---
+        let skip = false;
+        let modeToDecay = null;
+
+        if (state.currentMode === "POSITION" && state.skipNextPosition) {
+          skip = true;
+          state.skipNextPosition = false; // Reset the flag
+          modeToDecay = "SIZE"; // The previous mode (SIZE) must be decayed
+        } else if (state.currentMode === "SIZE" && state.skipNextSize) {
+          skip = true;
+          state.skipNextSize = false; // Reset the flag
+          modeToDecay = "POSITION"; // The previous mode (POSITION) must be decayed
+        }
+
+        if (skip && state.history.length > 0) {
+          // Decay the probability score of the MOST RECENT run (which belongs to the mode that caused the skip)
+          const decayIndex = 0; // The most recent history entry
+          const originalScore = state.history[decayIndex].probabilityScore;
+
+          if (originalScore > 0) {
+            const decayedScore = originalScore / 2;
+            state.history[decayIndex].probabilityScore = decayedScore;
+            console.log(
+              `Skipped ${state.currentMode}. Decayed previous mode's probability from ${originalScore.toFixed(2)} to ${decayedScore.toFixed(2)}.`,
+            );
+          }
+        }
+
+        els.modeDisplay.textContent = skip
+          ? `${state.currentMode} (SKIP)`
+          : state.currentMode;
+        els.modeDisplay.className = skip
+          ? "text-yellow-500"
+          : `mode-${state.currentMode.toLowerCase()}`;
+
+        const iter = `Run ${i}/${max}`;
+
+        // If we skip, we still need the pre-run log data.
+        if (skip) {
+          await updateAIImagesAndPayload(img, false, iter, DEFAULT_AI_SCALE);
+          const { payloadObj } = preparePayloadAndPrompt(
+            state.targetAI,
+            state.renderAI,
+            iter,
+            state.currentMode,
+            currentTemplate,
+          );
+
+          let logEntry = {
+            iter,
+            success: false,
+            skipped: true,
+            // Use the decayed probability score if available, otherwise fall back to the last good score
+            request: {
+              ...payloadObj,
+              probabilityScore: state.history[0]?.probabilityScore || 0,
+            },
+            response: "Skipped by probability filter",
+            timestamp: new Date().toLocaleTimeString(),
+          };
+          state.aiLog.unshift(logEntry);
+          if (state.currTab === "log") renderDiagnosticLog();
+          return;
+        }
 
         const divEl = document.getElementById(TEST_ID);
         if (!divEl) return;
-
-        const iter = `Run ${i}/${max}`;
 
         currentRunScale = i === max ? FINAL_AI_SCALE : DEFAULT_AI_SCALE;
 
@@ -956,6 +1074,7 @@ and shown to be economically feasible and beneficial.</p></div>`;
         let logEntry = {
           iter,
           success: false,
+          skipped: false,
           request: payloadObj,
           response: "Error/No response",
           timestamp: new Date().toLocaleTimeString(),
@@ -971,8 +1090,22 @@ and shown to be economically feasible and beneficial.</p></div>`;
           logEntry.response = updates;
           logEntry.success = true;
 
-          // --- CRITICAL FILTERING STEP ---
-          const appliedCommands = applyCommands(updates, state.currentMode);
+          const { appliedCommands, probabilityScore } = applyCommands(
+            updates,
+            state.currentMode,
+          );
+
+          logEntry.request.probabilityScore = probabilityScore;
+
+          // Set skip flag for the *next* time the *other* mode runs, if the current run solved everything.
+          if (probabilityScore > 1.0) {
+            if (state.currentMode === "POSITION") state.skipNextSize = true;
+            else if (state.currentMode === "SIZE")
+              state.skipNextPosition = true;
+            console.log(
+              `Probability score (${probabilityScore.toFixed(2)}) > 1.0. Setting skip flag for next ${state.currentMode === "POSITION" ? "SIZE" : "POSITION"} run.`,
+            );
+          }
 
           await updateAIImagesAndPayload(
             img,
@@ -995,10 +1128,11 @@ and shown to be economically feasible and beneficial.</p></div>`;
               elements: postCommandElements,
               maxExtent: postCommandExtent,
             },
+            probabilityScore: probabilityScore,
           });
 
           console.log(
-            `Applied ${Object.keys(appliedCommands).length} updates in ${state.currentMode} mode. Score: ${scoreString}`,
+            `Applied ${Object.keys(appliedCommands).length} updates in ${state.currentMode} mode. Score: ${scoreString} | Probability Sum: ${probabilityScore.toFixed(2)}`,
           );
 
           await updateAIImagesAndPayload(
@@ -1035,6 +1169,8 @@ and shown to be economically feasible and beneficial.</p></div>`;
         state.history = [];
         state.aiLog = [];
         state.iterationCounter = 0; // Reset counter
+        state.skipNextPosition = false; // Reset skip flags
+        state.skipNextSize = false; // Reset skip flags
 
         els.layer.innerHTML = INITIAL_HTML;
         els.output.value = INITIAL_HTML.replace(/<\/div>/g, "</div>\n").replace(
