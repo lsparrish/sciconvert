@@ -18,43 +18,86 @@
     <style>
       body {
         font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-        background-color: #e5e7eb;
+        background-color: #111827; /* Darker background for focus */
         height: 100vh;
         overflow: hidden;
       }
       /* Custom Scrollbar */
-      ::-webkit-scrollbar { width: 8px; height: 8px; }
-      ::-webkit-scrollbar-track { background: #f1f1f1; }
-      ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
-      ::-webkit-scrollbar-thumb:hover { background: #555; }
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-track { background: #1f2937; }
+      ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 5px; border: 2px solid #1f2937; }
+      ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
 
       /* Layout & Canvas */
-      #pdf-render-container, #canvas-wrapper {
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      #canvas-wrapper {
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.3);
+        transition: width 0.15s ease-out; /* Smooth zoom */
       }
       
+      /* Grid Overlay */
+      .grid-overlay {
+          background-size: 50px 50px;
+          background-image:
+            linear-gradient(to right, rgba(0, 0, 0, 0.05) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+          pointer-events: none;
+      }
+
       /* Overlay SVG Elements */
       .patch-highlight {
-          cursor: pointer;
           stroke: #f97316; /* Orange-500 */
           stroke-width: 2;
-          fill: rgba(249, 115, 22, 0.01);
+          fill: rgba(249, 115, 22, 0.05);
           opacity: 0; 
           transition: opacity 0.15s;
           pointer-events: all;
       }
-      .patch-highlight:hover { opacity: 1.0; stroke-width: 3; }
-      .patch-highlight.selected { stroke: #2563eb; opacity: 1.0; stroke-width: 3; fill: rgba(37, 99, 235, 0.1); }
+      .patch-highlight:hover { opacity: 1.0; stroke-width: 2; cursor: pointer; }
+      .patch-highlight.selected { opacity: 0; pointer-events: none; }
 
       /* Selection Box */
       #selection-box {
-        border: 2px dashed #2563eb;
-        background-color: rgba(37, 99, 235, 0.1);
+        border: 2px dashed #3b82f6;
+        background-color: rgba(59, 130, 246, 0.1);
         position: absolute;
         pointer-events: none; 
         display: none;
         z-index: 50;
       }
+
+      /* Active Selection Frame */
+      .selection-frame {
+          position: absolute;
+          border: 1px solid #3b82f6;
+          box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3); /* Double border effect */
+          background-color: rgba(59, 130, 246, 0.05);
+          cursor: move;
+          z-index: 40;
+          box-sizing: border-box;
+      }
+
+      /* Resize Handles */
+      .resize-handle {
+          position: absolute;
+          width: 10px;
+          height: 10px;
+          background-color: white;
+          border: 2px solid #3b82f6;
+          z-index: 50;
+          border-radius: 2px;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+          transition: transform 0.1s;
+      }
+      .resize-handle:hover { transform: scale(1.2); background-color: #eff6ff; }
+      
+      .handle-nw { top: -6px; left: -6px; cursor: nw-resize; }
+      .handle-n  { top: -6px; left: 50%; margin-left: -5px; cursor: n-resize; }
+      .handle-ne { top: -6px; right: -6px; cursor: ne-resize; }
+      .handle-e  { top: 50%; right: -6px; margin-top: -5px; cursor: e-resize; }
+      .handle-se { bottom: -6px; right: -6px; cursor: se-resize; }
+      .handle-s  { bottom: -6px; left: 50%; margin-left: -5px; cursor: s-resize; }
+      .handle-sw { bottom: -6px; left: -6px; cursor: sw-resize; }
+      .handle-w  { top: 50%; left: -6px; margin-top: -5px; cursor: w-resize; }
 
       /* Action Bars */
       #new-selection-action-bar {
@@ -66,171 +109,284 @@
       @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
 
       .disabled-bar { opacity: 0.5; pointer-events: none; }
+      .disabled-input { opacity: 0.5; pointer-events: none; background-color: #f9fafb; color: #9ca3af; }
       
       /* Tabs */
-      .tab-button { @apply px-4 py-2 text-sm font-semibold text-gray-600 border-b-2 border-transparent hover:text-gray-900 cursor-pointer transition; }
+      .tab-button { @apply px-4 py-2 text-sm font-semibold text-gray-500 border-b-2 border-transparent hover:text-gray-800 cursor-pointer transition; }
       .tab-button.active { @apply text-blue-600 border-blue-600 bg-white; }
 
-      .editor-textarea { font-family: monospace; line-height: 1.5; resize: none; }
+      /* Code Editor */
+      .editor-textarea { 
+          font-family: 'Menlo', 'Monaco', 'Courier New', monospace; 
+          line-height: 1.5; 
+          resize: none; 
+          font-size: 11px;
+      }
+      .editor-textarea:focus {
+          outline: none;
+          background-color: #fff;
+          box-shadow: inset 0 0 0 2px #bfdbfe;
+      }
+      
+      input[type="number"]::-webkit-inner-spin-button,
+      input[type="number"]::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
     </style>
   </head>
-  <body class="flex flex-col h-screen">
+  <body class="flex flex-col h-screen text-gray-800">
     
     <!-- HEADER -->
-    <header class="bg-gray-800 text-white p-3 flex justify-between items-center shadow-md z-10 shrink-0">
+    <header class="bg-gray-800 text-white p-3 flex justify-between items-center shadow-lg z-30 shrink-0 border-b border-gray-900">
       <div class="flex items-center gap-4">
-        <h1 class="text-xl font-bold tracking-wider mr-4">SciText <span class="text-blue-400">Digitizer</span></h1>
+        <h1 class="text-xl font-bold tracking-wider mr-4 text-gray-100">SciText <span class="text-blue-400">Digitizer</span></h1>
         
         <!-- PDF Upload -->
-        <div class="relative">
+        <div class="relative group">
           <input type="file" id="pdf-upload" accept="application/pdf" class="hidden" />
-          <label for="pdf-upload" class="cursor-pointer bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm font-semibold transition flex items-center gap-2">
-            Load PDF
+          <label for="pdf-upload" class="cursor-pointer bg-blue-600 hover:bg-blue-500 px-4 py-1.5 rounded text-sm font-semibold transition flex items-center gap-2 shadow-sm ring-1 ring-blue-400/20">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+            </svg>
+            Load
           </label>
         </div>
         
-        <!-- Navigation -->
-        <div id="pdf-nav-controls" class="hidden flex items-center bg-gray-700 rounded px-2 py-1 gap-2">
-          <button id="prev-page" class="hover:text-blue-300 p-1">&lt;</button>
-          <span class="text-sm font-mono">Page <span id="page-num">0</span> / <span id="page-count">0</span></span>
-          <button id="next-page" class="hover:text-blue-300 p-1">&gt;</button>
-        </div>
-        
+        <div class="h-6 w-px bg-gray-600 mx-2"></div>
+
         <!-- Zoom -->
-        <div id="pdf-zoom-controls" class="hidden flex items-center bg-gray-700 rounded px-2 py-1 gap-2">
-          <button id="zoom-out" class="hover:text-blue-300 p-1">-</button>
-          <span id="zoom-level" class="text-xs font-mono w-12 text-center">100%</span>
-          <button id="zoom-in" class="hover:text-blue-300 p-1">+</button>
+        <div id="pdf-zoom-controls" class="flex items-center bg-gray-700 rounded-md p-0.5 shadow-inner border border-gray-600">
+          <button id="zoom-out" class="hover:bg-gray-600 hover:text-white text-gray-300 p-1 px-2 rounded-sm font-bold transition">-</button>
+          <span id="zoom-level" class="text-xs font-mono w-14 text-center text-gray-200 select-none">100%</span>
+          <button id="zoom-in" class="hover:bg-gray-600 hover:text-white text-gray-300 p-1 px-2 rounded-sm font-bold transition">+</button>
+        </div>
+
+        <!-- Undo/Redo -->
+        <div class="flex items-center gap-1 ml-2">
+            <button id="btn-undo" class="text-gray-400 hover:text-white p-1 rounded disabled:opacity-30 transition" title="Undo (Ctrl+Z)">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg>
+            </button>
+            <button id="btn-redo" class="text-gray-400 hover:text-white p-1 rounded disabled:opacity-30 transition" title="Redo (Ctrl+Y)">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 000 12h3" /></svg>
+            </button>
         </div>
       </div>
       
       <div class="flex items-center gap-4">
-          <span id="ai-status" class="hidden text-blue-400 text-xs font-mono animate-pulse">Processing...</span>
-          <button id="fullscreen-toggle" class="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded text-sm font-semibold transition">Full Screen</button>
+          <span id="ai-status" class="hidden text-blue-400 text-xs font-mono animate-pulse flex items-center gap-2">
+            <svg class="animate-spin h-3 w-3 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            AI Processing
+          </span>
+          <button id="fullscreen-toggle" class="bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1.5 rounded text-xs font-semibold transition border border-gray-600">Full Screen</button>
       </div>
     </header>
 
     <!-- MAIN CONTENT -->
     <main class="flex-1 flex flex-col overflow-hidden relative bg-white">
       <!-- TABS -->
-      <div class="flex bg-gray-50 border-b border-gray-200 shadow-inner shrink-0">
+      <div class="flex bg-gray-50 border-b border-gray-200 shadow-sm shrink-0 z-20">
         <button id="tab-overlay" class="tab-button active">Compositor</button>
         <button id="tab-debug" class="tab-button">Debug View</button>
       </div>
 
       <!-- EMPTY STATE -->
-      <div id="empty-state" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-100 z-50 text-gray-500">
-        <h2 class="text-2xl font-bold mb-2">No Document Loaded</h2>
-        <p>Upload a PDF to begin.</p>
+      <div id="empty-state" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-50 z-50 text-gray-500">
+        <div class="bg-white p-8 rounded-2xl shadow-xl text-center border border-gray-200">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-16 h-16 mx-auto mb-4 text-gray-300">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+            </svg>
+            <h2 class="text-xl font-bold mb-2 text-gray-700">No Document Loaded</h2>
+            <p class="text-sm text-gray-500">Upload a PDF to begin digitizing.</p>
+        </div>
       </div>
       
       <!-- LOADER -->
-      <div id="pdf-loader" class="absolute inset-0 bg-gray-800 bg-opacity-75 flex flex-col items-center justify-center hidden z-50">
-          <div class="w-8 h-8 border-4 border-t-blue-500 border-gray-200 rounded-full animate-spin mb-2"></div>
-          <span class="text-white font-semibold">Loading...</span>
+      <div id="pdf-loader" class="absolute inset-0 bg-gray-900 bg-opacity-70 flex flex-col items-center justify-center hidden z-50 backdrop-blur-sm">
+          <div class="w-12 h-12 border-4 border-t-blue-500 border-gray-600 rounded-full animate-spin mb-4"></div>
+          <span class="text-white font-bold tracking-wide text-lg">Loading Document...</span>
       </div>
 
       <!-- WORKSPACE CONTAINER -->
       <div id="workspace-container" class="flex-1 flex overflow-hidden relative hidden">
           
-          <!-- LEFT PANEL: Code / Tools -->
-          <div class="w-1/3 h-full flex flex-col border-r border-gray-300 bg-white z-10 shadow-xl">
-              <div class="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 border-b flex justify-between">
-                  <span id="panel-title">SVG OUTPUT</span>
-                  <span id="patch-count" class="text-gray-400">0 Patches</span>
+          <!-- LEFT PANEL: Properties & Editor -->
+          <div class="w-80 min-w-[320px] h-full flex flex-col border-r border-gray-200 bg-white z-10 shadow-xl">
+              <!-- Header -->
+              <div class="bg-gray-100 px-4 py-3 text-xs font-bold text-gray-600 border-b border-gray-200 flex justify-between items-center">
+                  <span class="tracking-wide uppercase">Properties</span>
+                  <div class="flex items-center gap-2">
+                      <span id="patch-count" class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-[10px] font-bold">0</span>
+                  </div>
+              </div>
+
+              <!-- Geometry Controls -->
+              <div class="p-4 bg-gray-50 border-b border-gray-200 grid grid-cols-2 gap-3 text-xs select-none">
+                  
+                  <!-- Position -->
+                  <div class="col-span-2 grid grid-cols-2 gap-3">
+                      <div>
+                        <label class="block text-gray-400 font-bold mb-1 uppercase text-[10px]">Pos X</label>
+                        <input type="number" id="prop-x" class="w-full bg-white border border-gray-300 rounded p-1.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none font-mono text-gray-700" disabled>
+                      </div>
+                      <div>
+                        <label class="block text-gray-400 font-bold mb-1 uppercase text-[10px]">Pos Y</label>
+                        <input type="number" id="prop-y" class="w-full bg-white border border-gray-300 rounded p-1.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none font-mono text-gray-700" disabled>
+                      </div>
+                  </div>
+
+                  <!-- Size & Aspect Lock -->
+                  <div class="col-span-2 grid grid-cols-[1fr_auto_1fr] gap-2 items-end">
+                      <div>
+                        <label class="block text-gray-400 font-bold mb-1 uppercase text-[10px]">Width</label>
+                        <input type="number" id="prop-w" class="w-full bg-white border border-gray-300 rounded p-1.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none font-mono text-gray-700" disabled>
+                      </div>
+                      <button id="btn-lock-aspect" class="mb-1.5 text-gray-300 hover:text-blue-500 transition p-1 rounded" title="Lock Aspect Ratio">
+                          <!-- Unlocked Icon -->
+                          <svg id="icon-unlocked" class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>
+                          <!-- Locked Icon (Hidden by default) -->
+                          <svg id="icon-locked" class="w-4 h-4 hidden text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>
+                      </button>
+                      <div>
+                        <label class="block text-gray-400 font-bold mb-1 uppercase text-[10px]">Height</label>
+                        <input type="number" id="prop-h" class="w-full bg-white border border-gray-300 rounded p-1.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none font-mono text-gray-700" disabled>
+                      </div>
+                  </div>
+                  
+                  <div class="col-span-2 border-t border-gray-200 my-1"></div>
+
+                  <!-- Internal Transform & Content Lock -->
+                  <div class="col-span-2 grid grid-cols-[1fr_auto_1fr] gap-2 items-end">
+                      <div>
+                        <label class="block text-blue-400 font-bold mb-1 uppercase text-[10px]">Scale X</label>
+                        <input type="number" step="0.05" id="prop-sx" class="w-full bg-white border border-gray-300 rounded p-1.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none font-mono text-gray-700" disabled>
+                      </div>
+                      <button id="btn-stretch-content" class="mb-1.5 text-gray-300 hover:text-blue-500 transition p-1 rounded" title="Content Scaling: Locked (Stretch) vs Unlocked (Crop)">
+                          <!-- Linked (Stretch) - Default -->
+                          <svg id="icon-stretch" class="w-4 h-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" /></svg>
+                          <!-- Unlinked (Crop/Fixed) -->
+                          <svg id="icon-crop" class="w-4 h-4 hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+                      </button>
+                      <div>
+                        <label class="block text-blue-400 font-bold mb-1 uppercase text-[10px]">Scale Y</label>
+                        <input type="number" step="0.05" id="prop-sy" class="w-full bg-white border border-gray-300 rounded p-1.5 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none font-mono text-gray-700" disabled>
+                      </div>
+                  </div>
+              </div>
+              
+              <div class="px-4 py-2 text-xs font-bold text-gray-500 border-b bg-gray-100 flex justify-between items-center shadow-inner">
+                  <span class="tracking-wide uppercase">SVG Source</span>
+                  <span class="text-[10px] text-gray-400 font-normal">Auto-Updates</span>
               </div>
               
               <!-- Main Editor (SVG Code) -->
-              <textarea id="code-editor" class="editor-textarea flex-1 p-4 text-xs text-gray-800 bg-gray-50 border-none outline-none" readonly></textarea>
+              <textarea id="code-editor" class="editor-textarea flex-1 p-4 text-gray-700 bg-white border-none outline-none text-xs" spellcheck="false" placeholder="Select a patch to edit SVG source..."></textarea>
               
-              <!-- Static Action Bar (Bottom Left) -->
-              <div id="static-action-bar" class="p-2 border-t border-gray-200 bg-gray-50 flex flex-wrap gap-2">
-                  <button id="btn-export" class="bg-green-100 text-green-700 border border-green-300 hover:bg-green-200 px-3 py-1 rounded text-xs font-semibold flex items-center gap-1">
-                      <span>Export SVG</span>
-                  </button>
-                  <button id="btn-clear-all" class="bg-red-100 text-red-700 border border-red-300 hover:bg-red-200 px-3 py-1 rounded text-xs font-semibold flex items-center gap-1">
-                      <span>Reset Page</span>
-                  </button>
+              <!-- Static Action Bar -->
+              <div class="p-3 border-t border-gray-200 bg-gray-50 flex flex-wrap gap-2 items-center justify-between">
+                  <div class="flex gap-2">
+                    <button id="btn-export" class="bg-white text-green-700 border border-green-300 hover:bg-green-50 px-3 py-1.5 rounded text-xs font-bold flex items-center gap-1 shadow-sm transition">
+                        Export
+                    </button>
+                    <button id="btn-clear-all" class="text-red-500 hover:text-red-700 px-2 py-1.5 rounded text-xs font-medium transition" title="Reset All">
+                        Reset
+                    </button>
+                  </div>
                   
-                  <div class="w-px h-6 bg-gray-300 mx-1"></div>
-                  
-                  <!-- Contextual Actions (Only enabled when patch selected) -->
+                  <!-- Contextual Actions -->
                   <div id="context-actions" class="flex gap-2 disabled-bar transition-opacity duration-200">
-                       <button id="btn-regen" class="bg-blue-100 text-blue-700 border border-blue-300 hover:bg-blue-200 px-3 py-1 rounded text-xs font-semibold">Regenerate</button>
-                       <button id="btn-delete" class="bg-gray-200 text-gray-700 border border-gray-300 hover:bg-gray-300 px-3 py-1 rounded text-xs font-semibold">Delete</button>
+                       <button id="btn-regen" class="bg-blue-600 text-white border border-transparent hover:bg-blue-500 px-3 py-1.5 rounded text-xs font-bold shadow-sm transition">Regen</button>
+                       <button id="btn-delete" class="bg-white text-gray-700 border border-gray-300 hover:bg-gray-100 px-3 py-1.5 rounded text-xs font-semibold shadow-sm transition">Del</button>
                   </div>
               </div>
           </div>
 
           <!-- RIGHT PANEL: Visual Canvas -->
-          <div class="w-2/3 h-full flex flex-col bg-gray-500 relative">
+          <div class="flex-1 h-full flex flex-col bg-gray-200 relative overflow-hidden">
               <!-- Canvas Toolbar -->
-              <div class="bg-gray-200 p-2 flex justify-center gap-4 text-xs font-semibold text-gray-700 border-b border-gray-400 shrink-0 shadow-sm z-20">
-                   <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="chk-source" checked class="rounded text-blue-600"> Source PDF</label>
-                   <div class="w-px h-4 bg-gray-400"></div>
-                   <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="chk-svg" checked class="rounded text-blue-600"> SVG Overlay</label>
+              <div class="bg-white px-4 py-2 flex justify-center items-center gap-6 text-xs font-bold text-gray-600 border-b border-gray-300 shrink-0 shadow-sm z-20">
+                   <label class="flex items-center gap-2 cursor-pointer hover:text-gray-900 select-none group">
+                       <input type="checkbox" id="chk-source" checked class="rounded text-blue-600 focus:ring-blue-500 cursor-pointer">
+                       <span class="group-hover:text-blue-600 transition">Source Image</span>
+                   </label>
+                   <div class="w-px h-4 bg-gray-300"></div>
+                   <label class="flex items-center gap-2 cursor-pointer hover:text-gray-900 select-none group">
+                       <input type="checkbox" id="chk-svg" checked class="rounded text-blue-600 focus:ring-blue-500 cursor-pointer">
+                       <span class="group-hover:text-blue-600 transition">SVG Overlay</span>
+                   </label>
+                   <div class="w-px h-4 bg-gray-300"></div>
+                   <label class="flex items-center gap-2 cursor-pointer hover:text-gray-900 select-none group">
+                       <input type="checkbox" id="chk-grid" class="rounded text-blue-600 focus:ring-blue-500 cursor-pointer">
+                       <span class="group-hover:text-blue-600 transition">Show Grid</span>
+                   </label>
               </div>
               
               <!-- Scrollable Canvas Wrapper -->
-              <div id="canvas-scroller" class="flex-1 overflow-auto flex justify-center p-8 relative cursor-default">
-                  <div id="canvas-wrapper" class="relative shadow-2xl bg-white origin-top">
+              <div id="canvas-scroller" class="flex-1 overflow-auto flex justify-center p-12 relative cursor-default bg-gray-200">
+                  <div id="canvas-wrapper" class="relative bg-white origin-top ring-1 ring-gray-900/5 transition-all ease-out duration-150">
                       <!-- 1. PDF Canvas Mount -->
                       <div id="pdf-layer" class="transition-opacity duration-200"></div> 
-                      <!-- 2. SVG Patch Layer -->
+                      <!-- 2. Grid Layer -->
+                      <div id="grid-layer" class="absolute inset-0 grid-overlay hidden opacity-50 pointer-events-none z-0"></div>
+                      <!-- 3. SVG Patch Layer -->
                       <div id="svg-layer" class="absolute inset-0 z-10 transition-opacity duration-200 pointer-events-none"></div> 
-                      <!-- 3. Interactive Selection Layer -->
-                      <div id="interaction-layer" class="absolute inset-0 z-20 cursor-crosshair"></div>
+                      <!-- 4. Interactive Selection Layer (Handles all mouse events) -->
+                      <div id="interaction-layer" class="absolute inset-0 z-20"></div>
                       
-                      <!-- Visual Selection Box -->
+                      <!-- Visual Selection Box (For creating NEW selections) -->
                       <div id="selection-box"></div>
                   </div>
               </div>
           </div>
       </div>
       
-      <!-- DEBUG VIEW (Hidden by default) -->
-      <div id="debug-container" class="flex-1 hidden flex-col bg-gray-900 p-4 overflow-auto text-white">
-           <div class="flex justify-center gap-4 mb-4 h-64">
-               <div class="border border-gray-600 bg-black p-2 rounded flex flex-col items-center w-1/3">
-                   <span class="text-xs font-bold text-yellow-400 mb-1">Source Crop</span>
-                   <img id="debug-img-source" class="h-full object-contain bg-white">
+      <!-- DEBUG VIEW -->
+      <div id="debug-container" class="flex-1 hidden flex-col bg-gray-900 p-6 overflow-auto text-white">
+           <div class="flex justify-center gap-6 mb-6 h-80">
+               <div class="border border-gray-700 bg-black p-3 rounded-lg flex flex-col items-center w-1/3 shadow-lg">
+                   <span class="text-xs font-bold text-yellow-500 mb-2 uppercase tracking-wide">Source Crop</span>
+                   <img id="debug-img-source" class="h-full object-contain bg-[#1a1a1a] rounded border border-gray-800">
                </div>
-               <div class="border border-gray-600 bg-black p-2 rounded flex flex-col items-center w-1/3">
-                   <span class="text-xs font-bold text-blue-400 mb-1">SVG Result</span>
-                   <div id="debug-svg-preview" class="h-full w-full flex items-center justify-center bg-white text-black"></div>
+               <div class="border border-gray-700 bg-black p-3 rounded-lg flex flex-col items-center w-1/3 shadow-lg">
+                   <span class="text-xs font-bold text-blue-400 mb-2 uppercase tracking-wide">SVG Result</span>
+                   <div id="debug-svg-preview" class="h-full w-full flex items-center justify-center bg-white text-black rounded border border-gray-800"></div>
                </div>
            </div>
-           <div class="flex-1 border border-gray-700 bg-gray-800 rounded p-2">
-               <span class="text-xs font-bold text-gray-400 block mb-1">Raw Response / Log</span>
-               <pre id="debug-log" class="text-xs font-mono text-green-400 overflow-auto h-full"></pre>
+           <div class="flex-1 border border-gray-700 bg-gray-800 rounded-lg p-3 shadow-inner">
+               <span class="text-xs font-bold text-gray-400 block mb-2 uppercase tracking-wide border-b border-gray-700 pb-1">System Log</span>
+               <pre id="debug-log" class="text-xs font-mono text-green-400 overflow-auto h-full p-2"></pre>
            </div>
       </div>
 
     </main>
 
     <!-- FLOATING SELECTION BAR -->
-    <div id="new-selection-action-bar" class="bg-gray-800 text-white rounded-lg shadow-2xl flex items-center p-1.5 gap-2 border border-gray-700">
-      <button class="px-3 py-1 bg-blue-900/50 hover:bg-blue-800 rounded text-xs font-bold text-blue-200" onclick="app.createPatch('text')">Text</button>
-      <button class="px-3 py-1 bg-amber-900/50 hover:bg-amber-800 rounded text-xs font-bold text-amber-200" onclick="app.createPatch('image')">Image</button>
-      <button class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs font-bold text-gray-300" onclick="app.createPatch('empty')">Empty</button>
-      <div class="w-px h-4 bg-gray-600"></div>
-      <button class="px-2 py-1 hover:text-red-300 text-xs" onclick="app.clearSelection()">Cancel</button>
+    <div id="new-selection-action-bar" class="bg-gray-800 text-white rounded-lg shadow-2xl flex items-center p-1.5 gap-2 border border-gray-600 ring-1 ring-black/50 backdrop-blur-md bg-opacity-95">
+      <span class="text-[10px] font-bold text-gray-400 px-2 uppercase tracking-wider">Create:</span>
+      <button class="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs font-bold text-white shadow-sm transition" onclick="app.createPatch('text')">Text</button>
+      <button class="px-3 py-1 bg-amber-600 hover:bg-amber-500 rounded text-xs font-bold text-white shadow-sm transition" onclick="app.createPatch('image')">Image</button>
+      <button class="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded text-xs font-bold text-white shadow-sm transition" onclick="app.createPatch('empty')">Empty</button>
+      <div class="w-px h-4 bg-gray-600 mx-1"></div>
+      <button class="px-2 py-1 text-gray-400 hover:text-white text-xs font-medium transition" onclick="app.clearSelection()">Cancel</button>
     </div>
     
-    <!-- HIDDEN CANVAS for processing -->
+    <!-- HIDDEN CANVAS -->
     <canvas id="processing-canvas" style="display:none;"></canvas>
 
     <script type="module">
         /**
          * SciText Digitizer (Lean Version)
-         * Focus: SVG Compositing Architecture
+         * Focus: SVG Compositing Architecture & Interaction
          */
         
         const CONFIG = {
-            apiKey: "", // Runtime key provided by environment
+            apiKey: "", 
             defaultPdfUrl: "https://lsparrish.github.io/sciconvert/sample.png",
             storageKey: "scitext_lean_v1",
-            aiScale: 2.0, // High-res capture for AI
+            aiScale: 2.0, 
             maxRetries: 3
         };
 
@@ -238,13 +394,28 @@
         const state = {
             pdfDoc: null,
             pageNum: 1,
-            scale: 1.2,
-            patches: [], // Array of {id, rect, svgContent, bpDims}
-            selection: null, // {x, y, w, h} percentages
+            
+            // View State
+            scaleMultiplier: 1.0, // Zoom level (1.0 = fit to width usually, or native)
+            baseWidth: 0, // Native canvas width
+            
+            // Data
+            patches: [], // Array of {id, rect, svgContent, bpDims, scale: {x, y}}
+            selection: null, 
             activePatchId: null,
-            isSelecting: false,
-            selectionStart: {x:0, y:0},
-            canvas: document.createElement('canvas'), // Off-screen canvas for PDF rendering
+            aspectLocked: false,
+            contentStretch: true, // Default: Stretch content with frame
+            
+            // History
+            history: [],
+            historyIndex: -1,
+            
+            // Interaction State
+            dragAction: null, 
+            dragStart: { x: 0, y: 0 }, 
+            initialRect: null, 
+            
+            canvas: document.createElement('canvas'),
         };
         
         // --- DOM ELEMENTS ---
@@ -252,17 +423,22 @@
             upload: document.getElementById('pdf-upload'),
             navControls: document.getElementById('pdf-nav-controls'),
             zoomControls: document.getElementById('pdf-zoom-controls'),
-            pageNum: document.getElementById('page-num'),
-            pageCount: document.getElementById('page-count'),
+            btnZoomIn: document.getElementById('zoom-in'),
+            btnZoomOut: document.getElementById('zoom-out'),
+            txtZoomLevel: document.getElementById('zoom-level'),
+            
+            btnUndo: document.getElementById('btn-undo'),
+            btnRedo: document.getElementById('btn-redo'),
             
             workspace: document.getElementById('workspace-container'),
             emptyState: document.getElementById('empty-state'),
             loader: document.getElementById('pdf-loader'),
             
-            // Fixed: Corrected ID to match HTML
+            scroller: document.getElementById('canvas-scroller'),
             wrapper: document.getElementById('canvas-wrapper'), 
             pdfLayer: document.getElementById('pdf-layer'),
             svgLayer: document.getElementById('svg-layer'),
+            gridLayer: document.getElementById('grid-layer'),
             interactionLayer: document.getElementById('interaction-layer'),
             selectionBox: document.getElementById('selection-box'),
             selectionBar: document.getElementById('new-selection-action-bar'),
@@ -272,10 +448,26 @@
             contextActions: document.getElementById('context-actions'),
             aiStatus: document.getElementById('ai-status'),
             
+            // Properties
+            propX: document.getElementById('prop-x'),
+            propY: document.getElementById('prop-y'),
+            propW: document.getElementById('prop-w'),
+            propH: document.getElementById('prop-h'),
+            propSX: document.getElementById('prop-sx'),
+            propSY: document.getElementById('prop-sy'),
+            
+            btnLockAspect: document.getElementById('btn-lock-aspect'),
+            iconUnlocked: document.getElementById('icon-unlocked'),
+            iconLocked: document.getElementById('icon-locked'),
+            
+            btnStretchContent: document.getElementById('btn-stretch-content'),
+            iconStretch: document.getElementById('icon-stretch'),
+            iconCrop: document.getElementById('icon-crop'),
+            
             chkSource: document.getElementById('chk-source'),
             chkSvg: document.getElementById('chk-svg'),
+            chkGrid: document.getElementById('chk-grid'),
             
-            // Debug
             debugContainer: document.getElementById('debug-container'),
             debugImg: document.getElementById('debug-img-source'),
             debugSvg: document.getElementById('debug-svg-preview'),
@@ -284,20 +476,12 @@
 
         // --- INIT ---
         async function init() {
-            // Restore session or load default
             try {
-                const saved = localStorage.getItem(CONFIG.storageKey);
-                if(saved) {
-                   const data = JSON.parse(saved);
-                   // Simplified: In a real app, we'd restore the PDF from IndexedDB here.
-                   // For this lean version, we'll default to loading the sample image to show functionality quickly.
-                   loadDefaultImage(); 
-                } else {
-                   loadDefaultImage();
-                }
+                // In a real app we might load history from local storage too
+                loadDefaultImage(); 
             } catch(e) { loadDefaultImage(); }
-            
             setupEventListeners();
+            updateHistoryUI();
         }
         
         function loadDefaultImage() {
@@ -307,9 +491,9 @@
             img.onload = () => {
                 state.canvas.width = img.width;
                 state.canvas.height = img.height;
+                state.baseWidth = img.width;
                 state.canvas.getContext('2d').drawImage(img, 0, 0);
                 
-                // Mock PDF state for single image
                 state.pdfDoc = { numPages: 1, isImage: true };
                 
                 renderPage();
@@ -318,25 +502,93 @@
                 els.workspace.classList.remove('hidden');
                 els.workspace.classList.add('flex');
                 
-                // Switch tabs to Compositor
+                // Initialize history
+                saveState(true);
+                
                 switchTab('overlay');
             };
             img.src = CONFIG.defaultPdfUrl;
         }
         
         function renderPage() {
-            // For the image version, we just mount the canvas
             els.pdfLayer.innerHTML = '';
             state.canvas.style.width = '100%';
             state.canvas.style.height = '100%';
             els.pdfLayer.appendChild(state.canvas);
             
-            // Resize Wrapper
-            els.wrapper.style.width = `${state.canvas.width}px`;
-            els.wrapper.style.height = `${state.canvas.height}px`;
+            // Initial Zoom Set
+            applyZoom();
             
-            // Init SVG Layer
             initSvgLayer();
+        }
+
+        // --- HISTORY SYSTEM (Undo/Redo) ---
+        function saveState(isInitial = false) {
+            // Remove any future history if we are in the middle of the stack
+            if (state.historyIndex < state.history.length - 1) {
+                state.history = state.history.slice(0, state.historyIndex + 1);
+            }
+            
+            // Deep clone patches
+            const snapshot = JSON.parse(JSON.stringify(state.patches));
+            state.history.push(snapshot);
+            state.historyIndex++;
+            
+            // Limit history size
+            if (state.history.length > 50) {
+                state.history.shift();
+                state.historyIndex--;
+            }
+            
+            updateHistoryUI();
+        }
+        
+        function undo() {
+            if (state.historyIndex > 0) {
+                state.historyIndex--;
+                restoreState();
+            }
+        }
+        
+        function redo() {
+            if (state.historyIndex < state.history.length - 1) {
+                state.historyIndex++;
+                restoreState();
+            }
+        }
+        
+        function restoreState() {
+            const snapshot = state.history[state.historyIndex];
+            state.patches = JSON.parse(JSON.stringify(snapshot));
+            // Deselect to avoid ghost handles
+            deselect();
+            renderPatches();
+            updateHistoryUI();
+        }
+        
+        function updateHistoryUI() {
+            els.btnUndo.disabled = state.historyIndex <= 0;
+            els.btnUndo.classList.toggle('opacity-30', state.historyIndex <= 0);
+            
+            els.btnRedo.disabled = state.historyIndex >= state.history.length - 1;
+            els.btnRedo.classList.toggle('opacity-30', state.historyIndex >= state.history.length - 1);
+        }
+
+        // --- ZOOM SYSTEM ---
+        function setZoom(multiplier) {
+            state.scaleMultiplier = Math.max(0.25, Math.min(5.0, multiplier));
+            applyZoom();
+        }
+        
+        function applyZoom() {
+            const newWidth = state.baseWidth * state.scaleMultiplier;
+            const newHeight = (state.canvas.height / state.canvas.width) * newWidth;
+            
+            els.wrapper.style.width = `${newWidth}px`;
+            els.wrapper.style.height = `${newHeight}px`;
+            els.txtZoomLevel.textContent = `${Math.round(state.scaleMultiplier * 100)}%`;
+            
+            // If dragging, we might need to update drag math, but drag uses getBoundingClientRect so it auto-adjusts
         }
 
         // --- SVG LOGIC ---
@@ -355,11 +607,17 @@
             gPatches.innerHTML = '';
             gHighlights.innerHTML = '';
             
+            if (!state.dragAction) {
+                els.interactionLayer.innerHTML = '';
+            }
+            
             const w = state.canvas.width; 
             const h = state.canvas.height;
             
             state.patches.forEach(p => {
-                // 1. Visual Patch (Nested SVG)
+                if(!p.scale) p.scale = {x: 1, y: 1};
+
+                // 1. Visual Patch
                 const px = p.rect.x * w;
                 const py = p.rect.y * h;
                 const pw = p.rect.w * w;
@@ -370,46 +628,136 @@
                 nested.setAttribute("width", pw); nested.setAttribute("height", ph);
                 nested.setAttribute("viewBox", `0 0 ${p.bpDims.w} ${p.bpDims.h}`);
                 nested.setAttribute("preserveAspectRatio", "none");
-                nested.innerHTML = p.svgContent; // Inject raw content
+                nested.setAttribute("id", `svg-patch-${p.id}`);
+                
+                const contentGroup = `<g transform="scale(${p.scale.x}, ${p.scale.y})">${p.svgContent}</g>`;
+                nested.innerHTML = contentGroup; 
+                
                 gPatches.appendChild(nested);
                 
-                // 2. Interaction Highlight (Invisible Rect on top)
-                const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-                rect.setAttribute("x", px); rect.setAttribute("y", py);
-                rect.setAttribute("width", pw); rect.setAttribute("height", ph);
-                rect.setAttribute("class", "patch-highlight " + (p.id === state.activePatchId ? "selected" : ""));
-                rect.setAttribute("data-id", p.id);
-                // We append to the SVG layer visually, but interactions are actually handled by 
-                // the interaction-layer DIV above it peeking through using document.elementFromPoint
-                // or simply by replicating this rect in the interaction layer if needed.
-                // For simplicity in this "Lean" version, we will let the SVG layer handle clicks via pointer-events:all on the class.
-                gHighlights.appendChild(rect);
+                // 2. Interaction Highlight
+                const isActive = (p.id === state.activePatchId);
+                
+                if (isActive) {
+                    if (!state.dragAction) renderActiveSelectionControls(p);
+                } else {
+                    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                    rect.setAttribute("x", px); rect.setAttribute("y", py);
+                    rect.setAttribute("width", pw); rect.setAttribute("height", ph);
+                    rect.setAttribute("class", "patch-highlight");
+                    rect.setAttribute("data-id", p.id);
+                    gHighlights.appendChild(rect);
+                }
             });
             
             updateUI();
         }
 
-        // --- INTERACTION ---
+        // --- DOM INTERACTION RENDERING ---
+        function renderActiveSelectionControls(patch) {
+            if (document.querySelector(`.selection-frame[data-id="${patch.id}"]`)) return;
+
+            const w = state.canvas.width;
+            const h = state.canvas.height;
+            const px = patch.rect.x * w;
+            const py = patch.rect.y * h;
+            const pw = patch.rect.w * w;
+            const ph = patch.rect.h * h;
+
+            const frame = document.createElement('div');
+            frame.className = 'selection-frame';
+            frame.id = `frame-${patch.id}`;
+            frame.style.left = `${px}px`;
+            frame.style.top = `${py}px`;
+            frame.style.width = `${pw}px`;
+            frame.style.height = `${ph}px`;
+            frame.dataset.id = patch.id; 
+            frame.dataset.action = 'move';
+
+            const positions = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+            positions.forEach(pos => {
+                const handle = document.createElement('div');
+                handle.className = `resize-handle handle-${pos}`;
+                handle.dataset.action = pos;
+                frame.appendChild(handle);
+            });
+
+            els.interactionLayer.appendChild(frame);
+        }
+
+        // --- EVENTS & INTERACTIONS ---
+        function getLocalPos(e) {
+            const r = els.interactionLayer.getBoundingClientRect();
+            const scaleX = state.canvas.width / r.width;
+            const scaleY = state.canvas.height / r.height;
+            return { 
+                x: (e.clientX - r.left) * scaleX, 
+                y: (e.clientY - r.top) * scaleY 
+            };
+        }
+
         function setupEventListeners() {
             const layer = els.interactionLayer;
             
+            // ZOOM
+            els.btnZoomIn.onclick = () => setZoom(state.scaleMultiplier + 0.25);
+            els.btnZoomOut.onclick = () => setZoom(state.scaleMultiplier - 0.25);
+            
+            // UNDO / REDO
+            els.btnUndo.onclick = undo;
+            els.btnRedo.onclick = redo;
+            
+            // ASPECT LOCK
+            els.btnLockAspect.onclick = () => {
+                state.aspectLocked = !state.aspectLocked;
+                els.iconUnlocked.classList.toggle('hidden', state.aspectLocked);
+                els.iconLocked.classList.toggle('hidden', !state.aspectLocked);
+                els.btnLockAspect.classList.toggle('text-blue-500', state.aspectLocked);
+            };
+            
+            // STRETCH VS CROP
+            els.btnStretchContent.onclick = () => {
+                state.contentStretch = !state.contentStretch;
+                els.iconStretch.classList.toggle('hidden', !state.contentStretch);
+                els.iconCrop.classList.toggle('hidden', state.contentStretch);
+                els.btnStretchContent.classList.toggle('text-blue-500', state.contentStretch);
+            };
+
+            // MOUSE INTERACTIONS
             layer.addEventListener('mousedown', e => {
                 if(e.button !== 0) return;
                 
-                // 1. Check for existing patch click (Peek through)
+                const target = e.target;
+                
+                // Handle / Frame Click
+                if (target.dataset.action) {
+                    state.dragAction = target.dataset.action;
+                    state.dragStart = getLocalPos(e);
+                    
+                    const p = state.patches.find(x => x.id === state.activePatchId);
+                    if (p) {
+                        state.initialRect = { ...p.rect }; 
+                        // Initial Scale needed for "Crop Mode" logic
+                        if(!p.scale) p.scale = {x: 1, y: 1};
+                        state.initialScale = { ...p.scale };
+                    }
+                    return;
+                }
+                
+                // Inactive Patch Click
                 layer.style.pointerEvents = 'none';
                 const below = document.elementFromPoint(e.clientX, e.clientY);
                 layer.style.pointerEvents = 'auto';
                 
-                if(below && below.classList.contains('patch-highlight')) {
+                if (below && below.classList.contains('patch-highlight')) {
                     const id = below.getAttribute('data-id');
                     selectPatch(id);
                     return;
                 }
-                
-                // 2. Start Selection
-                state.isSelecting = true;
-                state.selectionStart = getLocalPos(e);
+
+                // New Selection
+                state.dragAction = 'create';
+                state.dragStart = getLocalPos(e); 
                 deselect();
                 
                 els.selectionBox.style.display = 'block';
@@ -417,56 +765,298 @@
                 els.selectionBar.style.display = 'none';
             });
             
-            layer.addEventListener('mousemove', e => {
-                if(!state.isSelecting) return;
-                const pos = getLocalPos(e);
-                const x = Math.min(pos.x, state.selectionStart.x);
-                const y = Math.min(pos.y, state.selectionStart.y);
-                const w = Math.abs(pos.x - state.selectionStart.x);
-                const h = Math.abs(pos.y - state.selectionStart.y);
+            window.addEventListener('mousemove', e => {
+                if (!state.dragAction) return;
                 
-                els.selectionBox.style.left = x + 'px'; els.selectionBox.style.top = y + 'px';
-                els.selectionBox.style.width = w + 'px'; els.selectionBox.style.height = h + 'px';
+                const cw = state.canvas.width;
+                const ch = state.canvas.height;
+                const pos = getLocalPos(e);
+
+                // CREATE
+                if (state.dragAction === 'create') {
+                    const start = state.dragStart;
+                    const x = Math.min(pos.x, start.x);
+                    const y = Math.min(pos.y, start.y);
+                    const w = Math.abs(pos.x - start.x);
+                    const h = Math.abs(pos.y - start.y);
+                    
+                    const wrapRect = els.interactionLayer.getBoundingClientRect();
+                    const ratio = wrapRect.width / cw; 
+                    
+                    els.selectionBox.style.left = (x * ratio) + 'px'; 
+                    els.selectionBox.style.top = (y * ratio) + 'px';
+                    els.selectionBox.style.width = (w * ratio) + 'px'; 
+                    els.selectionBox.style.height = (h * ratio) + 'px';
+                    return;
+                }
+
+                // MOVE / RESIZE
+                const p = state.patches.find(x => x.id === state.activePatchId);
+                if (!p || !state.initialRect) return;
+
+                const dxPixels = pos.x - state.dragStart.x;
+                const dyPixels = pos.y - state.dragStart.y;
+                
+                const dx = dxPixels / cw;
+                const dy = dyPixels / ch;
+
+                let newRect = { ...state.initialRect };
+                let newScale = { ...p.scale }; // Default to current scale
+
+                const action = state.dragAction;
+                if (action === 'move') {
+                    newRect.x += dx;
+                    newRect.y += dy;
+                } else {
+                    // Aspect Ratio Logic
+                    if (state.aspectLocked && !action.includes('n') && !action.includes('s') && !action.includes('w') && !action.includes('e')) {
+                         const aspect = state.initialRect.w / state.initialRect.h;
+                         if (action === 'se') {
+                             newRect.w += dx;
+                             newRect.h = newRect.w / aspect;
+                         }
+                    } else {
+                        if (action.includes('e')) newRect.w += dx;
+                        if (action.includes('s')) newRect.h += dy;
+                        if (action.includes('w')) { newRect.x += dx; newRect.w -= dx; }
+                        if (action.includes('n')) { newRect.y += dy; newRect.h -= dy; }
+                    }
+                    
+                    // CROP MODE Logic: Adjust Scale inversely to frame change
+                    if (!state.contentStretch) {
+                        const ratioW = newRect.w / state.initialRect.w;
+                        const ratioH = newRect.h / state.initialRect.h;
+                        
+                        // Inverse scale to keep content visually static
+                        // Note: state.initialScale holds the scale at drag start
+                        if (state.initialScale) {
+                            newScale.x = state.initialScale.x / ratioW;
+                            newScale.y = state.initialScale.y / ratioH;
+                        }
+                    }
+                }
+
+                if (newRect.w > 0.005 && newRect.h > 0.005) {
+                    const frame = document.getElementById(`frame-${p.id}`);
+                    const nested = document.getElementById(`svg-patch-${p.id}`);
+                    
+                    if(frame) {
+                        frame.style.left = (newRect.x * cw) + 'px';
+                        frame.style.top = (newRect.y * ch) + 'px';
+                        frame.style.width = (newRect.w * cw) + 'px';
+                        frame.style.height = (newRect.h * ch) + 'px';
+                    }
+                    if(nested) {
+                         nested.setAttribute('x', newRect.x * cw);
+                         nested.setAttribute('y', newRect.y * ch);
+                         nested.setAttribute('width', newRect.w * cw);
+                         nested.setAttribute('height', newRect.h * ch);
+                         
+                         // If Crop Mode, we also update the internal transform
+                         if (!state.contentStretch) {
+                             const contentGroup = `<g transform="scale(${newScale.x}, ${newScale.y})">${p.svgContent}</g>`;
+                             nested.innerHTML = contentGroup;
+                         }
+                    }
+                    updatePropertyInputs(newRect, newScale);
+                    p.rect = newRect;
+                    p.scale = newScale;
+                }
             });
             
-            layer.addEventListener('mouseup', e => {
-                if(!state.isSelecting) return;
-                state.isSelecting = false;
+            window.addEventListener('mouseup', e => {
+                if (!state.dragAction) return;
                 
-                const sb = els.selectionBox;
-                const w = parseFloat(sb.style.width);
-                const h = parseFloat(sb.style.height);
+                if (state.dragAction === 'create') {
+                     const sb = els.selectionBox;
+                     const w = parseFloat(sb.style.width) || 0; 
+                     
+                     if(w < 5) {
+                         sb.style.display = 'none';
+                     } else {
+                         const wrapRect = els.interactionLayer.getBoundingClientRect();
+                         const ratio = state.canvas.width / wrapRect.width;
+                         
+                         const lxVisual = parseFloat(sb.style.left);
+                         const lyVisual = parseFloat(sb.style.top);
+                         const wVisual = parseFloat(sb.style.width);
+                         const hVisual = parseFloat(sb.style.height);
+
+                         const lx = lxVisual * ratio;
+                         const ly = lyVisual * ratio;
+                         const wCanvas = wVisual * ratio;
+                         const hCanvas = hVisual * ratio;
+                         
+                         const cw = state.canvas.width; const ch = state.canvas.height;
+                         state.selection = { x: lx/cw, y: ly/ch, w: wCanvas/cw, h: hCanvas/ch };
+                         
+                         const screenX = wrapRect.left + lxVisual;
+                         const screenY = wrapRect.top + lyVisual + hVisual + 10;
+
+                         els.selectionBar.style.left = Math.min(window.innerWidth - 250, Math.max(10, screenX)) + 'px';
+                         els.selectionBar.style.top = screenY + 'px';
+                         els.selectionBar.style.display = 'flex';
+                     }
+                } else {
+                    saveState();
+                }
                 
-                if(w < 10 || h < 10) {
-                    sb.style.display = 'none';
+                state.dragAction = null;
+                state.dragStart = null;
+                state.initialRect = null;
+                state.initialScale = null;
+            });
+            
+            // KEYBOARD
+            window.addEventListener('keydown', e => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                    e.preventDefault();
+                    if (e.shiftKey) redo(); else undo();
+                    return;
+                }
+                if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+                    e.preventDefault();
+                    redo();
                     return;
                 }
                 
-                // Finalize selection rect (percentages)
-                const cw = state.canvas.width; const ch = state.canvas.height;
-                const lx = parseFloat(sb.style.left); const ly = parseFloat(sb.style.top);
+                if (!state.activePatchId) return;
+                if (document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'INPUT') return;
                 
-                state.selection = { x: lx/cw, y: ly/ch, w: w/cw, h: h/ch };
+                const p = state.patches.find(x => x.id === state.activePatchId);
+                if (!p) return;
                 
-                // Show Bar
-                const rect = layer.getBoundingClientRect();
-                els.selectionBar.style.left = Math.min(window.innerWidth - 200, rect.left + lx) + 'px';
-                els.selectionBar.style.top = (rect.top + ly + h + 10) + 'px';
-                els.selectionBar.style.display = 'flex';
+                const step = e.shiftKey ? 0.01 : 0.001; 
+                let handled = false;
+                
+                if (e.key === 'ArrowUp') { p.rect.y -= step; handled = true; }
+                if (e.key === 'ArrowDown') { p.rect.y += step; handled = true; }
+                if (e.key === 'ArrowLeft') { p.rect.x -= step; handled = true; }
+                if (e.key === 'ArrowRight') { p.rect.x += step; handled = true; }
+                if (e.key === 'Backspace' || e.key === 'Delete') { 
+                     state.patches = state.patches.filter(x => x.id !== state.activePatchId);
+                     deselect();
+                     renderPatches();
+                     saveState(); 
+                     handled = true;
+                }
+                
+                if (handled) {
+                    e.preventDefault();
+                    renderPatches();
+                    updatePropertyInputs(p.rect, p.scale);
+                }
+            });
+            
+            // EDITOR INPUT
+            els.editor.addEventListener('input', () => {
+                if (state.activePatchId) {
+                    const p = state.patches.find(x => x.id === state.activePatchId);
+                    if (p) {
+                        p.svgContent = els.editor.value;
+                        const nested = document.getElementById(`svg-patch-${p.id}`);
+                        if(nested) {
+                            const contentGroup = `<g transform="scale(${p.scale.x}, ${p.scale.y})">${p.svgContent}</g>`;
+                            nested.innerHTML = contentGroup;
+                        }
+                    }
+                }
+            });
+            els.editor.addEventListener('blur', () => saveState());
+
+            // PROPERTIES INPUTS
+            const updateGeometry = () => {
+               if(state.activePatchId) {
+                   const p = state.patches.find(x => x.id === state.activePatchId);
+                   if(p) {
+                       const oldRect = { ...p.rect };
+                       
+                       p.rect.x = parseFloat(els.propX.value) / state.canvas.width;
+                       p.rect.y = parseFloat(els.propY.value) / state.canvas.height;
+                       p.rect.w = parseFloat(els.propW.value) / state.canvas.width;
+                       p.rect.h = parseFloat(els.propH.value) / state.canvas.height;
+                       
+                       // Manual Input Crop Mode Logic
+                       if (!state.contentStretch) {
+                           const ratioW = p.rect.w / oldRect.w;
+                           const ratioH = p.rect.h / oldRect.h;
+                           if (ratioW !== 1 && ratioW !== 0) p.scale.x /= ratioW;
+                           if (ratioH !== 1 && ratioH !== 0) p.scale.y /= ratioH;
+                       }
+                       
+                       const cw = state.canvas.width; const ch = state.canvas.height;
+                       const frame = document.getElementById(`frame-${p.id}`);
+                       const nested = document.getElementById(`svg-patch-${p.id}`);
+                       
+                       if(frame) {
+                           frame.style.left = (p.rect.x * cw) + 'px';
+                           frame.style.top = (p.rect.y * ch) + 'px';
+                           frame.style.width = (p.rect.w * cw) + 'px';
+                           frame.style.height = (p.rect.h * ch) + 'px';
+                       }
+                       if(nested) {
+                           nested.setAttribute('x', p.rect.x * cw);
+                           nested.setAttribute('y', p.rect.y * ch);
+                           nested.setAttribute('width', p.rect.w * cw);
+                           nested.setAttribute('height', p.rect.h * ch);
+                           
+                           // Update content transform if scale changed
+                           if (!state.contentStretch) {
+                               const contentGroup = `<g transform="scale(${p.scale.x}, ${p.scale.y})">${p.svgContent}</g>`;
+                               nested.innerHTML = contentGroup;
+                               updatePropertyInputs(p.rect, p.scale); // Update UI
+                           }
+                       }
+                   }
+               } 
+            };
+            
+            [els.propX, els.propY, els.propW, els.propH].forEach(input => {
+                input.addEventListener('input', updateGeometry);
+                input.addEventListener('change', () => saveState());
+            });
+            
+            const updateScale = () => {
+               if(state.activePatchId) {
+                   const p = state.patches.find(x => x.id === state.activePatchId);
+                   if(p) {
+                       p.scale.x = parseFloat(els.propSX.value) || 1;
+                       p.scale.y = parseFloat(els.propSY.value) || 1;
+                       
+                       const nested = document.getElementById(`svg-patch-${p.id}`);
+                       if(nested) {
+                           const contentGroup = `<g transform="scale(${p.scale.x}, ${p.scale.y})">${p.svgContent}</g>`;
+                           nested.innerHTML = contentGroup;
+                       }
+                   }
+               }
+            };
+            
+            [els.propSX, els.propSY].forEach(input => {
+                input.addEventListener('input', updateScale);
+                input.addEventListener('change', () => saveState());
             });
 
-            // UI Toggles
+            // UI TOGGLES
             els.chkSource.onchange = () => els.pdfLayer.style.opacity = els.chkSource.checked ? 1 : 0;
             els.chkSvg.onchange = () => els.svgLayer.style.opacity = els.chkSvg.checked ? 1 : 0;
+            els.chkGrid.onchange = () => els.gridLayer.classList.toggle('hidden', !els.chkGrid.checked);
             
-            // Buttons
+            // BUTTONS
             document.getElementById('btn-export').onclick = exportSVG;
-            document.getElementById('btn-clear-all').onclick = () => { if(confirm('Clear all?')) { state.patches = []; renderPatches(); }};
+            document.getElementById('btn-clear-all').onclick = () => { 
+                if(confirm('Clear all?')) { 
+                    state.patches = []; 
+                    renderPatches(); 
+                    saveState();
+                }
+            };
             document.getElementById('btn-delete').onclick = () => { 
                 if(state.activePatchId) {
                     state.patches = state.patches.filter(p => p.id !== state.activePatchId);
                     deselect();
                     renderPatches();
+                    saveState();
                 }
             };
             document.getElementById('btn-regen').onclick = () => {
@@ -476,7 +1066,7 @@
                 }
             };
             
-            // Tabs
+            // TABS
             document.getElementById('tab-overlay').onclick = () => switchTab('overlay');
             document.getElementById('tab-debug').onclick = () => switchTab('debug');
             document.getElementById('fullscreen-toggle').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
@@ -484,18 +1074,16 @@
         
         // --- CORE LOGIC ---
         
-        function getLocalPos(e) {
-            const r = els.interactionLayer.getBoundingClientRect();
-            return { x: e.clientX - r.left, y: e.clientY - r.top };
-        }
-        
         function selectPatch(id) {
             state.activePatchId = id;
-            renderPatches(); // Re-renders to update highlight classes
+            renderPatches(); 
             const p = state.patches.find(x => x.id === id);
             if(p) {
+                if(!p.scale) p.scale = {x: 1, y: 1};
                 els.editor.value = p.svgContent;
                 updateDebug(p);
+                updatePropertyInputs(p.rect, p.scale);
+                togglePropertyInputs(true);
             }
         }
         
@@ -507,14 +1095,36 @@
             els.editor.value = '';
             els.contextActions.classList.add('disabled-bar');
             state.selection = null;
+            
+            [els.propX, els.propY, els.propW, els.propH, els.propSX, els.propSY].forEach(el => el.value = '');
+            togglePropertyInputs(false);
+        }
+        
+        function togglePropertyInputs(enabled) {
+             [els.propX, els.propY, els.propW, els.propH, els.propSX, els.propSY].forEach(el => {
+                 el.disabled = !enabled;
+                 if(!enabled) el.classList.add('disabled-input');
+                 else el.classList.remove('disabled-input');
+             });
+        }
+        
+        function updatePropertyInputs(rect, scale) {
+            els.propX.value = (rect.x * state.canvas.width).toFixed(0);
+            els.propY.value = (rect.y * state.canvas.height).toFixed(0);
+            els.propW.value = (rect.w * state.canvas.width).toFixed(0);
+            els.propH.value = (rect.h * state.canvas.height).toFixed(0);
+            
+            if(scale) {
+                els.propSX.value = scale.x.toFixed(2);
+                els.propSY.value = scale.y.toFixed(2);
+            }
         }
         
         function updateUI() {
-            els.patchCount.textContent = `${state.patches.length} Patches`;
+            els.patchCount.textContent = `${state.patches.length}`;
             if(state.activePatchId) els.contextActions.classList.remove('disabled-bar');
             else els.contextActions.classList.add('disabled-bar');
             
-            // Auto-update editor with composite if no single patch selected
             if(!state.activePatchId) {
                 els.editor.value = generateCompositeSVG();
             }
@@ -522,7 +1132,6 @@
         
         // --- AI OPERATIONS ---
         
-        // Exposed to global scope for HTML onclick handlers
         window.app = {
             clearSelection: deselect,
             createPatch: createPatch
@@ -535,7 +1144,6 @@
             els.aiStatus.classList.remove('hidden');
             els.selectionBar.style.display = 'none';
             
-            // 1. Crop Image
             const cw = state.canvas.width; const ch = state.canvas.height;
             const px = Math.floor(sel.x * cw); const py = Math.floor(sel.y * ch);
             const pw = Math.floor(sel.w * cw); const ph = Math.floor(sel.h * ch);
@@ -547,7 +1155,6 @@
             ctx.drawImage(state.canvas, px, py, pw, ph, 0, 0, tmp.width, tmp.height);
             const base64 = tmp.toDataURL('image/png').split(',')[1];
             
-            // 2. Prepare Prompt
             const prompt = `Generate valid SVG code for the text/content in this image.
             - No markdown.
             - No <svg> wrapper, just the inner elements (<text>, <path>, etc).
@@ -555,7 +1162,6 @@
             - ViewBox context is 0 0 ${tmp.width} ${tmp.height}.
             ${type === 'empty' ? 'Return empty string.' : ''}`;
             
-            // 3. Call AI
             try {
                 let svgContent = '';
                 if(type !== 'empty') {
@@ -563,20 +1169,20 @@
                     svgContent = svgContent.replace(/```svg/g, '').replace(/```/g, '').trim();
                 }
                 
-                // 4. Save Patch
                 const patch = {
                     id: existingId || `p${Date.now()}`,
                     rect: sel,
                     bpDims: { w: tmp.width, h: tmp.height },
-                    svgContent: svgContent
+                    svgContent: svgContent,
+                    scale: { x: 1, y: 1 }
                 };
                 
                 const idx = state.patches.findIndex(x => x.id === patch.id);
                 if(idx >= 0) state.patches[idx] = patch;
                 else state.patches.push(patch);
                 
-                renderPatches();
-                selectPatch(patch.id);
+                saveState(); // Save after creation
+                selectPatch(patch.id); 
                 
             } catch(e) {
                 console.error(e);
@@ -617,7 +1223,10 @@
                 const y = (p.rect.y * h).toFixed(2);
                 const wid = (p.rect.w * w).toFixed(2);
                 const hei = (p.rect.h * h).toFixed(2);
-                out += `<svg x="${x}" y="${y}" width="${wid}" height="${hei}" viewBox="0 0 ${p.bpDims.w} ${p.bpDims.h}" preserveAspectRatio="none">${p.svgContent}</svg>\n`;
+                const sx = p.scale ? p.scale.x : 1;
+                const sy = p.scale ? p.scale.y : 1;
+                
+                out += `<svg x="${x}" y="${y}" width="${wid}" height="${hei}" viewBox="0 0 ${p.bpDims.w} ${p.bpDims.h}" preserveAspectRatio="none"><g transform="scale(${sx}, ${sy})">${p.svgContent}</g></svg>\n`;
             });
             out += `</svg>`;
             return out;
@@ -646,9 +1255,7 @@
         }
         
         function updateDebug(patch) {
-             // Simple debug view population
              els.debugSvg.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 ${patch.bpDims.w} ${patch.bpDims.h}" style="border:1px solid red">${patch.svgContent}</svg>`;
-             // Note: Source image crop would require re-extraction here, skipped for lean version
              els.debugLog.textContent = JSON.stringify(patch, null, 2);
         }
 
