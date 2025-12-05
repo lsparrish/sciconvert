@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PNG to Semantic SVG Generator (AI-Enhanced)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f4f7f9;
+        }
+        /* Custom scrollbar styling for the code output */
+        .code-output::-webkit-scrollbar {
+            height: 8px;
+            width: 8px;
+        }
+        .code-output::-webkit-scrollbar-thumb {
+            background: #9ca3af;
+            border-radius: 10px;
+        }
+        .code-output::-webkit-scrollbar-track {
+            background: #e5e7eb;
+            border-radius: 10px;
+        }
+        /* Style for the final SVG output to ensure text is legible */
+        #final-preview svg {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Ensure canvas and SVG previews align visually */
+        .preview-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        #original-canvas, #svg-output, #final-preview {
+            width: 100%;
+            max-width: 500px; /* Max size for visual consistency across previews */
+            height: auto;
+            image-rendering: pixelated; /* Crucial for RLE visualization */
+        }
+        /* Ensure the SVG is contained correctly for visual alignment */
+        #svg-output svg {
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-8">
+
+    <div class="max-w-4xl mx-auto bg-white p-6 rounded-xl shadow-2xl">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6 border-b pb-2">
+            PNG → Optimized SVG Blueprint (2D RLE) → Semantic SVG (AI)
+        </h1>
+        <p class="text-gray-600 mb-6">
+            The image is converted to a highly optimized **2D RLE** pixel-art SVG using the single `<path>` per color method. The Gemini AI uses this precise, geometrically optimized blueprint to generate a clean, semantic SVG replica.
+        </p>
+        <button id="fullscreen-btn" onclick="document.documentElement.requestFullscreen()">Full Screen</button>
+
+        <!-- Input and Controls -->
+        <div class="space-y-4 mb-8 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+            <label class="block text-sm font-medium text-indigo-700">
+                1. Load your Image
+            </label>
+
+            <!-- Option B: URL Input -->
+            <div class="border p-3 rounded-lg bg-white">
+                <label for="image-url" class="block text-xs font-medium text-gray-700 mb-2">
+                    Enter Image URL
+                </label>
+                <div class="flex space-x-2">
+                    <!-- don't change the URL! -->
+
+                    <input type="text" id="image-url" value="https://lsparrish.github.io/sciconvert/sample.png" placeholder="Enter image URL" class="flex-grow p-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500"/>
+                    <button id="load-url-button" class="py-2 px-4 bg-indigo-500 text-white rounded-lg text-sm hover:bg-indigo-600 transition duration-150">Load URL</button>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
+                <div class="flex items-center space-x-2">
+                    <label for="max-width" class="text-sm font-medium text-indigo-700 whitespace-nowrap">
+                        2. Max Width:
+                    </label>
+                    <!-- Setting default Max Width to 357 to match the sample image's intrinsic width -->
+                    <input type="number" id="max-width" value="357" min="50" max="2000" class="w-20 p-2 border border-gray-300 rounded-lg text-center focus:ring-indigo-500 focus:border-indigo-500"/>
+                </div>
+                <!-- Removed 2b. Block Size input as 2D RLE finds optimal blocks -->
+            </div>
+            
+            <div class="space-y-4 pt-4">
+                <!-- Step 3a: Client-side Conversion -->
+                <button id="convert-button" 
+                    class="w-full py-3 px-6 bg-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:bg-indigo-700 transition duration-150 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    onclick="convertToOptimizedSVG()">
+                    3a. Convert Image to Optimized SVG Blueprint (2D RLE)
+                </button>
+                
+                <!-- Step 3b: Initial AI Generation -->
+                <button id="generate-ai-button" disabled
+                    class="w-full py-3 px-6 bg-green-500 text-white font-semibold rounded-xl shadow-lg hover:bg-green-600 transition duration-150 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    onclick="triggerInitialSemanticGeneration()">
+                    3b. Start Initial Semantic SVG Generation
+                </button>
+                
+                <!-- Step 4: AI Refinement/Retry System (NEW) -->
+                <div class="flex flex-wrap gap-3 items-center p-3 bg-yellow-100 rounded-lg border border-yellow-300">
+                    <label for="max-attempts" class="text-sm font-medium text-yellow-800 whitespace-nowrap">
+                        4. Refinement Attempts:
+                    </label>
+                    <input type="number" id="max-attempts" value="1" min="1" max="10" class="w-16 p-2 border border-yellow-500 rounded-lg text-center text-yellow-800 focus:ring-yellow-600 focus:border-yellow-600"/>
+                    
+                    <button id="refine-ai-button" disabled
+                        class="flex-grow py-3 px-6 bg-yellow-500 text-white font-semibold rounded-xl shadow-lg hover:bg-yellow-600 transition duration-150 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        onclick="triggerRefinementGeneration()">
+                        Refine SVG (Adjust Fonts/Positions)
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Output Display -->
+        <div id="output-area" class="space-y-8">
+            <div class="grid lg:grid-cols-3 gap-6">
+                <!-- Original Image Canvas -->
+                <div class="bg-gray-100 p-4 rounded-xl shadow-inner col-span-1 preview-container">
+                    <h2 class="text-xl font-semibold mb-3 text-gray-700">Original Image</h2>
+                    <canvas id="original-canvas" class="rounded-lg border border-gray-300 bg-white"></canvas>
+                </div>
+
+                <!-- Generated SVG Intermediate -->
+                <div class="bg-gray-100 p-4 rounded-xl shadow-inner col-span-1 preview-container">
+                    <h2 class="text-xl font-semibold mb-3 text-gray-700">Intermediate SVG</h2>
+                    <!-- Removed p-4 to fix alignment/margin issue -->
+                    <div id="svg-output" class="rounded-lg border border-gray-300 bg-white overflow-hidden min-h-40"> 
+                        <p class="text-gray-500">The generated optimized SVG will appear here.</p>
+                    </div>
+                </div>
+
+                <!-- Generated Final SVG Preview -->
+                <div class="bg-gray-100 p-4 rounded-xl shadow-inner col-span-1 preview-container">
+                    <h2 class="text-xl font-semibold mb-3 text-gray-700">Final Semantic SVG Replica</h2>
+                    <div id="final-preview" class="rounded-lg border border-gray-300 bg-white overflow-auto p-4 min-h-40">
+                        <p class="text-gray-500 p-4">The AI-generated SVG will appear here.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SVG Intermediate Code Output -->
+            <div class="bg-gray-800 p-4 rounded-xl">
+                <h2 class="text-xl font-semibold text-white mb-3 flex justify-between items-center">
+                    SVG Intermediate Code (2D RLE Path-Aggregated)
+                    <button id="copy-svg-button" disabled class="text-sm px-3 py-1 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition duration-150 disabled:bg-gray-600">
+                        Copy Intermediate SVG
+                    </button>
+                </h2>
+                <textarea id="svg-code-output" readonly rows="6" class="code-output w-full p-3 text-xs bg-gray-900 text-green-300 border border-gray-700 rounded-lg resize-none"></textarea>
+            </div>
+
+            <!-- Final SVG Code Output -->
+            <div class="bg-gray-800 p-4 rounded-xl">
+                <h2 class="text-xl font-semibold text-white mb-3 flex justify-between items-center">
+                    Generated Semantic SVG Code
+                    <button id="copy-final-button" disabled class="text-sm px-3 py-1 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition duration-150 disabled:bg-gray-600">
+                        Copy Final SVG
+                    </button>
+                </h2>
+                <textarea id="final-code-output" readonly rows="6" class="code-output w-full p-3 text-xs bg-gray-900 text-green-300 border border-gray-700 rounded-lg resize-none"></textarea>
+            </div>
+
+            <!-- API Logs Panel -->
+            <div class="bg-gray-700 p-4 rounded-xl space-y-4">
+                <h2 class="text-xl font-semibold text-white">API Logs (Payload & Response)</h2>
+                <div id="log-attempt-info" class="text-sm text-yellow-300">Last Attempt: N/A</div>
+                <div class="grid md:grid-cols-2 gap-4">
+                    <!-- Request Payload Log -->
+                    <div>
+                        <h3 class="text-lg font-medium text-gray-300 mb-2">Request Payload (JSON)</h3>
+                        <textarea id="payload-output" readonly rows="10" class="code-output w-full p-3 text-xs bg-gray-900 text-yellow-200 border border-gray-600 rounded-lg resize-none"></textarea>
+                    </div>
+                    <!-- Response Log -->
+                    <div>
+                        <h3 class="text-lg font-medium text-gray-300 mb-2">Response (JSON)</h3>
+                        <textarea id="response-output" readonly rows="10" class="code-output w-full p-3 text-xs bg-gray-900 text-cyan-200 border border-gray-600 rounded-lg resize-none"></textarea>
+                    </div>
+                </div>
+                <!-- Image Data Thumbnail -->
+                <div id="image-data-area" class="p-3 bg-gray-800 rounded-lg hidden">
+                    <h4 class="text-sm font-medium text-gray-400 mb-2">Image Data for Payload (Click Thumbnail to View Full Image)</h4>
+                    <div id="image-thumbnail-container" class="w-24 h-auto cursor-pointer rounded-lg overflow-hidden border-2 border-indigo-400 shadow-lg transition hover:shadow-indigo-500/50"></div>
+                </div>
+            </div>
+
+
+            <!-- Messages -->
+            <div id="message-box" class="p-3 text-sm rounded-lg transition duration-300 opacity-0 hidden"></div>
+        </div>
+    </div>
+    
+    <!-- Simple Modal for Full Image View -->
+    <div id="image-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 hidden" onclick="this.classList.add('hidden')">
+        <div class="bg-white p-2 rounded-lg max-w-4xl max-h-full" onclick="event.stopPropagation()">
+            <img id="modal-image" class="max-w-full max-h-[90vh] object-contain" alt="Full size image data">
+        </div>
+    </div>
+
+    <script>
+        const urlInput = document.getElementById('image-url');
+        const loadUrlButton = document.getElementById('load-url-button');
+        const canvas = document.getElementById('original-canvas');
+        
+        // --- BUTTONS & INPUTS ---
+        const convertButton = document.getElementById('convert-button');
+        const generateAiButton = document.getElementById('generate-ai-button');
+        const refineAiButton = document.getElementById('refine-ai-button'); // NEW
+        const maxAttemptsInput = document.getElementById('max-attempts');
+        const MAX_WIDTH_INPUT = document.getElementById('max-width'); 
+        // SAMPLE_SIZE_INPUT is no longer needed
+
+        const svgOutput = document.getElementById('svg-output');
+        const finalPreview = document.getElementById('final-preview');
+        const svgCodeOutput = document.getElementById('svg-code-output');
+        const finalCodeOutput = document.getElementById('final-code-output');
+        const copySvgButton = document.getElementById('copy-svg-button');
+        const copyFinalButton = document.getElementById('copy-final-button');
+        const messageBox = document.getElementById('message-box');
+        
+        // LOGGING CONSTANTS
+        const payloadOutput = document.getElementById('payload-output');
+        const responseOutput = document.getElementById('response-output');
+        const imageDataArea = document.getElementById('image-data-area');
+        const imageThumbnailContainer = document.getElementById('image-thumbnail-container');
+        const imageModal = document.getElementById('image-modal');
+        const modalImage = document.getElementById('modal-image');
+        const logAttemptInfo = document.getElementById('log-attempt-info'); 
+
+        let loadedImage = {
+            img: null,
+            originalWidth: 0,
+            originalHeight: 0
+        };
+        
+        const apiKey = ""; 
+        let base64ImageString = null; 
+        let rawSVGBlueprint = null; 
+        
+        // --- NEW STATE ---
+        let lastSuccessfulSemanticSVG = ''; // Stores the output of the last successful run
+
+        // Strategy Enum - Simplified
+        const Modes = {
+            INITIAL: 'INITIAL',
+            REFINE: 'REFINE'
+        };
+
+        // Utility to display temporary messages
+        function showMessage(text, isError = false) {
+            messageBox.textContent = text;
+            messageBox.className = `p-3 text-sm rounded-lg transition duration-300 opacity-100`;
+            if (isError) {
+                messageBox.classList.add('bg-red-100', 'text-red-700');
+            } else {
+                messageBox.classList.add('bg-yellow-100', 'text-yellow-700');
+            }
+            messageBox.style.display = 'block';
+            setTimeout(() => {
+                messageBox.classList.remove('opacity-100');
+                messageBox.classList.add('opacity-0');
+                setTimeout(() => messageBox.style.display = 'none', 300);
+            }, 5000);
+        }
+        
+        // Helper function to convert the canvas content to a data URL (JPEG for compression)
+        function canvasToDataURL() {
+            // Using PNG for higher quality blueprint fidelity, although it results in larger API payloads.
+            return canvas.toDataURL('image/png'); 
+        }
+
+        // Helper function to create the multi-part structure for the Gemini API
+        function dataURLToGenerativePart(dataURL) {
+            const parts = dataURL.split(';base64,');
+            if (parts.length !== 2) {
+                throw new Error("Invalid data URL format.");
+            }
+            const mimeType = parts[0].split(':')[1];
+            const base64Data = parts[1];
+
+            return {
+                inlineData: {
+                    data: base64Data,
+                    mimeType: mimeType
+                }
+            };
+        }
+
+        // Helper function to convert base64 SVG string to a base64-data-URL for API attachment
+        function base64ToSVGPart(svgString) {
+            // 1. Encode the raw SVG string to Base64
+            const base64Svg = btoa(unescape(encodeURIComponent(svgString)));
+            
+            // 2. Return the inlineData structure
+            return {
+                inlineData: {
+                    data: base64Svg,
+                    mimeType: 'image/svg+xml'
+                }
+            };
+        }
+
+        // Handles displaying the thumbnail and modal functionality
+        function displayImageThumbnail(base64Data, mimeType) {
+            imageDataArea.classList.remove('hidden');
+            imageThumbnailContainer.innerHTML = ''; 
+
+            const img = document.createElement('img');
+            img.src = base64Data;
+            img.classList.add('w-full', 'h-full', 'object-contain');
+            
+            imageThumbnailContainer.appendChild(img);
+
+            // Set up click handler for the modal
+            imageThumbnailContainer.onclick = () => {
+                modalImage.src = base64Data;
+                imageModal.classList.remove('hidden');
+            };
+        }
+
+
+        // Helper function to load and draw an image onto the canvas (scaling it down for processing)
+        function loadImage(source, isUrl = false) {
+            convertButton.disabled = true;
+            generateAiButton.disabled = true;
+            refineAiButton.disabled = true; // Disable refine button on new load
+            lastSuccessfulSemanticSVG = ''; // Clear previous output
+            
+            if (isUrl) {
+                showMessage('Attempting to load image from URL...', false);
+                loadUrlButton.disabled = true;
+            }
+
+            const img = new Image();
+            img.crossOrigin = "Anonymous"; 
+
+            img.onload = () => {
+                loadedImage.img = img;
+                loadedImage.originalWidth = img.width;
+                loadedImage.originalHeight = img.height;
+                
+                const MAX_WIDTH = parseInt(MAX_WIDTH_INPUT.value) || 357; // Use 357 as fallback
+                let width = loadedImage.originalWidth; 
+                let height = loadedImage.originalHeight; 
+                
+                if (width > MAX_WIDTH) {
+                    height = (height / width) * MAX_WIDTH;
+                    width = MAX_WIDTH;
+                }
+                
+                // CRUCIAL FIX: Ensure integer dimensions are locked immediately
+                const finalWidth = Math.floor(width);
+                const finalHeight = Math.floor(height);
+
+                canvas.width = finalWidth;
+                canvas.height = finalHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, finalWidth, finalHeight);
+                ctx.drawImage(img, 0, 0, finalWidth, finalHeight); 
+                
+                console.log(`Canvas initialized to dimensions: ${finalWidth}x${finalHeight}`); // Debugging log
+                
+                base64ImageString = canvasToDataURL();
+
+                convertButton.disabled = false;
+                if (isUrl) loadUrlButton.disabled = false;
+                showMessage(`Image loaded. Processing dimensions: ${finalWidth}x${finalHeight}px. Click '3a' to convert.`, false);
+            };
+
+            img.onerror = () => {
+                loadedImage.img = null;
+                if (isUrl) loadUrlButton.disabled = false;
+                showMessage('Error loading image. Check URL or file format.', true);
+                convertButton.disabled = true;
+                generateAiButton.disabled = true;
+                refineAiButton.disabled = true;
+            };
+
+            img.src = source;
+        }
+
+        // Handle URL Load
+        loadUrlButton.addEventListener('click', () => {
+            const url = urlInput.value.trim();
+            if (url) {
+                loadImage(url, true);
+            } else {
+                showMessage('Please enter a valid image URL.', true);
+            }
+        });
+
+        // Get user-friendly description of a strategy
+        function getModeDescription(mode) {
+            return mode === Modes.INITIAL ? 'Initial Generation' : 'Refinement';
+        }
+
+        // Removed compressSVG function as we are now sending SVG as a data attachment.
+        
+        /**
+         * 3a. STEP 1: Client-side PNG/Canvas to SVG Conversion
+         * Converts the current canvas content into a highly optimized, path-aggregated SVG string 
+         * using the advanced 2D RLE algorithm.
+         */
+        function convertToOptimizedSVG() {
+            if (!loadedImage.img) {
+                showMessage('Please load an image first.', true);
+                return;
+            }
+
+            // Reset state for a new conversion run
+            rawSVGBlueprint = null;
+            lastSuccessfulSemanticSVG = ''; 
+            convertButton.disabled = true;
+            generateAiButton.disabled = true;
+            refineAiButton.disabled = true;
+            
+            svgOutput.innerHTML = '<div class="text-gray-500">Generating Optimized 2D RLE SVG...</div>';
+            svgCodeOutput.value = '';
+            finalPreview.innerHTML = '<div class="text-gray-500">Awaiting Semantic SVG...</div>';
+            finalCodeOutput.value = '';
+            copySvgButton.disabled = true;
+            copyFinalButton.disabled = true;
+            payloadOutput.value = '';
+            responseOutput.value = '';
+            imageDataArea.classList.add('hidden');
+            logAttemptInfo.textContent = `Last Attempt: N/A`;
+
+
+            convertButton.textContent = '3a. Converting to Optimized SVG...';
+
+            try {
+                // Step 1: Generate Optimized SVG from Canvas using 2D RLE
+                rawSVGBlueprint = convertToSVG_OptimizedRLE(); // Use the RLE/Path function
+                
+                // For direct alignment, we wrap the raw SVG string in a div for display
+                svgOutput.innerHTML = rawSVGBlueprint; 
+                svgCodeOutput.value = rawSVGBlueprint;
+                copySvgButton.disabled = false;
+                showMessage('Step 1: Optimized 2D RLE SVG blueprint created. Ready for initial AI generation (3b).', false);
+            } catch (error) {
+                console.error("SVG Generation Error:", error);
+                showMessage(`Optimized SVG Conversion failed: ${error.message}.`, true);
+                rawSVGBlueprint = null;
+            }
+
+            // Success: Enable the AI generation button
+            convertButton.disabled = false;
+            convertButton.textContent = '3a. Convert Image to Optimized SVG Blueprint (2D RLE)';
+            if (rawSVGBlueprint) {
+                generateAiButton.disabled = false;
+            }
+        }
+        
+        // Helper function to convert RGB components to a single hexadecimal color string
+        function rgbToHex(r, g, b) {
+            // Note: Alpha is handled separately for transparency
+            return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
+        }
+
+        // Helper function to check if a color is close to the background color (255, 255, 255)
+        function isNearBackground(r, g, b, a) {
+            // Treat near-transparent as background (alpha < 10/255)
+            if (a < 10) return true; 
+
+            // Background color is pure white
+            const backgroundR = 255;
+            const backgroundG = 255;
+            const backgroundB = 255;
+            
+            // Increased Tolerance: 1000 (approx 31*31). This aggressively filters out anti-aliasing pixels.
+            const toleranceSquared = 1000; 
+
+            const distSq = (r - backgroundR) * (r - backgroundR) +
+                           (g - backgroundG) * (g - backgroundG) +
+                           (b - backgroundB) * (b - backgroundB);
+
+            return distSq < toleranceSquared;
+        }
+
+        // CORE LOGIC: Optimized 2D RLE from the external converter (with tolerance added)
+        function convertToSVG_OptimizedRLE() {
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            const width = canvas.width;
+            const height = canvas.height;
+            const imageData = ctx.getImageData(0, 0, width, height).data;
+
+            // Define colors to ignore (standard white background) - Note: BACKGROUND_A=255 check is now handled by isNearBackground
+            const BACKGROUND_R = 255;
+            const BACKGROUND_G = 255;
+            const BACKGROUND_B = 255;
+            const BACKGROUND_A = 255; 
+
+            const pixelCount = width * height;
+            const covered = new Array(pixelCount).fill(false); // Tracks pixels already included in a rect
+            
+            const rectData = []; 
+            let rectCount = 0;
+
+            // Iterate row by row (y-axis)
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const i = (y * width + x); // 1D pixel index
+
+                    // A. Skip if already covered
+                    if (covered[i]) {
+                        continue;
+                    }
+
+                    const dataIndex = i * 4;
+                    const r = imageData[dataIndex];
+                    const g = imageData[dataIndex + 1];
+                    const b = imageData[dataIndex + 2];
+                    const a = imageData[dataIndex + 3];
+
+                    // --- CRITICAL FIX: Use tolerance check for background exclusion ---
+                    if (isNearBackground(r, g, b, a)) {
+                        covered[i] = true;
+                        continue;
+                    }
+
+
+                    const color = rgbToHex(r, g, b);
+
+                    // B. Horizontal RLE (Find max width of the run at this starting row)
+                    let runLength = 1;
+                    let nextX = x + 1;
+                    while (nextX < width) {
+                        const nextI_map = y * width + nextX; // Map index
+                        const nextI_data = nextI_map * 4; // Data index
+                        
+                        // Check covered status first
+                        if (covered[nextI_map]) {
+                            break;
+                        }
+
+                        const nextR = imageData[nextI_data];
+                        const nextG = imageData[nextI_data + 1];
+                        const nextB = imageData[nextI_data + 2];
+                        const nextA = imageData[nextI_data + 3];
+
+                        // Check if the next pixel has the exact same color/alpha
+                        const isSameColor = nextR === r && nextG === g && nextB === b && nextA === a;
+                        
+                        // NOTE: We MUST match the exact color for the run integrity.
+                        if (isSameColor) {
+                            runLength++;
+                            nextX++;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    // C. Vertical Expansion (Find max height for this run)
+                    let rectHeight = 1;
+                    let nextY = y + 1;
+                    while (nextY < height) {
+                        let rowMatches = true;
+                        for (let dx = 0; dx < runLength; dx++) {
+                            const currentPixelIndex = (nextY * width + x + dx);
+
+                            if (covered[currentPixelIndex]) {
+                                rowMatches = false;
+                                break;
+                            }
+
+                            const currentDataIndex = currentPixelIndex * 4;
+                            const currentR = imageData[currentDataIndex];
+                            const currentG = imageData[currentDataIndex + 1];
+                            const currentB = imageData[currentDataIndex + 2];
+                            const currentA = imageData[currentDataIndex + 3];
+
+                            // Check for exact color match against the starting pixel (r,g,b,a)
+                            const isMatch = currentR === r && currentG === g && currentB === b && currentA === a;
+
+                            if (!isMatch) {
+                                rowMatches = false;
+                                break;
+                            }
+                        }
+
+                        if (rowMatches) {
+                            rectHeight++;
+                            nextY++;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    // D. Store the large SVG <rect> data object
+                    const fillOpacity = (a / 255); 
+                    // Use Math.round() for positions and sizes to ensure integers, although coordinates are already integers (x, y, runLength, rectHeight)
+                    rectData.push({ x: x, y: y, width: runLength, height: rectHeight, fill: color, opacity: fillOpacity });
+                    rectCount++;
+
+                    // E. Mark all pixels covered by this new rectangle
+                    for (let dy = 0; dy < rectHeight; dy++) {
+                        for (let dx = 0; dx < runLength; dx++) {
+                            covered[(y + dy) * width + x + dx] = true;
+                        }
+                    }
+                } 
+            } 
+
+            // 4. Assemble the final SVG string using ONE <path> element per unique color
+            
+            // Group rectangles by color
+            let uniqueColors = {};
+            rectData.forEach(rect => {
+                const colorKey = rect.fill + (rect.opacity !== 1 ? `|${rect.opacity}` : '');
+                if (!uniqueColors[colorKey]) {
+                    uniqueColors[colorKey] = { fill: rect.fill, opacity: rect.opacity, rects: [] };
+                }
+                uniqueColors[colorKey].rects.push(rect);
+            });
+
+            let pathSegments = [];
+            Object.keys(uniqueColors).forEach(key => {
+                const group = uniqueColors[key];
+                let d = '';
+                group.rects.forEach(rect => {
+                    const { x, y, width: w, height: h } = rect;
+                    
+                    // Construct path segment for one rectangle:
+                    // M x y (MoveTo top-left) L x+w y (LineTo top-right) L x+w y+h (LineTo bottom-right) L x y+h (LineTo bottom-left) Z (Close path)
+                    d += `M${x} ${y}L${x+w} ${y}L${x+w} ${y+h}L${x} ${y+h}Z`;
+                });
+                
+                let pathAttributes = `d="${d}" fill="${group.fill}"`;
+                if (group.opacity !== 1) {
+                    pathAttributes += ` fill-opacity="${group.opacity.toFixed(2)}"`;
+                }
+
+                // Create one path element for all rectangles of this color group
+                const pathElement = `<path ${pathAttributes} shape-rendering="crispEdges" />`;
+                pathSegments.push(pathElement);
+            });
+
+
+            const svgContent = pathSegments.join('\n    ');
+            const finalSVG = `
+<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" style="background-color: transparent;">
+    <!-- Generated by Optimized 2D RLE Converter (${rectCount} constituent elements combined into ${pathSegments.length} path(s)) -->
+    <!-- Optimization: 2D RLE geometry converted to path elements to minimize XML overhead. -->
+    ${svgContent}
+</svg>
+`.trim();
+
+            // Sanity check for the AI prompt
+            console.log(`2D RLE Generated. Total rectangles: ${rectCount}, Total paths: ${pathSegments.length}. Output SVG dimensions: ${width}x${height}`);
+
+            return finalSVG;
+        }
+        
+        // --- NEW ENTRY POINT FOR INITIAL GENERATION (3b) ---
+        async function triggerInitialSemanticGeneration() {
+            if (!rawSVGBlueprint) {
+                showMessage('Please run Step 3a first to create the SVG blueprint.', true);
+                return;
+            }
+            
+            // Reset for initial run
+            lastSuccessfulSemanticSVG = ''; 
+            refineAiButton.disabled = true;
+
+            const success = await startSemanticGeneration(Modes.INITIAL);
+            
+            // If the initial generation is successful, enable the refinement button
+            if (success) {
+                lastSuccessfulSemanticSVG = finalCodeOutput.value;
+                refineAiButton.disabled = false;
+            }
+        }
+
+        async function triggerRefinementGeneration() {
+            if (!lastSuccessfulSemanticSVG) {
+                showMessage('Please run the initial generation (3b) successfully before refining.', true);
+                return;
+            }
+
+            const MAX_ATTEMPTS = parseInt(maxAttemptsInput.value) || 3;
+            let currentAttempt = 0;
+            
+            generateAiButton.disabled = true;
+            refineAiButton.disabled = true;
+
+            // Start the refinement loop
+            for (let i = 1; i <= MAX_ATTEMPTS; i++) {
+                currentAttempt = i;
+                const success = await startSemanticGeneration(Modes.REFINE, currentAttempt);
+                
+                if (success) {
+                    // Update the stored successful output
+                    lastSuccessfulSemanticSVG = finalCodeOutput.value;
+                    refineAiButton.disabled = false;
+                    break; // Exit loop on success
+                }
+                
+                if (i < MAX_ATTEMPTS) {
+                    showMessage(`Refinement attempt ${i} failed. Retrying...`, true);
+                    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before next attempt
+                } else {
+                    showMessage(`Maximum ${MAX_ATTEMPTS} refinement attempts failed. Check logs.`, true);
+                }
+            }
+            
+            generateAiButton.disabled = false;
+            if (lastSuccessfulSemanticSVG) {
+                 refineAiButton.disabled = false;
+            }
+        }
+
+
+        /**
+         * STEP 2: Send input to AI to generate a Semantic SVG Replica
+         * @param {string} mode The generation mode ('INITIAL' or 'REFINE').
+         * @param {number} [attempt=1] The current attempt number (used for refinement mode).
+         * @returns {boolean} True if the generation was successful.
+         */
+        async function startSemanticGeneration(mode, attempt = 1) {
+            const isRefining = mode === Modes.REFINE;
+            const actionText = isRefining ? `Refinement Attempt ${attempt}` : 'Initial Generation';
+
+            logAttemptInfo.textContent = `Last Attempt: ${actionText}`;
+
+            generateAiButton.disabled = true;
+            refineAiButton.disabled = true;
+            
+            finalPreview.innerHTML = `<div class="p-8 text-indigo-500 flex items-center justify-center">
+                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                AI Generation (${actionText})...
+            </div>`;
+            
+            finalCodeOutput.value = '';
+            copyFinalButton.disabled = true;
+            payloadOutput.value = '';
+            responseOutput.value = '';
+            imageDataArea.classList.add('hidden'); // Ensure logs are reset
+
+
+            try {
+                if (!base64ImageString || !rawSVGBlueprint) { throw new Error("Image or SVG blueprint data is missing.");
+                }
+                
+                // --- CRITICAL MODIFICATION: Prepare SVG for attachment ---
+                const svgPart = base64ToSVGPart(rawSVGBlueprint);
+
+                let parts = [];
+                let userPrompt = '';
+                
+                
+                const systemPrompt = `You are an expert SVG graphic designer. Your task is to analyze the provided input(s) and generate a clean, semantic SVG replica.
+1. The code must be a single, complete SVG element.
+2. The SVG must be semantic (use <rect>, <circle>, <text>, etc.) to match the original design's layout, colors, and content.
+3. Use a placeholder rectangle to represent any non-textual content.
+4. For text, ensure accurate text content, font size, and color are used within <text> elements.
+5. **CRITICAL REQUIREMENT:** The final SVG's element positions (x, y coordinates) and sizes must be selected to be **pixel-perfectly consistent with the provided Optimized SVG Blueprint** and the original image layout. No elements should overlap.
+6. DO NOT wrap the output in markdown code fences (\`\`\`svg) or add any explanatory text. Output ONLY the raw SVG code.`;
+
+                if (isRefining) {
+                    // Refinement Mode: Attach blueprint (SVG) and provide previous semantic output (text).
+                    userPrompt = `Based on the attached Optimized SVG Blueprint (for perfect geometry) and the following PREVIOUS Semantic SVG OUTPUT (for content), generate a **corrected and improved Semantic SVG replica**. 
+                    
+                    The original image is omitted for payload efficiency. Crucially, you must **adjust text alignment, font sizes, and precise positioning** of the text and shapes to be pixel-perfect based on the geometry from the **Optimized SVG Blueprint**.
+
+                    PREVIOUS Semantic SVG OUTPUT to be corrected:\n${lastSuccessfulSemanticSVG}`;
+                    
+                    parts.push({ text: userPrompt });
+                    parts.push(svgPart); // Attach Blueprint
+
+                } else {
+                    // Initial Mode: Attach original image (PNG) and blueprint (SVG).
+                    userPrompt = `Recreate the visual design represented by the attached image (for text content) and the attached Optimized SVG Blueprint (for geometry) as a single, self-contained, clean SVG block. The output SVG must be "semantic", meaning it should use structured SVG elements like <rect>, <circle>, and crucially, **<text>** for any visible text. Use the PNG image for accurate text content, but rely on the Optimized SVG Blueprint for general layout, colors, and precise positional information.`;
+                    
+                    parts.push({ text: userPrompt });
+                    //shouldn't need this:
+                    //parts.push(dataURLToGenerativePart(base64ImageString)); // Attach PNG
+                    parts.push(svgPart); // Attach SVG Blueprint
+                }
+
+
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+                const payload = {
+                    contents: [{ role: "user", parts: parts }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                };
+                
+                // --- LOGGING THE PAYLOAD ---
+                const payloadToLog = JSON.parse(JSON.stringify(payload));
+                // Redact image and SVG data for log brevity
+                payloadToLog.contents[0].parts.forEach(p => {
+                    if (p.inlineData) {
+                        const mimeType = p.inlineData.mimeType;
+                        const dataLength = p.inlineData.data.length;
+                        p.inlineData.data = `[REDACTED: ${mimeType}, ${dataLength} bytes]`;
+                    }
+                });
+                // Only show PNG thumbnail if it was included
+                if (!isRefining) {
+                    displayImageThumbnail(base64ImageString, 'image/png');
+                } else {
+                    imageDataArea.classList.add('hidden');
+                }
+
+                payloadOutput.value = JSON.stringify(payloadToLog, null, 2);
+                
+                // --- API CALL AND RESPONSE LOGGING ---
+                let responseJson = null;
+                let maxRetries = 5;
+                let delay = 1000;
+
+                for (let i = 0; i < maxRetries; i++) {
+                    try {
+                        const response = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+
+                        if (response.status === 429 && i < maxRetries - 1) {
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            delay *= 2;
+                            continue;
+                        }
+
+                        if (!response.ok) {
+                            throw new Error(`API call failed with status: ${response.status}`);
+                        }
+
+                        responseJson = await response.json();
+                        break;
+                    } catch (error) {
+                        if (i === maxRetries - 1) {
+                            throw new Error(`Failed to fetch from API after ${maxRetries} attempts. Network or API error.`);
+                        }
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        delay *= 2;
+                    }
+                }
+                
+                responseOutput.value = JSON.stringify(responseJson, null, 2);
+
+                const generatedText = responseJson?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+                if (!generatedText.trim()) {
+                    throw new Error("AI returned an empty response.");
+                }
+
+                // SUCCESS
+                finalPreview.innerHTML = generatedText;
+                finalCodeOutput.value = generatedText;
+                copyFinalButton.disabled = false;
+                showMessage(`Semantic SVG generation successful! (${actionText})`, false);
+                return true;
+
+            } catch (error) {
+                console.error("AI Generation Error:", error);
+                responseOutput.value = JSON.stringify({ error: error.message }, null, 2); 
+                finalPreview.innerHTML = `<p class="text-red-500 p-8">Error on ${actionText}. ${error.message}</p>`;
+                finalCodeOutput.value = `Error on ${actionText}: ${error.message}`;
+                return false;
+            } finally {
+                // Re-enable buttons based on the current state
+                generateAiButton.disabled = !lastSuccessfulSemanticSVG;
+                refineAiButton.disabled = !lastSuccessfulSemanticSVG;
+                convertButton.disabled = false;
+            }
+        }
+
+        // Load the default URL on startup for a quick demo
+        window.onload = () => {
+             loadUrlButton.click();
+        }
+    </script>
+
+</body>
+</html>
