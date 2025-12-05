@@ -3,2047 +3,657 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>main.html</title>
+    <title>SciText Digitizer (SVG)</title>
 
-    <!-- Libraries -->
+    <!-- PDF.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <script>
       pdfjsLib.GlobalWorkerOptions.workerSrc =
         "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
     </script>
 
-    <!-- KaTeX is still useful for transcription, but not directly for SVG patching -->
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.4/katex.min.css"
-    />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.4/contrib/auto-render.min.js"></script>
-
-    <!-- Tailwind for layout (via CDN) -->
+    <!-- Tailwind -->
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- html2canvas is now only used for capturing the *source image* for AI -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    
     <style>
-      /* Custom Scrollbar for better aesthetics */
-      ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-      }
-      ::-webkit-scrollbar-track {
-        background: #f1f1f1;
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #888;
-        border-radius: 4px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #555;
-      }
-
       body {
         font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
         background-color: #e5e7eb;
         height: 100vh;
         overflow: hidden;
       }
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: #f1f1f1; }
+      ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #555; }
 
-      /* Custom Tab Styles */
-      .tab-button {
-        padding: 0.75rem 1.5rem;
-        font-size: 0.875rem;
-        font-weight: 600;
-        color: #4b5563;
-        border-bottom: 2px solid transparent;
-        cursor: pointer;
-        transition: all 0.1s ease-in-out;
-      }
-      .tab-button:hover {
-        color: #1f2937;
-        border-bottom-color: #e5e7eb;
-      }
-      .tab-button.active {
-        color: #2563eb;
-        border-bottom-color: #2563eb;
-        background-color: #fff;
-      }
-
-      /* PDF Canvas Styles */
-      #pdf-render-container {
-        box-shadow:
-          0 4px 6px -1px rgba(0, 0, 0, 0.1),
-          0 2px 4px -1px rgba(0, 0, 0, 0.06);
-        background-color: #525659;
-        overflow: auto;
-        display: flex;
-        justify-content: center;
-        align-items: flex-start;
-        padding: 20px;
-      }
-
-      canvas {
-        box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
-        max-width: none;
-      }
-
-      /* Editor Styles */
-      .editor-textarea {
-        font-family: "Consolas", "Monaco", "Courier New", monospace;
-        line-height: 1.6;
-        resize: none;
+      /* Layout & Canvas */
+      #pdf-render-container, #canvas-wrapper {
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
       }
       
-      /* New Patch Highlight Style (Used in Selection Layer) */
+      /* Overlay SVG Elements */
       .patch-highlight {
           cursor: pointer;
-          stroke: #f97316; /* Orange-500 (For editing) */
-          stroke-width: 3;
-          fill: none;
-          opacity: 0.0;
+          stroke: #f97316; /* Orange-500 */
+          stroke-width: 2;
+          fill: rgba(249, 115, 22, 0.01);
+          opacity: 0; 
           transition: opacity 0.15s;
-          pointer-events: all; /* Make it clickable in the SVG element */
+          pointer-events: all;
       }
-      .patch-highlight:hover {
-          opacity: 0.8;
-          stroke-width: 4;
-          stroke: #ea580c; /* Deeper Orange */
-      }
+      .patch-highlight:hover { opacity: 1.0; stroke-width: 3; }
+      .patch-highlight.selected { stroke: #2563eb; opacity: 1.0; stroke-width: 3; fill: rgba(37, 99, 235, 0.1); }
 
-      /* Selection Box Styles */
+      /* Selection Box */
       #selection-box {
         border: 2px dashed #2563eb;
         background-color: rgba(37, 99, 235, 0.1);
         position: absolute;
-        pointer-events: none; /* Let events pass through to layer */
+        pointer-events: none; 
         display: none;
         z-index: 50;
       }
 
-      /* Orange outline for Editing Mode */
-      #selection-box.edit-mode {
-        border-color: #f97316; /* Orange-500 */
-        background-color: rgba(249, 115, 22, 0.1);
-      }
-      
-      /* --- Action Bar Styles (Selection) --- */
+      /* Action Bars */
       #new-selection-action-bar {
         position: fixed;
-        z-index: 10000;
+        z-index: 100;
         display: none;
-        transform-origin: top center;
         animation: fadeIn 0.1s ease-out;
       }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
 
-      .disabled-bar {
-        opacity: 0.5;
-        pointer-events: none;
-        transition: opacity 0.2s ease-in-out;
-      }
-
-      .action-btn {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 0.5rem;
-        border-radius: 0.375rem;
-        cursor: pointer;
-        transition: all 0.15s;
-        color: #4b5563;
-        background: #f9fafb;
-        border: 1px solid #f3f4f6;
-        min-width: 50px;
-      }
-
-      .action-btn:hover {
-        background-color: #f3f4f6;
-        color: #1f2937;
-        transform: translateY(-1px);
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-      }
+      .disabled-bar { opacity: 0.5; pointer-events: none; }
       
-      .action-btn.btn-export {
-          background-color: #d1fae5; /* light green */
-          border-color: #6ee7b7; /* green border */
-      }
-      .action-btn.btn-export:hover {
-          background-color: #a7f3d0;
-      }
+      /* Tabs */
+      .tab-button { @apply px-4 py-2 text-sm font-semibold text-gray-600 border-b-2 border-transparent hover:text-gray-900 cursor-pointer transition; }
+      .tab-button.active { @apply text-blue-600 border-blue-600 bg-white; }
 
-      .action-btn svg {
-        width: 1.25rem;
-        height: 1.25rem;
-        margin-bottom: 0.1rem;
-      }
-
-      .action-btn span {
-        font-size: 0.65rem;
-        font-weight: 600;
-        line-height: 1;
-      }
-
-      @keyframes fadeIn {
-        from {
-          opacity: 0;
-          transform: scale(0.95) translateY(-5px);
-        }
-        to {
-          opacity: 1;
-          transform: scale(1) translateY(0);
-        }
-      }
+      .editor-textarea { font-family: monospace; line-height: 1.5; resize: none; }
     </style>
   </head>
   <body class="flex flex-col h-screen">
-    <!-- Header / Toolbar -->
-    <header
-      class="bg-gray-800 text-white p-3 flex justify-between items-center shadow-md z-10 shrink-0"
-    >
+    
+    <!-- HEADER -->
+    <header class="bg-gray-800 text-white p-3 flex justify-between items-center shadow-md z-10 shrink-0">
       <div class="flex items-center gap-4">
-        <h1 class="text-xl font-bold tracking-wider mr-4">
-          SciText <span class="text-blue-400">Digitizer</span>
-        </h1>
-        <h1>
-          <a href="https://github.com/lsparrish/sciconvert">GH</a>
-        </h1>
-
+        <h1 class="text-xl font-bold tracking-wider mr-4">SciText <span class="text-blue-400">Digitizer</span></h1>
+        
+        <!-- PDF Upload -->
         <div class="relative">
-          <input
-            type="file"
-            id="pdf-upload"
-            accept="application/pdf"
-            class="hidden"
-          />
-          <label
-            for="pdf-upload"
-            class="cursor-pointer bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm font-semibold transition flex items-center gap-2"
-          >
-            <svg
-              class="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-              ></path>
-            </svg>
+          <input type="file" id="pdf-upload" accept="application/pdf" class="hidden" />
+          <label for="pdf-upload" class="cursor-pointer bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm font-semibold transition flex items-center gap-2">
             Load PDF
           </label>
         </div>
-
-        <div
-          class="flex items-center bg-gray-700 rounded px-2 py-1 gap-2"
-          id="pdf-nav-controls"
-          style="display: none"
-        >
-          <button
-            id="prev-page"
-            class="hover:text-blue-300 p-1 disabled:opacity-50"
-            title="Previous Page"
-          >
-            <svg
-              class="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M15 19l-7-7 7-7"
-              ></path>
-            </svg>
-          </button>
-          <span class="text-sm font-mono"
-            >Page <span id="page-num">0</span> /
-            <span id="page-count">0</span></span
-          >
-          <button
-            id="next-page"
-            class="hover:text-blue-300 p-1 disabled:opacity-50"
-            title="Next Page"
-          >
-            <svg
-              class="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 5l7 7-7 7"
-              ></path>
-            </svg>
-          </button>
+        
+        <!-- Navigation -->
+        <div id="pdf-nav-controls" class="hidden flex items-center bg-gray-700 rounded px-2 py-1 gap-2">
+          <button id="prev-page" class="hover:text-blue-300 p-1">&lt;</button>
+          <span class="text-sm font-mono">Page <span id="page-num">0</span> / <span id="page-count">0</span></span>
+          <button id="next-page" class="hover:text-blue-300 p-1">&gt;</button>
         </div>
-
-        <div
-          class="flex items-center bg-gray-700 rounded px-2 py-1 gap-2"
-          id="pdf-zoom-controls"
-          style="display: none"
-        >
-          <button
-            id="zoom-out"
-            class="hover:text-blue-300 p-1"
-            title="Zoom Out"
-          >
-            -
-          </button>
-          <span id="zoom-level" class="text-xs font-mono w-12 text-center"
-            >100%</span
-          >
-          <button id="zoom-in" class="hover:text-blue-300 p-1" title="Zoom In">
-            +
-          </button>
+        
+        <!-- Zoom -->
+        <div id="pdf-zoom-controls" class="hidden flex items-center bg-gray-700 rounded px-2 py-1 gap-2">
+          <button id="zoom-out" class="hover:text-blue-300 p-1">-</button>
+          <span id="zoom-level" class="text-xs font-mono w-12 text-center">100%</span>
+          <button id="zoom-in" class="hover:text-blue-300 p-1">+</button>
         </div>
       </div>
-
+      
       <div class="flex items-center gap-4">
-        <span
-          id="restore-badge"
-          class="hidden bg-amber-100 text-amber-800 text-xs font-medium px-2.5 py-0.5 rounded border border-amber-400"
-        >
-          Restored: <span id="restored-filename" class="font-bold"></span>
-        </span>
-
-        <button
-          id="export-md"
-          class="bg-green-600 hover:bg-green-500 px-4 py-2 rounded text-sm font-semibold transition flex items-center gap-2"
-          title="Download Transcription"
-        >
-          <svg
-            class="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-            ></path>
-          </svg>
-          Export
-        </button>
-
-        <button
-          id="fullscreen-toggle"
-          class="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded text-sm font-semibold transition flex items-center gap-2"
-          title="Toggle Fullscreen Mode"
-        >
-          <svg
-            class="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M4 8V4m0 0h4M4 4l5 5m11-5v4m0 0h-4m4 0l-5-5M4 16v4m0 0h4M4 20l5-5m11 5v-4m0 0h-4m4 0l-5 5"
-            ></path>
-          </svg>
-          Full
-        </button>
+          <span id="ai-status" class="hidden text-blue-400 text-xs font-mono animate-pulse">Processing...</span>
+          <button id="fullscreen-toggle" class="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded text-sm font-semibold transition">Full Screen</button>
       </div>
     </header>
 
-    <!-- Main Workspace -->
-    <main class="flex-1 flex flex-col overflow-hidden relative">
-      <!-- Tab Bar -->
-      <div
-        id="main-tab-bar"
-        class="flex bg-gray-50 border-b border-gray-200 shadow-inner shrink-0"
-      >
-        <button id="tab-overlay" class="tab-button active">
-          SVG Compositor
-        </button>
-        <button
-          id="tab-prompts"
-          class="tab-button text-red-600 hover:text-red-800"
-        >
-          Prompts
-        </button>
-        <button
-          id="tab-debug"
-          class="tab-button text-purple-600 hover:text-purple-800"
-        >
-          Debug (Images)
-        </button>
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 flex flex-col overflow-hidden relative bg-white">
+      <!-- TABS -->
+      <div class="flex bg-gray-50 border-b border-gray-200 shadow-inner shrink-0">
+        <button id="tab-overlay" class="tab-button active">Compositor</button>
+        <button id="tab-debug" class="tab-button">Debug View</button>
       </div>
 
-      <div
-        id="empty-state"
-        class="absolute inset-0 flex flex-col items-center justify-center bg-gray-100 z-50 text-gray-500"
-      >
-        <svg
-          class="w-24 h-24 mb-4 text-gray-300"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="1.5"
-            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-          ></path>
-        </svg>
+      <!-- EMPTY STATE -->
+      <div id="empty-state" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-100 z-50 text-gray-500">
         <h2 class="text-2xl font-bold mb-2">No Document Loaded</h2>
-        <p class="mb-6">Upload a PDF to begin digitizing.</p>
+        <p>Upload a PDF to begin.</p>
+      </div>
+      
+      <!-- LOADER -->
+      <div id="pdf-loader" class="absolute inset-0 bg-gray-800 bg-opacity-75 flex flex-col items-center justify-center hidden z-50">
+          <div class="w-8 h-8 border-4 border-t-blue-500 border-gray-200 rounded-full animate-spin mb-2"></div>
+          <span class="text-white font-semibold">Loading...</span>
       </div>
 
-      <div id="workspace" class="flex-1 overflow-hidden relative bg-white">
-        <!-- 1. Source (PDF) Container: KEPT as it contains the canvas -->
-        <div
-          id="source-container"
-          class="absolute inset-0 flex flex-col hidden"
-        >
-          <div id="pdf-render-container" class="w-full h-full">
-            <canvas id="the-canvas"></canvas>
-          </div>
-          <div
-            id="pdf-loader"
-            class="absolute inset-0 bg-gray-800 bg-opacity-75 flex flex-col items-center justify-center hidden"
-          >
-            <div class="loader mb-2"></div>
-            <span class="text-white text-sm font-semibold"
-              >Rendering Page...</span
-            >
-          </div>
-        </div>
-
-        <!-- 2. Overlay Split View Container -->
-        <div id="overlay-container" class="absolute inset-0 flex hidden">
-          <!-- Left: Editor -->
-          <div
-            class="w-1/3 h-full flex flex-col border-r border-gray-300 z-20 bg-white shadow-xl"
-          >
-            <div
-              class="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 border-b flex justify-between"
-            >
-              <span id="editor-title">COMPOSITE SVG OUTPUT</span>
-              <div class="flex items-center gap-4">
-                <span id="ai-status" class="text-blue-600 hidden"
-                  >AI Processing...</span
-                >
-                <span
-                  id="show-ai-log"
-                  class="text-gray-500 hover:text-gray-900 cursor-pointer font-semibold hidden"
-                  onclick="toggleAiLog()"
-                >
-                  [AI Log]
-                </span
-                >
+      <!-- WORKSPACE CONTAINER -->
+      <div id="workspace-container" class="flex-1 flex overflow-hidden relative hidden">
+          
+          <!-- LEFT PANEL: Code / Tools -->
+          <div class="w-1/3 h-full flex flex-col border-r border-gray-300 bg-white z-10 shadow-xl">
+              <div class="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 border-b flex justify-between">
+                  <span id="panel-title">SVG OUTPUT</span>
+                  <span id="patch-count" class="text-gray-400">0 Patches</span>
               </div>
-            </div>
-            <!-- NOTE: This textarea now holds the generated SVG for the entire page -->
-            <textarea
-              id="overlay-html-input"
-              class="editor-textarea flex-1 w-full h-full p-4 border-none outline-none text-gray-800 bg-gray-50 text-xs"
-              placeholder="<!-- Composite SVG content will appear here after patching -->"
-            ></textarea>
-
-            <!-- Action Bar for Patch Management and Export -->
-            <div
-              id="edit-action-bar"
-              class="w-full shrink-0 flex flex-wrap border-t border-gray-200 bg-gray-50 p-2 overflow-x-auto"
-            >
-                <div class="flex flex-wrap gap-2">
-                    <button
-                        id="btn-export-svg"
-                        class="action-btn btn-export text-green-600 hover:text-green-700"
-                        onclick="exportCompositeSVG()"
-                        title="Generate and display the full composite SVG."
-                    >
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
-                        </svg>
-                        <span>Export SVG</span>
-                    </button>
-                    
-                    <button
-                        id="btn-reset-patches"
-                        class="action-btn text-red-600 hover:text-red-700"
-                        onclick="resetPatches()"
-                        title="Clear all applied SVG patches from the page."
-                    >
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                        </svg>
-                        <span>Reset Patches</span>
-                    </button>
-                </div>
-
-                <div class="w-px h-8 bg-gray-200 my-auto hidden sm:block"></div>
-                
-                <!-- Patch Edit Controls - Only visible when targetPatchId is set -->
-                <div id="patch-edit-controls" class="flex flex-wrap gap-2 disabled-bar">
-                    <button
-                        id="btn-delete-patch"
-                        class="action-btn text-red-600 hover:text-red-700"
-                        onclick="deletePatch()"
-                        title="Delete the currently selected patch."
-                    >
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                        </svg>
-                        <span>Delete Patch</span>
-                    </button>
-                     <button
-                        id="btn-regenerate-patch"
-                        class="action-btn text-blue-600 hover:text-blue-700"
-                        onclick="regenerateActivePatch('text')"
-                        title="Regenerate selected patch as text using AI."
-                    >
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11.816 6H15m4.418-9a8 8 0 10-15.356 2m15.356-2H15"></path>
-                        </svg>
-                        <span>Regen. Text</span>
-                    </button>
-                </div>
-
-                <div class="w-px h-8 bg-gray-200 my-auto hidden sm:block"></div>
-
-                <div class="flex flex-wrap gap-2">
-                  <span id="patch-count-display" class="text-sm font-semibold text-gray-700 p-2">0 Patches</span>
-                </div>
-            </div>
-          </div>
-
-          <!-- Right: Preview (Superimposed) -->
-          <div class="w-2/3 h-full flex flex-col relative bg-gray-500">
-            <!-- Overlay Toolbar -->
-            <div
-              class="bg-gray-200 p-2 flex gap-4 border-b border-gray-400 shrink-0 z-30 justify-center text-sm text-gray-700 shadow-sm"
-            >
-              <label
-                class="flex items-center gap-2 cursor-pointer font-semibold hover:text-black"
-              >
-                <input
-                  type="checkbox"
-                  id="chk-show-source"
-                  checked
-                  class="rounded text-blue-600 focus:ring-blue-500"
-                  onchange="toggleSourceVisibility()"
-                />
-                Show Source PDF
-              </label>
-              <div class="w-px h-4 bg-gray-400 my-auto"></div>
-              <label
-                class="flex items-center gap-2 cursor-pointer font-semibold hover:text-black"
-              >
-                <input
-                  type="checkbox"
-                  id="chk-show-overlay"
-                  checked
-                  class="rounded text-blue-600 focus:ring-blue-500"
-                  onchange="toggleOverlayVisibility()"
-                />
-                Show SVG Overlay
-              </label>
-              <div class="w-px h-4 bg-gray-400 my-auto"></div>
-               <span id="active-patch-display" class="font-bold text-orange-600">No Patch Selected</span>
-            </div>
-
-            <!-- Scroller -->
-            <div
-              id="overlay-scroller"
-              class="flex-1 overflow-auto flex justify-center p-8 select-none relative"
-            >
-              <!-- Wrapper matches Canvas Size -->
-              <div
-                id="overlay-wrapper"
-                class="relative shadow-2xl origin-top bg-white"
-              >
-                <!-- Mount point for Canvas (Source Image/PDF) -->
-                <div
-                  id="overlay-canvas-mount"
-                  class="transition-opacity duration-200"
-                ></div>
-
-                <!-- SVG Layer (Rendered Content - Patches & Highlights) -->
-                <div
-                  id="svg-layer-container"
-                  class="absolute inset-0 overflow-hidden z-10 transition-opacity duration-200"
-                >
-                    <!-- SVG element with ID workbook-svg-element injected by script -->
-                </div>
-
-                <!-- Selection Layer (Interactive) - Pointer events removed by default in JS -->
-                <div
-                  id="selection-layer"
-                  class="absolute inset-0 z-20 cursor-crosshair"
-                  style="pointer-events: none;"
-                ></div>
-
-                <!-- Visual Selection Box -->
-                <div id="selection-box"></div>
+              
+              <!-- Main Editor (SVG Code) -->
+              <textarea id="code-editor" class="editor-textarea flex-1 p-4 text-xs text-gray-800 bg-gray-50 border-none outline-none" readonly></textarea>
+              
+              <!-- Static Action Bar (Bottom Left) -->
+              <div id="static-action-bar" class="p-2 border-t border-gray-200 bg-gray-50 flex flex-wrap gap-2">
+                  <button id="btn-export" class="bg-green-100 text-green-700 border border-green-300 hover:bg-green-200 px-3 py-1 rounded text-xs font-semibold flex items-center gap-1">
+                      <span>Export SVG</span>
+                  </button>
+                  <button id="btn-clear-all" class="bg-red-100 text-red-700 border border-red-300 hover:bg-red-200 px-3 py-1 rounded text-xs font-semibold flex items-center gap-1">
+                      <span>Reset Page</span>
+                  </button>
+                  
+                  <div class="w-px h-6 bg-gray-300 mx-1"></div>
+                  
+                  <!-- Contextual Actions (Only enabled when patch selected) -->
+                  <div id="context-actions" class="flex gap-2 disabled-bar transition-opacity duration-200">
+                       <button id="btn-regen" class="bg-blue-100 text-blue-700 border border-blue-300 hover:bg-blue-200 px-3 py-1 rounded text-xs font-semibold">Regenerate</button>
+                       <button id="btn-delete" class="bg-gray-200 text-gray-700 border border-gray-300 hover:bg-gray-300 px-3 py-1 rounded text-xs font-semibold">Delete</button>
+                  </div>
               </div>
-            </div>
           </div>
-        </div>
 
-        <!-- 3. Other hidden containers kept for compatibility -->
-        <div
-          id="editor-container-md"
-          class="absolute inset-0 flex flex-col hidden"
-        >
-          <textarea
-            id="markdown-input"
-            class="editor-textarea flex-1 w-full h-full p-4 border-none outline-none text-gray-800 bg-gray-50 text-sm"
-            placeholder="# Transcription Area"
-          ></textarea>
-        </div>
-        <div
-          id="preview-container"
-          class="absolute inset-0 overflow-y-auto p-8 hidden bg-white"
-        >
-          <div
-            id="preview-output"
-            class="preview-content font-serif text-gray-900 max-w-none"
-          ></div>
-        </div>
-        <div
-          id="editor-container-prompts"
-          class="absolute inset-0 flex flex-col hidden"
-        >
-          <textarea
-            id="prompt-input"
-            class="editor-textarea flex-1 w-full h-full p-4 border-none outline-none text-xs"
-            placeholder="Loading AI prompts..."
-          ></textarea>
-        </div>
-        <!-- 6. Debug Images Container (NEW TAB CONTENT) -->
-        <div
-          id="editor-container-debug"
-          class="absolute inset-0 hidden flex flex-col p-4 bg-gray-800 overflow-y-auto"
-        >
-          <!-- Image Comparison Row (Source vs. Current) -->
-          <div
-            id="debug-vision-content-tab"
-            class="flex-shrink-0 flex justify-space-evenly gap-4"
-          >
-            <div class="debug-pane-tab">
-              <span
-                id="debug-source-label"
-                class="text-sm font-bold text-yellow-300 mb-2"
-              >
-                TARGET (Source Scan)
-              </span>
-              <img id="debug-source-img" alt="Target Image Snippet" />
-            </div>
-            <div class="debug-pane-tab">
-              <span
-                id="debug-render-label"
-                class="text-sm font-bold text-blue-300 mb-2"
-              >
-                CURRENT RENDER (SVG Preview)
-              </span>
-              <div id="debug-render-container" class="w-full h-auto bg-white border border-gray-600 flex justify-center items-center">
-                  <!-- SVG Preview will be injected here -->
-                  <span class="text-xs text-gray-500">SVG Preview</span>
+          <!-- RIGHT PANEL: Visual Canvas -->
+          <div class="w-2/3 h-full flex flex-col bg-gray-500 relative">
+              <!-- Canvas Toolbar -->
+              <div class="bg-gray-200 p-2 flex justify-center gap-4 text-xs font-semibold text-gray-700 border-b border-gray-400 shrink-0 shadow-sm z-20">
+                   <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="chk-source" checked class="rounded text-blue-600"> Source PDF</label>
+                   <div class="w-px h-4 bg-gray-400"></div>
+                   <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="chk-svg" checked class="rounded text-blue-600"> SVG Overlay</label>
               </div>
-            </div>
+              
+              <!-- Scrollable Canvas Wrapper -->
+              <div id="canvas-scroller" class="flex-1 overflow-auto flex justify-center p-8 relative cursor-default">
+                  <div id="canvas-wrapper" class="relative shadow-2xl bg-white origin-top">
+                      <!-- 1. PDF Canvas Mount -->
+                      <div id="pdf-layer" class="transition-opacity duration-200"></div> 
+                      <!-- 2. SVG Patch Layer -->
+                      <div id="svg-layer" class="absolute inset-0 z-10 transition-opacity duration-200 pointer-events-none"></div> 
+                      <!-- 3. Interactive Selection Layer -->
+                      <div id="interaction-layer" class="absolute inset-0 z-20 cursor-crosshair"></div>
+                      
+                      <!-- Visual Selection Box -->
+                      <div id="selection-box"></div>
+                  </div>
+              </div>
           </div>
-
-          <!-- NEW: History Strip -->
-          <div
-            id="debug-history-strip"
-            class="flex-shrink-0 mt-4 p-2 bg-gray-900 rounded-lg shadow-inner overflow-x-auto whitespace-nowrap"
-          >
-            <div class="flex justify-between items-center mb-2">
-                <span class="text-xs font-semibold text-gray-400 align-middle"
-                    >Past Attempts (Max 4):</span
-                >
-                <button 
-                    id="btn-toggle-playback" 
-                    class="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 text-xs rounded font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    onclick="toggleHistoryPlayback()"
-                    disabled
-                >
-                    <span id="playback-text">Play History</span>
-                </button>
-            </div>
-            <div
-              id="history-images-container"
-              class="inline-flex gap-3 h-24"
-            ></div>
-          </div>
-
-          <!-- Patch Data Area -->
-          <div class="flex-1 flex flex-col pt-4 overflow-hidden">
-            <span class="text-xs font-bold text-gray-400 mb-1 pl-4"
-              >Current Patch SVG Code</span
-            >
-            <textarea
-              id="debug-html-content"
-              class="editor-textarea flex-1 w-full p-4 outline-none text-gray-200 bg-gray-900 text-xs border border-gray-700 resize-none"
-              readonly
-            ></textarea>
-          </div>
-        </div>
       </div>
+      
+      <!-- DEBUG VIEW (Hidden by default) -->
+      <div id="debug-container" class="flex-1 hidden flex-col bg-gray-900 p-4 overflow-auto text-white">
+           <div class="flex justify-center gap-4 mb-4 h-64">
+               <div class="border border-gray-600 bg-black p-2 rounded flex flex-col items-center w-1/3">
+                   <span class="text-xs font-bold text-yellow-400 mb-1">Source Crop</span>
+                   <img id="debug-img-source" class="h-full object-contain bg-white">
+               </div>
+               <div class="border border-gray-600 bg-black p-2 rounded flex flex-col items-center w-1/3">
+                   <span class="text-xs font-bold text-blue-400 mb-1">SVG Result</span>
+                   <div id="debug-svg-preview" class="h-full w-full flex items-center justify-center bg-white text-black"></div>
+               </div>
+           </div>
+           <div class="flex-1 border border-gray-700 bg-gray-800 rounded p-2">
+               <span class="text-xs font-bold text-gray-400 block mb-1">Raw Response / Log</span>
+               <pre id="debug-log" class="text-xs font-mono text-green-400 overflow-auto h-full"></pre>
+           </div>
+      </div>
+
     </main>
 
-    <!-- Action Bar (For new selections) -->
-    <div
-      id="new-selection-action-bar"
-      class="bg-gray-800 text-white rounded-lg shadow-2xl flex items-center p-1.5 gap-2 border border-gray-700"
-    >
-      <button 
-        id="btn-digitize" 
-        class="action-btn text-blue-400 hover:text-blue-300 bg-blue-900/50 hover:bg-blue-900/70" 
-        title="Digitize Text (AI)"
-        onclick="initiatePatchGeneration('text')"
-      >
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-        </svg>
-        <span>Digitize</span>
-      </button>
-      <button 
-        id="btn-copy-image" 
-        class="action-btn text-amber-400 hover:text-amber-300 bg-amber-900/50 hover:bg-amber-900/70" 
-        title="Extract Image"
-        onclick="insertImageFromSelection()"
-      >
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-        </svg>
-        <span>Image</span>
-      </button>
-      <button 
-        id="btn-create-div" 
-        class="action-btn text-gray-400 hover:text-gray-300 bg-gray-900/50 hover:bg-gray-900/70" 
-        title="Empty Box"
-        onclick="initiatePatchGeneration('empty')"
-      >
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"></path>
-        </svg>
-        <span>Empty</span>
-      </button>
-
-      <div class="w-px h-8 bg-gray-600 mx-0.5"></div>
-
-      <button
-        id="btn-close-action"
-        class="action-btn text-gray-400 hover:text-red-400"
-        title="Close"
-        onclick="closeSelection()"
-      >
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M6 18L18 6M6 6l12 12"
-          ></path>
-        </svg>
-        <span>Cancel</span>
-      </button>
+    <!-- FLOATING SELECTION BAR -->
+    <div id="new-selection-action-bar" class="bg-gray-800 text-white rounded-lg shadow-2xl flex items-center p-1.5 gap-2 border border-gray-700">
+      <button class="px-3 py-1 bg-blue-900/50 hover:bg-blue-800 rounded text-xs font-bold text-blue-200" onclick="app.createPatch('text')">Text</button>
+      <button class="px-3 py-1 bg-amber-900/50 hover:bg-amber-800 rounded text-xs font-bold text-amber-200" onclick="app.createPatch('image')">Image</button>
+      <button class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs font-bold text-gray-300" onclick="app.createPatch('empty')">Empty</button>
+      <div class="w-px h-4 bg-gray-600"></div>
+      <button class="px-2 py-1 hover:text-red-300 text-xs" onclick="app.clearSelection()">Cancel</button>
     </div>
-
-    <!-- Context Menu (hidden) - Retained for original click logic removal -->
-    <div
-      id="context-menu"
-      style="
-        position: fixed;
-        z-index: 9999;
-        display: none;
-      "
-    ></div>
+    
+    <!-- HIDDEN CANVAS for processing -->
+    <canvas id="processing-canvas" style="display:none;"></canvas>
 
     <script type="module">
-      const apiKey = ""; // Runtime key
-      const STORAGE_KEY = "scitext_transcriptions";
-      const STORAGE_KEY_LAST_PAGE = "scitext_last_page_num";
-      const STORAGE_KEY_FILENAME = "scitext_last_filename";
-      const STORAGE_KEY_PROMPTS = "scitext_ai_prompts";
-      const STORAGE_KEY_PATCHES = "scitext_page_patches"; // NEW storage key for SVG data
-
-      const DEFAULT_IMAGE_URL =
-        "https://lsparrish.github.io/sciconvert/sample.png";
-      const MAX_RETRIES = 4;
-      const AI_IMAGE_SCALE = 2.0;
-
-      let transcriptionData = {}; // Stores prompts, general data (excluding patches now)
-      let aiQueryLog = [];
-      let appliedPatches = []; // NEW: Stores { id, rect, svgContent, bpDims }
-      let currentPatchId = 0;
-
-      // --- State ---
-      const state = {
-        pdfDoc: null,
-        pageNum: 1,
-        pageRendering: false,
-        pageNumPending: null,
-        scale: 1.2,
-        canvas: document.getElementById("the-canvas"),
-        ctx: document.getElementById("the-canvas").getContext("2d"),
-        activeTab: "overlay",
-        isAuthReady: false,
-        saveTimeout: null,
-
-        // Selection State (for new patch drawing)
-        isSelecting: false,
-        selectionStart: { x: 0, y: 0 },
-        selectionEnd: { x: 0, y: 0 },
-        selectionRect: null, // New selection coordinates (percentage)
-
-        // Interaction Target (for existing patch clicking)
-        targetPatchId: null, // ID of the currently selected/edited patch
-
-        isLoopRunning: false,
-        isLogActive: false,
+        /**
+         * SciText Digitizer (Lean Version)
+         * Focus: SVG Compositing Architecture
+         */
         
-        // Playback State (RESTORED)
-        isPlaybackActive: false,
-        playbackInterval: null,
-        playbackFrames: [],
-        originalRenderSource: null,
-        
-        // AI Prompts (Editable content stored here)
-        prompts: {
-          DIGITIZE_TEXT:
-            "Transcribe the text in this image. Return ONLY the raw text, preserving line breaks. Do not include markdown blocks or commentary. If it is a mathematical formula, return the KaTeX equivalent enclosed in dollar signs ($...$ or $$...$$).",
-          // ... (REPLICA_STYLE, FONT_STYLE, TEXT_ONLY - mostly unused in SVG flow but kept for prompts tab)
-          SVG_GENERATE: `You are a precision graphic designer. 
-Task: Generate a high-detail Semantic SVG snippet for a cropped region based on the image provided.
-Requirements:
-- Output **ONLY** valid SVG code. No markdown or commentary.
-- The root element must be <svg>.
-- ViewBox should be implicitly defined by the generated content's bounds, or explicitly set to match the dimensions of the input image crop.
-- Focus on text legibility and geometric precision. Use <text> tags.
-- CRITICAL: Ensure all <text> elements explicitly define font-size and use fill="black" or another dark color for visibility against a white background.
-- If the content is an image/figure, use \`<image>\` tags pointing to the provided base64 data, or use simple SVG shapes (\`<rect>\`, \`<path>\`) to replicate it.
-- If the instruction is 'text', focus on transcription and typography.
-- If the instruction is 'image', focus on replicating the figure.
-- If the instruction is 'empty', return an empty SVG structure.
-
-INSTRUCTION: {{patch_type}}
-`,
-        },
-      };
-
-      // --- DOM Elements ---
-      const els = {
-        // ... (General UI elements retained)
-        upload: document.getElementById("pdf-upload"),
-        emptyState: document.getElementById("empty-state"),
-        pdfLoader: document.getElementById("pdf-loader"),
-        navControls: document.getElementById("pdf-nav-controls"),
-        zoomControls: document.getElementById("pdf-zoom-controls"),
-        prevBtn: document.getElementById("prev-page"),
-        nextBtn: document.getElementById("next-page"),
-        pageNumSpan: document.getElementById("page-num"),
-        pageCountSpan: document.getElementById("page-count"),
-        zoomInBtn: document.getElementById("zoom-in"),
-        // FIXED: document("zoom-out") typo
-        zoomOutBtn: document.getElementById("zoom-out"), 
-        zoomLevelSpan: document.getElementById("zoom-level"),
-        
-        // Canvas/Overlay/Wrapper
-        sourceContainer: document.getElementById("source-container"),
-        overlayContainer: document.getElementById("overlay-container"),
-        overlayCanvasMount: document.getElementById("overlay-canvas-mount"),
-        overlayWrapper: document.getElementById("overlay-wrapper"),
-        selectionLayer: document.getElementById("selection-layer"),
-        selectionBox: document.getElementById("selection-box"),
-        theCanvas: document.getElementById("the-canvas"),
-        svgLayerContainer: document.getElementById("svg-layer-container"), 
-
-        // Editor / Output
-        overlayHtmlInput: document.getElementById("overlay-html-input"), 
-        editorTitle: document.getElementById("editor-title"),
-        aiStatus: document.getElementById("ai-status"),
-        showAiLog: document.getElementById("show-ai-log"),
-        
-        // Action Bars
-        actionBar: document.getElementById("new-selection-action-bar"),
-        editActionBar: document.getElementById("edit-action-bar"),
-        patchCountDisplay: document.getElementById("patch-count-display"), 
-        activePatchDisplay: document.getElementById("active-patch-display"), 
-        patchEditControls: document.getElementById("patch-edit-controls"), 
-
-        // Debug View
-        debugSourceImg: document.getElementById("debug-source-img"),
-        debugRenderImg: document.getElementById("debug-render-img"), // Obsolete/unused?
-        debugRenderContainer: document.getElementById("debug-render-container"), // NEW
-        debugHtmlContent: document.getElementById("debug-html-content"), 
-        historyImagesContainer: document.getElementById("history-images-container"), // Used for Playback
-        playbackText: document.getElementById("playback-text"), // Playback button label
-        btnTogglePlayback: document.getElementById("btn-toggle-playback"), // Playback button
-
-        // Prompts
-        tabPrompts: document.getElementById("tab-prompts"),
-        promptInput: document.getElementById("prompt-input"),
-        
-        // Buttons
-        btnExportSvg: document.getElementById("btn-export-svg"),
-        btnResetPatches: document.getElementById("btn-reset-patches"),
-        fullscreenBtn: document.getElementById("fullscreen-toggle"),
-        btnRegeneratePatch: document.getElementById("btn-regenerate-patch"), 
-      };
-
-      // --- UTILS ---
-      function generateUniqueId() {
-          currentPatchId += 1;
-          return `p${state.pageNum}-${currentPatchId}`;
-      }
-      function compressSVG(svgString) { return svgString.replace(/\s+/g, ' ').replace(/>\s*</g, '><').trim(); }
-      function rgbToHex(r, g, b) { return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase(); }
-      function isNearBackground(r, g, b, a) {
-          if (a < 10) return true; 
-          const distSq = (r - 255)**2 + (g - 255)**2 + (b - 255)**2;
-          return distSq < 1000;
-      }
-      function dataURLToGenerativePart(dataURL) {
-          const parts = dataURL.split(';base64,');
-          return { inlineData: { data: parts[1], mimeType: parts[0].split(':')[1] } };
-      }
-      function sanitizeSvgText(text) {
-          // Removes markdown fences and trims whitespace
-          return text.replace(/```svg/g, "").replace(/```/g, "").trim();
-      }
-      
-      // RESTORED: Helper function for mouse position
-      function getPointerPos(e) {
-        const rect = els.selectionLayer.getBoundingClientRect();
-        return {
-          x: e.clientX - rect.left,
-          y: e.clientY - rect.top,
+        const CONFIG = {
+            apiKey: "", // Runtime key provided by environment
+            defaultPdfUrl: "https://lsparrish.github.io/sciconvert/sample.png",
+            storageKey: "scitext_lean_v1",
+            aiScale: 2.0, // High-res capture for AI
+            maxRetries: 3
         };
-      }
 
-      // --- PERSISTENCE ---
-      const DB_NAME = "SciTextDB";
-      const DB_VERSION = 1;
-      const STORE_NAME = "files";
+        // --- APPLICATION STATE ---
+        const state = {
+            pdfDoc: null,
+            pageNum: 1,
+            scale: 1.2,
+            patches: [], // Array of {id, rect, svgContent, bpDims}
+            selection: null, // {x, y, w, h} percentages
+            activePatchId: null,
+            isSelecting: false,
+            selectionStart: {x:0, y:0},
+            canvas: document.createElement('canvas'), // Off-screen canvas for PDF rendering
+        };
+        
+        // --- DOM ELEMENTS ---
+        const els = {
+            upload: document.getElementById('pdf-upload'),
+            navControls: document.getElementById('pdf-nav-controls'),
+            zoomControls: document.getElementById('pdf-zoom-controls'),
+            pageNum: document.getElementById('page-num'),
+            pageCount: document.getElementById('page-count'),
+            
+            workspace: document.getElementById('workspace-container'),
+            emptyState: document.getElementById('empty-state'),
+            loader: document.getElementById('pdf-loader'),
+            
+            // Fixed: Corrected ID to match HTML
+            wrapper: document.getElementById('canvas-wrapper'), 
+            pdfLayer: document.getElementById('pdf-layer'),
+            svgLayer: document.getElementById('svg-layer'),
+            interactionLayer: document.getElementById('interaction-layer'),
+            selectionBox: document.getElementById('selection-box'),
+            selectionBar: document.getElementById('new-selection-action-bar'),
+            
+            editor: document.getElementById('code-editor'),
+            patchCount: document.getElementById('patch-count'),
+            contextActions: document.getElementById('context-actions'),
+            aiStatus: document.getElementById('ai-status'),
+            
+            chkSource: document.getElementById('chk-source'),
+            chkSvg: document.getElementById('chk-svg'),
+            
+            // Debug
+            debugContainer: document.getElementById('debug-container'),
+            debugImg: document.getElementById('debug-img-source'),
+            debugSvg: document.getElementById('debug-svg-preview'),
+            debugLog: document.getElementById('debug-log')
+        };
 
-      function openDB() {
-        return new Promise((resolve, reject) => {
-          const request = indexedDB.open(DB_NAME, DB_VERSION);
-          request.onupgradeneeded = (event) => {
-            const db = event.target.result;
-            if (!db.objectStoreNames.contains(STORE_NAME)) {
-              db.createObjectStore(STORE_NAME);
+        // --- INIT ---
+        async function init() {
+            // Restore session or load default
+            try {
+                const saved = localStorage.getItem(CONFIG.storageKey);
+                if(saved) {
+                   const data = JSON.parse(saved);
+                   // Simplified: In a real app, we'd restore the PDF from IndexedDB here.
+                   // For this lean version, we'll default to loading the sample image to show functionality quickly.
+                   loadDefaultImage(); 
+                } else {
+                   loadDefaultImage();
+                }
+            } catch(e) { loadDefaultImage(); }
+            
+            setupEventListeners();
+        }
+        
+        function loadDefaultImage() {
+            els.loader.classList.remove('hidden');
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.onload = () => {
+                state.canvas.width = img.width;
+                state.canvas.height = img.height;
+                state.canvas.getContext('2d').drawImage(img, 0, 0);
+                
+                // Mock PDF state for single image
+                state.pdfDoc = { numPages: 1, isImage: true };
+                
+                renderPage();
+                els.loader.classList.add('hidden');
+                els.emptyState.classList.add('hidden');
+                els.workspace.classList.remove('hidden');
+                els.workspace.classList.add('flex');
+                
+                // Switch tabs to Compositor
+                switchTab('overlay');
+            };
+            img.src = CONFIG.defaultPdfUrl;
+        }
+        
+        function renderPage() {
+            // For the image version, we just mount the canvas
+            els.pdfLayer.innerHTML = '';
+            state.canvas.style.width = '100%';
+            state.canvas.style.height = '100%';
+            els.pdfLayer.appendChild(state.canvas);
+            
+            // Resize Wrapper
+            els.wrapper.style.width = `${state.canvas.width}px`;
+            els.wrapper.style.height = `${state.canvas.height}px`;
+            
+            // Init SVG Layer
+            initSvgLayer();
+        }
+
+        // --- SVG LOGIC ---
+        function initSvgLayer() {
+            const w = state.canvas.width;
+            const h = state.canvas.height;
+            els.svgLayer.innerHTML = `<svg id="main-svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg"><g id="patches"></g><g id="highlights"></g></svg>`;
+            renderPatches();
+        }
+        
+        function renderPatches() {
+            const svg = els.svgLayer.querySelector('svg');
+            const gPatches = svg.querySelector('#patches');
+            const gHighlights = svg.querySelector('#highlights');
+            
+            gPatches.innerHTML = '';
+            gHighlights.innerHTML = '';
+            
+            const w = state.canvas.width; 
+            const h = state.canvas.height;
+            
+            state.patches.forEach(p => {
+                // 1. Visual Patch (Nested SVG)
+                const px = p.rect.x * w;
+                const py = p.rect.y * h;
+                const pw = p.rect.w * w;
+                const ph = p.rect.h * h;
+                
+                const nested = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                nested.setAttribute("x", px); nested.setAttribute("y", py);
+                nested.setAttribute("width", pw); nested.setAttribute("height", ph);
+                nested.setAttribute("viewBox", `0 0 ${p.bpDims.w} ${p.bpDims.h}`);
+                nested.setAttribute("preserveAspectRatio", "none");
+                nested.innerHTML = p.svgContent; // Inject raw content
+                gPatches.appendChild(nested);
+                
+                // 2. Interaction Highlight (Invisible Rect on top)
+                const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                rect.setAttribute("x", px); rect.setAttribute("y", py);
+                rect.setAttribute("width", pw); rect.setAttribute("height", ph);
+                rect.setAttribute("class", "patch-highlight " + (p.id === state.activePatchId ? "selected" : ""));
+                rect.setAttribute("data-id", p.id);
+                // We append to the SVG layer visually, but interactions are actually handled by 
+                // the interaction-layer DIV above it peeking through using document.elementFromPoint
+                // or simply by replicating this rect in the interaction layer if needed.
+                // For simplicity in this "Lean" version, we will let the SVG layer handle clicks via pointer-events:all on the class.
+                gHighlights.appendChild(rect);
+            });
+            
+            updateUI();
+        }
+
+        // --- INTERACTION ---
+        function setupEventListeners() {
+            const layer = els.interactionLayer;
+            
+            layer.addEventListener('mousedown', e => {
+                if(e.button !== 0) return;
+                
+                // 1. Check for existing patch click (Peek through)
+                layer.style.pointerEvents = 'none';
+                const below = document.elementFromPoint(e.clientX, e.clientY);
+                layer.style.pointerEvents = 'auto';
+                
+                if(below && below.classList.contains('patch-highlight')) {
+                    const id = below.getAttribute('data-id');
+                    selectPatch(id);
+                    return;
+                }
+                
+                // 2. Start Selection
+                state.isSelecting = true;
+                state.selectionStart = getLocalPos(e);
+                deselect();
+                
+                els.selectionBox.style.display = 'block';
+                els.selectionBox.style.width = '0'; els.selectionBox.style.height = '0';
+                els.selectionBar.style.display = 'none';
+            });
+            
+            layer.addEventListener('mousemove', e => {
+                if(!state.isSelecting) return;
+                const pos = getLocalPos(e);
+                const x = Math.min(pos.x, state.selectionStart.x);
+                const y = Math.min(pos.y, state.selectionStart.y);
+                const w = Math.abs(pos.x - state.selectionStart.x);
+                const h = Math.abs(pos.y - state.selectionStart.y);
+                
+                els.selectionBox.style.left = x + 'px'; els.selectionBox.style.top = y + 'px';
+                els.selectionBox.style.width = w + 'px'; els.selectionBox.style.height = h + 'px';
+            });
+            
+            layer.addEventListener('mouseup', e => {
+                if(!state.isSelecting) return;
+                state.isSelecting = false;
+                
+                const sb = els.selectionBox;
+                const w = parseFloat(sb.style.width);
+                const h = parseFloat(sb.style.height);
+                
+                if(w < 10 || h < 10) {
+                    sb.style.display = 'none';
+                    return;
+                }
+                
+                // Finalize selection rect (percentages)
+                const cw = state.canvas.width; const ch = state.canvas.height;
+                const lx = parseFloat(sb.style.left); const ly = parseFloat(sb.style.top);
+                
+                state.selection = { x: lx/cw, y: ly/ch, w: w/cw, h: h/ch };
+                
+                // Show Bar
+                const rect = layer.getBoundingClientRect();
+                els.selectionBar.style.left = Math.min(window.innerWidth - 200, rect.left + lx) + 'px';
+                els.selectionBar.style.top = (rect.top + ly + h + 10) + 'px';
+                els.selectionBar.style.display = 'flex';
+            });
+
+            // UI Toggles
+            els.chkSource.onchange = () => els.pdfLayer.style.opacity = els.chkSource.checked ? 1 : 0;
+            els.chkSvg.onchange = () => els.svgLayer.style.opacity = els.chkSvg.checked ? 1 : 0;
+            
+            // Buttons
+            document.getElementById('btn-export').onclick = exportSVG;
+            document.getElementById('btn-clear-all').onclick = () => { if(confirm('Clear all?')) { state.patches = []; renderPatches(); }};
+            document.getElementById('btn-delete').onclick = () => { 
+                if(state.activePatchId) {
+                    state.patches = state.patches.filter(p => p.id !== state.activePatchId);
+                    deselect();
+                    renderPatches();
+                }
+            };
+            document.getElementById('btn-regen').onclick = () => {
+                if(state.activePatchId) {
+                    const p = state.patches.find(x => x.id === state.activePatchId);
+                    if(p) { state.selection = p.rect; createPatch('text', p.id); }
+                }
+            };
+            
+            // Tabs
+            document.getElementById('tab-overlay').onclick = () => switchTab('overlay');
+            document.getElementById('tab-debug').onclick = () => switchTab('debug');
+            document.getElementById('fullscreen-toggle').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+        }
+        
+        // --- CORE LOGIC ---
+        
+        function getLocalPos(e) {
+            const r = els.interactionLayer.getBoundingClientRect();
+            return { x: e.clientX - r.left, y: e.clientY - r.top };
+        }
+        
+        function selectPatch(id) {
+            state.activePatchId = id;
+            renderPatches(); // Re-renders to update highlight classes
+            const p = state.patches.find(x => x.id === id);
+            if(p) {
+                els.editor.value = p.svgContent;
+                updateDebug(p);
             }
-          };
-          request.onsuccess = (event) => resolve(event.target.result);
-          request.onerror = (event) => reject(event.target.error);
-        });
-      }
-
-      async function savePDFToDB(blob) {
-        const db = await openDB();
-        return new Promise((resolve, reject) => {
-          const transaction = db.transaction([STORE_NAME], "readwrite");
-          const store = transaction.objectStore(STORE_NAME);
-          const request = store.put(blob, "currentPdf"); // Store with fixed key
-          request.onsuccess = () => resolve();
-          request.onerror = (e) => reject(e);
-        });
-      }
-
-      async function getPDFFromDB() {
-        const db = await openDB();
-        return new Promise((resolve, reject) => {
-          const transaction = db.transaction([STORE_NAME], "readonly");
-          const store = transaction.objectStore(STORE_NAME);
-          const request = store.get("currentPdf");
-          request.onsuccess = (event) => resolve(event.target.result);
-          request.onerror = (e) => reject(e);
-        });
-      }
-
-      function loadPatchesForCurrentPage() {
-          const key = `${STORAGE_KEY_PATCHES}_${state.pageNum}`;
-          const stored = localStorage.getItem(key);
-          appliedPatches = stored ? JSON.parse(stored) : [];
-          // Find max ID to prevent collision
-          currentPatchId = appliedPatches.reduce((max, p) => {
-              const idNum = parseInt(p.id.split('-').pop());
-              return Math.max(max, isNaN(idNum) ? 0 : idNum);
-          }, 0);
-          renderPatchesToSVG();
-          updatePatchDisplay();
-      }
-      
-      function savePatchesForCurrentPage() {
-          const key = `${STORAGE_KEY_PATCHES}_${state.pageNum}`;
-          localStorage.setItem(key, JSON.stringify(appliedPatches));
-      }
-
-      // --- SVG PATCHING CORE ---
-
-      /**
-       * RLE for generating a simplified blueprint of the crop area for the AI.
-       */
-      function convertToSVG_OptimizedRLE(inputCanvas, inputContext) {
-          const ctx = inputContext; const width = inputCanvas.width; const height = inputCanvas.height;
-          const imageData = ctx.getImageData(0, 0, width, height).data;
-          const covered = new Array(width * height).fill(false);
-          const rectData = []; 
-          for (let y = 0; y < height; y++) {
-              for (let x = 0; x < width; x++) {
-                  const i = (y * width + x); if (covered[i]) continue;
-                  const dataIndex = i * 4;
-                  const r = imageData[dataIndex]; const g = imageData[dataIndex+1]; const b = imageData[dataIndex+2]; const a = imageData[dataIndex+3];
-                  if (isNearBackground(r, g, b, a)) { covered[i] = true; continue; }
-                  const color = rgbToHex(r, g, b);
-                  let runLength = 1; let nextX = x + 1;
-                  while (nextX < width) {
-                      const nextI = y * width + nextX; if (covered[nextI]) break;
-                      const idx = nextI * 4;
-                      if (imageData[idx]===r && imageData[idx+1]===g && imageData[idx+2]===b && imageData[idx+3]===a) { runLength++; nextX++; } else break;
-                  }
-                  let rectHeight = 1; let nextY = y + 1;
-                  while (nextY < height) {
-                      let rowMatches = true;
-                      for (let dx = 0; dx < runLength; dx++) {
-                          const pIdx = (nextY * width + x + dx); if (covered[pIdx]) { rowMatches = false; break; }
-                          const dIdx = pIdx * 4;
-                          if (imageData[dIdx]!==r || imageData[dIdx+1]!==g || imageData[dIdx+2]!==b || imageData[dIdx+3]!==a) { rowMatches = false; break; }
-                      }
-                      if (rowMatches) { rectHeight++; nextY++; } else break;
-                  }
-                  const fillOpacity = (a / 255); 
-                  rectData.push({ x, y, width: runLength, height: rectHeight, fill: color, opacity: fillOpacity });
-                  for (let dy = 0; dy < rectHeight; dy++) {
-                      for (let dx = 0; dx < runLength; dx++) { covered[(y + dy) * width + x + dx] = true; }
-                  }
-              } 
-          } 
-          return { rectData, width, height };
-      }
-      
-      function generateSVGPathsFromRLE(rectData) {
-          let segments = [];
-          rectData.forEach(rect => {
-              const rectPath = `M${rect.x} ${rect.y}L${rect.x+rect.width} ${rect.y}L${rect.x+rect.width} ${rect.y+rect.height}L${rect.x} ${rect.y+rect.height}Z`;
-              let pathAttributes = `d="${rectPath}" fill="${rect.fill}"`;
-              if (rect.opacity !== 1) pathAttributes += ` fill-opacity="${rect.opacity.toFixed(2)}"`;
-              segments.push(`<path ${pathAttributes} shape-rendering="crispEdges" />`);
-          });
-          return segments.join('');
-      }
-
-
-      function initSVGCanvas() {
-          const cw = els.theCanvas.width;
-          const ch = els.theCanvas.height;
-
-          // 1. Create the main SVG element (Workbook)
-          const rootSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-          rootSvg.setAttribute('id', 'workbook-svg-element');
-          rootSvg.setAttribute('width', cw);
-          rootSvg.setAttribute('height', ch);
-          rootSvg.setAttribute('viewBox', `0 0 ${cw} ${ch}`);
-          rootSvg.setAttribute('shape-rendering', 'geometricPrecision');
-          rootSvg.style.backgroundColor = 'transparent';
-          rootSvg.style.pointerEvents = 'auto'; // SVG handles patch clicks
-
-          // 2. Add layers for Patches and Highlights
-          rootSvg.innerHTML = `
-              <g id="patches-layer"></g>
-              <g id="highlights-layer"></g>
-          `;
-
-          // 3. Clear and mount
-          els.svgLayerContainer.innerHTML = '';
-          els.svgLayerContainer.appendChild(rootSvg);
-          
-          // 4. Attach click handler to the SVG root for patch selection
-          rootSvg.addEventListener('click', handleSvgClick);
-      }
-      
-      /**
-       * Creates the SVG element for the applied patch (nested SVG)
-       */
-      function createNestedPatch(svgString, rect, bpDims, id) {
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(`<svg>${svgString}</svg>`, "image/svg+xml");
-          const generatedSvg = doc.querySelector('svg');
-          
-          let viewBox = `0 0 ${bpDims.w} ${bpDims.h}`;
-          if (generatedSvg) {
-              // Try to preserve generated viewBox if it exists and is meaningful
-              const vb = generatedSvg.getAttribute('viewBox');
-              if (vb) viewBox = vb;
-          }
-
-          const nested = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-          nested.setAttribute('x', rect.left / 100 * els.theCanvas.width);
-          nested.setAttribute('y', rect.top / 100 * els.theCanvas.height);
-          nested.setAttribute('width', rect.width / 100 * els.theCanvas.width);
-          nested.setAttribute('height', rect.height / 100 * els.theCanvas.height);
-          nested.setAttribute('id', `svg-patch-${id}`);
-          nested.setAttribute('viewBox', viewBox);
-          nested.setAttribute('preserveAspectRatio', 'none');
-          nested.setAttribute('shape-rendering', 'geometricPrecision');
-          nested.style.fill = 'black'; 
-          nested.style.color = 'black'; 
-          nested.style.pointerEvents = 'none'; // Nested SVG should not block clicks
-
-          if (generatedSvg) {
-              while (generatedSvg.firstChild) nested.appendChild(generatedSvg.firstChild);
-          }
-          return nested;
-      }
-
-      /**
-       * Creates the invisible, clickable highlight rectangle for patch selection.
-       */
-      function createHighlightRect(rect, id) {
-          const highlightRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-          highlightRect.setAttribute('x', rect.left / 100 * els.theCanvas.width);
-          highlightRect.setAttribute('y', rect.top / 100 * els.theCanvas.height);
-          highlightRect.setAttribute('width', rect.width / 100 * els.theCanvas.width);
-          highlightRect.setAttribute('height', rect.height / 100 * els.theCanvas.height);
-          highlightRect.setAttribute('data-patch-id', id);
-          highlightRect.setAttribute('id', `highlight-${id}`);
-          highlightRect.classList.add('patch-highlight');
-          return highlightRect;
-      }
-
-
-      function updatePatchDisplay() {
-          const patchesLayer = document.getElementById('patches-layer');
-          const highlightsLayer = document.getElementById('highlights-layer');
-          const patchEditControls = els.patchEditControls;
-
-          if (!patchesLayer || !highlightsLayer) {
-              return; 
-          }
-          
-          patchesLayer.innerHTML = '';
-          highlightsLayer.innerHTML = '';
-
-          appliedPatches.forEach(patch => {
-              // Re-render Patch
-              patchesLayer.appendChild(
-                  createNestedPatch(patch.svgContent, patch.rect, patch.bpDims, patch.id)
-              );
-              // Re-render Highlight
-              highlightsLayer.appendChild(
-                  createHighlightRect(patch.rect, patch.id)
-              );
-          });
-          
-          // Update Patch Count Display
-          els.patchCountDisplay.textContent = `${appliedPatches.length} Patches`;
-
-          // Update Active Patch Display and Edit Controls state
-          if (state.targetPatchId) {
-              els.activePatchDisplay.textContent = `Editing: ${state.targetPatchId}`;
-              // Enable edit controls when a patch is selected
-              patchEditControls.classList.remove('disabled-bar');
-          } else {
-              els.activePatchDisplay.textContent = 'No Patch Selected';
-              // Disable edit controls when no patch is selected
-              patchEditControls.classList.add('disabled-bar');
-          }
-
-          // Generate the final SVG output for the left editor area
-          window.exportCompositeSVG(true); 
-          savePatchesForCurrentPage();
-      }
-      
-      /**
-       * Applies a newly generated patch or regenerates an existing one.
-       */
-      function applyPatch(svgContent, rect, bpDims, patchIdToEdit = null) {
-          
-          const newPatch = {
-              id: patchIdToEdit || generateUniqueId(),
-              rect: rect,
-              svgContent: svgContent,
-              bpDims: bpDims // Blueprint dimensions for viewBox
-          };
-
-          const existingIndex = appliedPatches.findIndex(p => p.id === newPatch.id);
-          if (existingIndex > -1) {
-              appliedPatches[existingIndex] = newPatch; 
-          } else {
-              appliedPatches.push(newPatch); 
-          }
-
-          // Re-render everything
-          updatePatchDisplay();
-          
-          // Select the new/updated patch 
-          state.targetPatchId = newPatch.id;
-          activatePatchEditMode(newPatch.id);
-      }
-      
-      /**
-       * Core function to query Gemini for SVG code.
-       */
-      async function triggerZoomGeneration(patchType, rect, patchIdToEdit = null) {
-          if (!els.theCanvas.width) {
-              els.aiStatus.textContent = "Error: Load document first.";
-              els.aiStatus.classList.remove("hidden");
-              setTimeout(() => els.aiStatus.classList.add("hidden"), 3000);
-              return;
-          }
-          
-          // 1. Get image snippet from PDF canvas
-          const origX = Math.floor(rect.left / 100 * els.theCanvas.width);
-          const origY = Math.floor(rect.top / 100 * els.theCanvas.height);
-          const origW = Math.floor(rect.width / 100 * els.theCanvas.width);
-          const origH = Math.floor(rect.height / 100 * els.theCanvas.height);
-          
-          if (origW <= 0 || origH <= 0) {
-              els.aiStatus.textContent = "Error: Invalid selection size.";
-              els.aiStatus.classList.remove("hidden");
-              setTimeout(() => els.aiStatus.classList.add("hidden"), 3000);
-              return;
-          }
-          
-          // 2. Crop Image (high resolution)
-          const zoomCropCanvas = document.createElement('canvas'); 
-          zoomCropCanvas.width = origW; zoomCropCanvas.height = origH;
-          zoomCropCanvas.getContext('2d').drawImage(state.canvas, origX, origY, origW, origH, 0, 0, origW, origH);
-          const cropBase64 = zoomCropCanvas.toDataURL('image/png');
-
-          // 3. Generate RLE Blueprint for AI guidance
-          const BLUEPRINT_MAX_DIM = 200; 
-          let bpWidth = origW, bpHeight = origH;
-          if (origW > BLUEPRINT_MAX_DIM || origH > BLUEPRINT_MAX_DIM) {
-              const aspectRatio = origW / origH;
-              if (aspectRatio > 1) { // Landscape
-                  bpWidth = BLUEPRINT_MAX_DIM;
-                  bpHeight = Math.round(BLUEPRINT_MAX_DIM / aspectRatio);
-              } else { // Portrait or Square
-                  bpHeight = BLUEPRINT_MAX_DIM;
-                  bpWidth = Math.round(BLUEPRINT_MAX_DIM * aspectRatio);
-              }
-          }
-          
-          const zoomBpCanvas = document.createElement('canvas');
-          zoomBpCanvas.width = bpWidth; zoomBpCanvas.height = bpHeight;
-          zoomBpCanvas.getContext('2d', { willReadFrequently: true }).drawImage(zoomCropCanvas, 0, 0, bpWidth, bpHeight);
-          
-          const zoomBpResult = convertToSVG_OptimizedRLE(zoomBpCanvas, zoomBpCanvas.getContext('2d'));
-          const zoomBlueprintStr = generateSVGPathsFromRLE(zoomBpResult.rectData);
-          
-          // Blueprint dimensions (used for viewBox in nested SVG)
-          const bpDims = { w: bpWidth, h: bpHeight };
-          
-          const blueprintSvg = `<svg viewBox="0 0 ${bpDims.w} ${bpDims.h}">${zoomBlueprintStr}</svg>`;
-
-
-          // 4. Prepare Prompt
-          let prompt = state.prompts.SVG_GENERATE;
-          prompt = prompt.replace("{{patch_type}}", `Generate SVG for a **${patchType}** patch. RLE Blueprint: ${blueprintSvg}`);
-          
-          const parts = [{ text: prompt }, dataURLToGenerativePart(cropBase64)];
-          
-          if (patchType === 'empty') {
-              applyPatch('', rect, bpDims, patchIdToEdit);
-              els.aiStatus.textContent = `Empty patch created.`;
-              els.aiStatus.classList.remove("hidden");
-              setTimeout(() => els.aiStatus.classList.add("hidden"), 2000);
-              closeSelection();
-              return;
-          }
-
-
-          // 5. Query AI
-          els.aiStatus.textContent = `AI Generating ${patchType} Patch...`;
-          els.aiStatus.classList.remove("hidden");
-          els.actionBar.classList.add("disabled-bar");
-
-          try {
-              const resultText = await queryGemini(prompt, parts);
-              if (!resultText) throw new Error("Empty response from AI.");
-
-              const cleanSVG = sanitizeSvgText(resultText);
-              
-              if (cleanSVG.length < 5) throw new Error("AI returned insufficient SVG content.");
-
-              applyPatch(cleanSVG, rect, bpDims, patchIdToEdit);
-              
-              els.aiStatus.textContent = `Patch successfully ${patchIdToEdit ? 'regenerated' : 'created'}!`;
-              closeSelection();
-
-          } catch (e) {
-              console.error("AI Generation Failed:", e);
-              els.aiStatus.textContent = `Error: ${e.message}`;
-          } finally {
-              els.actionBar.classList.remove("disabled-bar");
-              setTimeout(() => els.aiStatus.classList.add("hidden"), 3000);
-          }
-      }
-
-      // --- PUBLIC HANDLERS (New SVG focus) ---
-      
-      /**
-       * Triggered by new-selection-action-bar buttons.
-       */
-      window.initiatePatchGeneration = function(type) {
-          if (!state.selectionRect) return;
-          // Note: Type 'text' will be used for both text and figures in the initial implementation.
-          triggerZoomGeneration(type, state.selectionRect);
-      }
-      
-      /**
-       * Triggered by the edit bar's regenerate button.
-       */
-      window.regenerateActivePatch = function(type) {
-          if (!state.targetPatchId) return;
-          const patch = appliedPatches.find(p => p.id === state.targetPatchId);
-          if (patch) {
-              triggerZoomGeneration(type, patch.rect, patch.id);
-          }
-      }
-      
-      /**
-       * Exports/displays the full composite SVG to the left editor textarea.
-       * @param {boolean} silent - If true, skip status updates and downloading.
-       */
-      window.exportCompositeSVG = function(silent = false) {
-          if (appliedPatches.length === 0) {
-              els.overlayHtmlInput.value = "<!-- No SVG patches applied yet. Select an area and Digitize. -->";
-              if (!silent) {
-                  els.aiStatus.textContent = "No patches to export.";
-                  els.aiStatus.classList.remove("hidden");
-                  setTimeout(() => els.aiStatus.classList.add("hidden"), 2000);
-              }
-              return;
-          }
-
-          const canvasWidth = els.theCanvas.width;
-          const canvasHeight = els.theCanvas.height;
-          let compositeSVGContent = '';
-          
-          // 1. Add white background
-          compositeSVGContent += `<rect x="0" y="0" width="${canvasWidth}" height="${canvasHeight}" fill="white"/>`;
-
-          // 2. Assemble nested SVGs from patches
-          appliedPatches.forEach(patch => {
-              // Convert normalized percentage rect to absolute pixels (which the nested SVG 'x', 'y', 'width', 'height' attributes prefer)
-              const x = patch.rect.left / 100 * canvasWidth;
-              const y = patch.rect.top / 100 * canvasHeight;
-              const w = patch.rect.width / 100 * canvasWidth;
-              const h = patch.rect.height / 100 * canvasHeight;
-              
-              // Use the patch's determined BP dimensions for viewBox
-              const viewBox = `0 0 ${patch.bpDims.w} ${patch.bpDims.h}`;
-
-              const nestedSvg = `
-                  <svg 
-                      x="${x.toFixed(2)}" 
-                      y="${y.toFixed(2)}" 
-                      width="${w.toFixed(2)}" 
-                      height="${h.toFixed(2)}" 
-                      viewBox="${viewBox}" 
-                      preserveAspectRatio="none"
-                      shape-rendering="geometricPrecision"
-                  >
-                      ${patch.svgContent}
-                  </svg>
-              `;
-              compositeSVGContent += nestedSvg;
-          });
-          
-          // 3. Wrap the content in the final SVG container. 
-          const finalSVG = `<svg 
-              xmlns="http://www.w3.org/2000/svg" 
-              width="${canvasWidth}" 
-              height="${canvasHeight}" 
-              viewBox="0 0 ${canvasWidth} ${canvasHeight}"
-              version="1.1" 
-              shape-rendering="geometricPrecision"
-          >
-              <!-- Composite SVG Patches -->
-              ${compositeSVGContent}
-          </svg>`;
-          
-          // 4. Display or Download
-          els.overlayHtmlInput.value = finalSVG;
-          
-          if (!silent) {
-              const blob = new Blob([finalSVG], { type: 'image/svg+xml' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `scitext_page_${state.pageNum}.svg`;
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-              URL.revokeObjectURL(url);
-              
-              els.aiStatus.textContent = "SVG Exported!";
-              els.aiStatus.classList.remove("hidden");
-              setTimeout(() => els.aiStatus.classList.add("hidden"), 2000);
-          }
-      }
-      
-      /**
-       * Clears all patches for the current page.
-       */
-      window.resetPatches = function() {
-          appliedPatches = [];
-          currentPatchId = 0;
-          state.targetPatchId = null; // Clear active selection
-          updatePatchDisplay();
-          els.aiStatus.textContent = "All patches cleared.";
-          els.aiStatus.classList.remove("hidden");
-          setTimeout(() => els.aiStatus.classList.add("hidden"), 2000);
-      }
-      
-      /**
-       * Extracts a raw image and inserts it as a fixed-position <img> tag 
-       * in the SVG text area (for export as a static image placeholder).
-       */
-      window.insertImageFromSelection = function() {
-          if (!state.selectionRect) return;
-
-          const base64 = extractImageSnippet({
-              x: state.selectionRect.pixelX,
-              y: state.selectionRect.pixelY,
-              width: state.selectionRect.pixelW,
-              height: state.selectionRect.pixelH
-          }, AI_IMAGE_SCALE); // Use high scale for image quality
-
-          const rect = state.selectionRect;
-          const bpDims = { 
-              w: rect.pixelW * AI_IMAGE_SCALE, 
-              h: rect.pixelH * AI_IMAGE_SCALE 
-          };
-          
-          const svgContent = `<image width="${bpDims.w}" height="${bpDims.h}" xlink:href="data:image/png;base64,${base64}" />`;
-
-          applyPatch(svgContent, rect, bpDims);
-          
-          els.aiStatus.textContent = `Image patch created.`;
-          els.aiStatus.classList.remove("hidden");
-          setTimeout(() => els.aiStatus.classList.add("hidden"), 2000);
-          closeSelection();
-      }
-
-      window.toggleSourceVisibility = function() {
-          const isChecked = els.chkShowSource.checked;
-          els.overlayCanvasMount.style.opacity = isChecked ? '1' : '0';
-      }
-      
-      window.toggleOverlayVisibility = function() {
-          const isChecked = els.chkShowOverlay.checked;
-          els.svgLayerContainer.style.opacity = isChecked ? '1' : '0';
-      }
-      
-      // --- EVENT HANDLERS ---
-
-      // SVG Click Handler for selecting an existing patch
-      function handleSvgClick(e) {
-          const patchHighlight = e.target.closest('.patch-highlight');
-          if (patchHighlight) {
-              const patchId = patchHighlight.getAttribute('data-patch-id');
-              if (patchId) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  state.targetPatchId = patchId;
-                  // Immediately activate edit state visually
-                  activatePatchEditMode(patchId);
-                  
-                  // FIX: Update Debug View to show the active patch details
-                  const patch = appliedPatches.find(p => p.id === patchId);
-                  if (patch) {
-                      updateDebugViewWithPatch(patch);
-                  }
-              }
-          }
-      }
-      
-      function activatePatchEditMode(patchId) {
-          state.targetPatchId = patchId;
-          
-          // 1. Highlight the box
-          const patch = appliedPatches.find(p => p.id === patchId);
-          if (!patch) return;
-          
-          const rect = patch.rect;
-          const cw = els.theCanvas.width;
-          const ch = els.theCanvas.height;
-          const l = (rect.left / 100) * cw;
-          const t = (rect.top / 100) * ch;
-          const w = (rect.width / 100) * cw;
-          const h = (rect.height / 100) * ch;
-          
-          els.selectionBox.style.left = l + "px";
-          els.selectionBox.style.top = t + "px";
-          els.selectionBox.style.width = w + "px";
-          els.selectionBox.style.height = h + "px";
-          els.selectionBox.style.display = "block";
-          els.selectionBox.classList.add("edit-mode");
-          
-          // 2. Update status and enable edit controls
-          updatePatchDisplay();
-      }
-
-      window.deletePatch = function() {
-          if (!state.targetPatchId) return;
-          appliedPatches = appliedPatches.filter(p => p.id !== state.targetPatchId);
-          closeSelection();
-          updatePatchDisplay();
-      }
-      
-      // NEW: Improved Debug View logic for SVG patches
-      function updateDebugViewWithPatch(patch) {
-          // 1. Source Image from Canvas
-          const cw = els.theCanvas.width;
-          const ch = els.theCanvas.height;
-          const rect = patch.rect;
-          const pixelRect = {
-              x: rect.left / 100 * cw,
-              y: rect.top / 100 * ch,
-              width: rect.width / 100 * cw,
-              height: rect.height / 100 * ch
-          };
-          const base64Source = extractImageSnippet(pixelRect, AI_IMAGE_SCALE);
-          els.debugSourceImg.src = `data:image/png;base64,${base64Source}`;
-          
-          // 2. Rendered SVG Preview
-          // Instead of converting to image, we inject the SVG directly into the container for better fidelity
-          els.debugRenderContainer.innerHTML = patch.svgContent;
-          const previewSvg = els.debugRenderContainer.querySelector('svg');
-          if (previewSvg) {
-              previewSvg.setAttribute('width', '100%');
-              previewSvg.setAttribute('height', '100%');
-              previewSvg.style.display = 'block';
-              if(patch.bpDims) {
-                  previewSvg.setAttribute('viewBox', `0 0 ${patch.bpDims.w} ${patch.bpDims.h}`);
-              }
-          }
-          
-          // 3. Code
-          els.debugHtmlContent.value = patch.svgContent;
-      }
-      
-      // Fallback for "Show Debug" button if it's clicked without selecting a patch
-      window.showDebugView = function() {
-          if (state.targetPatchId) {
-              const patch = appliedPatches.find(p => p.id === state.targetPatchId);
-              if (patch) {
-                  switchMainView("debug");
-                  updateDebugViewWithPatch(patch);
-              }
-          } else {
-              switchMainView("debug");
-              els.debugHtmlContent.value = "No patch selected. Select a patch to view debug info.";
-          }
-      }
-      
-      // AI Log Logic (Placed high for visibility)
-      function renderAiLog() {
-        let logContent = `// === AI Query Log (${aiQueryLog.length} entries - Latest First) ===\n\n`;
-
-        // Note: Log entries are added to the start of the array (unshift), so map in order.
-        aiQueryLog.forEach((entry, index) => {
-          const status = entry.success ? "SUCCESS" : "ERROR";
-          logContent += `// [${index + 1}] ${entry.timestamp} - Status: ${status}\n`;
-          logContent += `// PROMPT:\n${entry.prompt}\n\n`;
-          logContent += `// RESPONSE:\n${entry.response}\n\n`;
-          logContent += "-------------------------------------------------\n\n";
-        });
-
-        return logContent;
-      }
-
-      window.toggleAiLog = function () {
-        state.isLogActive = !state.isLogActive;
-
-        if (state.isLogActive) {
-          // Show Log
-          els.overlayHtmlInput.value = renderAiLog();
-          els.overlayHtmlInput.readOnly = true;
-          els.editorTitle.textContent = "AI LOG";
-          els.showAiLog.textContent = "[Show SVG]";
-          els.editActionBar.classList.add("disabled-bar"); // Always disable bar when in log view
-        } else {
-          // Show SVG
-          window.exportCompositeSVG(true); // Display latest SVG content
-          els.overlayHtmlInput.readOnly = false;
-          els.editorTitle.textContent = "COMPOSITE SVG OUTPUT";
-          els.showAiLog.textContent = "[AI Log]";
-          // Re-enable bar if a patch is still selected
-          if (state.targetPatchId) {
-             els.editActionBar.classList.remove("disabled-bar");
-          } else {
-             els.editActionBar.classList.add("disabled-bar");
-          }
         }
-      };
-      // --- RESTORED PLAYBACK LOGIC ---
-      
-      function stopPlayback() {
-          if (!state.isPlaybackActive) return;
-
-          state.isPlaybackActive = false;
-          clearTimeout(state.playbackInterval);
-          els.playbackText.textContent = "Play History"; 
-          
-          // Clear thumbnail highlights
-          if(els.historyImagesContainer) {
-              const thumbnails = els.historyImagesContainer.children;
-              for (let i = 0; i < thumbnails.length; i++) {
-                  thumbnails[i].style.border = 'none';
-              }
-          }
-          // Note: In SVG mode, we don't have a simple single image swap for "render"
-          // so we rely on the user re-clicking the patch to reset the view if needed.
-      }
-      
-      function startPlayback() {
-          // Check: We need at least one history frame (total frames >= 2, one history + current render)
-          // In SVG mode, we haven't yet implemented full history tracking per patch in the same way.
-          // This placeholder prevents error but doesn't fully enable playback until history data is populated.
-          if (state.isPlaybackActive || state.playbackFrames.length < 2) return;
-
-          state.isPlaybackActive = true;
-          els.playbackText.textContent = "Stop Playback";
-          
-          // Start the cycle
-          cycleHistoryFrame(state.playbackFrames, 0);
-      }
-      
-      function cycleHistoryFrame(frames, currentFrameIndex) {
-          if (!state.isPlaybackActive) return;
-
-          const frame = frames[currentFrameIndex];
-          if (frame) {
-              // This part would need adaptation for SVG string history vs Image base64 history
-              // For now, let's assume frames are images if available
-              // els.debugRenderImg.src = ... 
-              
-              const historyFramesCount = frames.length - 1;
-              if (currentFrameIndex < historyFramesCount) {
-                  const thumbnailIndex = currentFrameIndex;
-                  if (thumbnailIndex >= 0 && els.historyImagesContainer.children[thumbnailIndex]) {
-                    els.historyImagesContainer.children[thumbnailIndex].style.border = '2px solid #6366f1'; 
-                  }
-              }
-
-              let nextIndex = currentFrameIndex + 1;
-              if (nextIndex >= frames.length) nextIndex = 0;
-              
-              state.playbackInterval = setTimeout(() => {
-                  cycleHistoryFrame(frames, nextIndex);
-              }, 600); 
-          } else {
-              stopPlayback();
-          }
-      }
-      
-      window.toggleHistoryPlayback = function() {
-          if (state.isPlaybackActive) {
-              stopPlayback();
-          } else {
-              startPlayback();
-          }
-      }
-
-      // --- OVERRIDES AND INITIALIZATION ---
-
-      function updateOverlayWrapperSize() {
-        if (els.theCanvas) {
-          els.overlayWrapper.style.width = els.theCanvas.width + "px";
-          els.overlayWrapper.style.height = els.theCanvas.height + "px";
-          
-          // IMPORTANT: Re-initialize the SVG canvas when size changes
-          initSVGCanvas();
-          // And re-render patches based on new canvas dimensions
-          renderPatchesToSVG(); 
-        }
-      }
-      
-      function renderPatchesToSVG() {
-          // Clears SVG and re-renders all applied patches, handling resizing implicitly
-          initSVGCanvas(); 
-          updatePatchDisplay(); 
-      }
-      
-      // Clear selection helper - **CRITICAL UPDATE HERE**
-      window.closeSelection = function () {
-        els.selectionBox.style.display = "none";
-        els.selectionBox.classList.remove("edit-mode");
-        els.actionBar.style.display = "none"; 
-        els.selectionLayer.style.pointerEvents = 'none'; // Disable pointer events on selection layer
-        state.selectionRect = null; // Clear new selection data
-        state.targetPatchId = null; // Clear active patch ID
         
-        // This implicitly updates the UI status and disables edit controls
-        updatePatchDisplay();
-      };
-      
-      // Update Selection Layer mouse handler logic
-      els.selectionLayer.addEventListener("mousedown", (e) => {
-        if (e.button !== 0 || !els.theCanvas.width) return;
-        
-        // When we start a drag, we assume a new selection is being made
-        // 1. Disable patch interaction (SVG) by enabling the pointer-blocking layer (this layer)
-        els.selectionLayer.style.pointerEvents = 'all'; 
-        state.isSelecting = true;
-        state.selectionStart = getPointerPos(e);
-        els.selectionBox.style.display = "block";
-        els.selectionBox.style.width = "0px";
-        els.selectionBox.style.height = "0px";
-        els.selectionBox.classList.remove("edit-mode"); // Always start as new selection mode
-        
-        // Clear any previous active patch selection when starting a new drag
-        state.targetPatchId = null; 
-        updatePatchDisplay();
-      });
-
-      els.selectionLayer.addEventListener("mouseup", (e) => {
-        if (!state.isSelecting) return;
-        state.isSelecting = false;
-
-        const currentPos = getPointerPos(e);
-        const width = Math.abs(currentPos.x - state.selectionStart.x);
-        const height = Math.abs(currentPos.y - state.selectionStart.y);
-
-        // 1. Re-enable click-through to allow patch selection next time
-        els.selectionLayer.style.pointerEvents = 'none';
-
-        // 2. CHECK FOR INVALID DRAG (Too small)
-        if (width < 10 || height < 10) {
-          els.selectionBox.style.display = "none";
-          els.editActionBar.classList.add("disabled-bar"); 
-          return;
+        function deselect() {
+            state.activePatchId = null;
+            renderPatches();
+            els.selectionBar.style.display = 'none';
+            els.selectionBox.style.display = 'none';
+            els.editor.value = '';
+            els.contextActions.classList.add('disabled-bar');
+            state.selection = null;
         }
-
-        // 3. NEW SELECTION LOGIC (Drag occurred)
-        const canvasW = els.theCanvas.width;
-        const canvasH = els.theCanvas.height;
-        const x = Math.min(state.selectionStart.x, currentPos.x);
-        const y = Math.min(state.selectionStart.y, currentPos.y);
-
-        state.selectionRect = {
-          left: (x / canvasW) * 100,
-          top: (y / canvasH) * 100,
-          width: (width / canvasW) * 100,
-          height: (height / canvasH) * 100,
-          pixelX: x,
-          pixelY: y,
-          pixelW: width,
-          pixelH: height,
-        };
-
-        // --- Show Action Bar for NEW selection ---
-        const rect = els.selectionLayer.getBoundingClientRect();
-        const absX = rect.left + x;
-        const absY = rect.top + y + height;
-
-        const barWidth = 180;
-        let barLeft = absX + width / 2 - barWidth / 2;
-        let barTop = absY + 10;
-
-        if (barLeft < 10) barLeft = 10;
-        if (barLeft + barWidth > window.innerWidth)
-          barLeft = window.innerWidth - barWidth - 10;
-        if (barTop + 50 > window.innerHeight) {
-          barTop = rect.top + y - 60;
-        }
-
-        els.actionBar.style.left = barLeft + "px";
-        els.actionBar.style.top = barTop + "px";
-        els.actionBar.style.display = "flex";
-      });
-      
-      els.selectionLayer.addEventListener("mousemove", (e) => {
-        if (!state.isSelecting) return;
-        const currentPos = getPointerPos(e);
-        const x = Math.min(state.selectionStart.x, currentPos.x);
-        const y = Math.min(state.selectionStart.y, currentPos.y);
-        const width = Math.abs(currentPos.x - state.selectionStart.x);
-        const height = Math.abs(currentPos.y - state.selectionStart.y);
-
-        els.selectionBox.style.left = x + "px";
-        els.selectionBox.style.top = y + "px";
-        els.selectionBox.style.width = width + "px";
-        els.selectionBox.style.height = height + "px";
-      });
-      
-      // Keyboard Controls - RESTORED
-      document.addEventListener('keydown', (e) => {
-          if (e.key === 'Escape') {
-              window.closeSelection();
-          } else if (e.key === 'Enter') {
-              if (state.selectionRect && els.actionBar.style.display !== 'none') {
-                  // If selection box is active, default to text digitization
-                  e.preventDefault();
-                  window.initiatePatchGeneration('text');
-              } else if (state.targetPatchId) {
-                  // If a patch is selected, default to regeneration
-                  e.preventDefault();
-                  window.regenerateActivePatch('text');
-              }
-          }
-      });
-
-      // Replace unused/obsolete functions with no-ops or necessary calls
-      window.updateStyle = () => { /* No-op in SVG mode */ };
-      window.deleteDiv = window.deletePatch; // Map old function to new one
-      window.clearStyles = () => { /* No-op in SVG mode */ }; 
-      window.runAiReplica = () => { /* No-op */ }; 
-      window.runAiReplicaLoop = () => { /* No-op */ };
-      window.runAiFont = () => { /* No-op */ }; 
-      window.runAiText = () => { /* No-op */ };
-      window.updateOverlayPreview = renderPatchesToSVG; 
-
-      function loadContentForCurrentPage(forcePreviewUpdate = false) {
-          // Load patches instead of transcription data
-          loadPatchesForCurrentPage();
-          if (forcePreviewUpdate) {
-              renderPatchesToSVG();
-          }
-      }
-      
-      function saveContent() {
-        if (!state.isAuthReady) return;
-        if (state.isLogActive) return;
-
-        clearTimeout(state.saveTimeout);
-        state.saveTimeout = setTimeout(() => {
-          savePatchesForCurrentPage();
-          localStorage.setItem(STORAGE_KEY_LAST_PAGE, state.pageNum);
-        }, 1000);
-      }
-      
-      // --- FINAL INITIALIZATION ---
-      
-      async function restoreSessionFromDB() {
-        try {
-          const pdfBlob = await getPDFFromDB();
-          if (pdfBlob) {
-            const lastPageNum = localStorage.getItem(STORAGE_KEY_LAST_PAGE);
-            const lastFilename = localStorage.getItem(STORAGE_KEY_FILENAME);
-            if (lastFilename) {
-              els.restoredFilename.textContent = lastFilename;
-              els.restoreBadge.classList.remove("hidden");
+        
+        function updateUI() {
+            els.patchCount.textContent = `${state.patches.length} Patches`;
+            if(state.activePatchId) els.contextActions.classList.remove('disabled-bar');
+            else els.contextActions.classList.add('disabled-bar');
+            
+            // Auto-update editor with composite if no single patch selected
+            if(!state.activePatchId) {
+                els.editor.value = generateCompositeSVG();
             }
-            const arrayBuffer = await pdfBlob.arrayBuffer();
-            loadPDF(arrayBuffer, lastPageNum ? parseInt(lastPageNum) : 1);
-          } else {
-            // If no PDF is found, load the default image.
-            loadDefaultImage(); 
-          }
-        } catch (error) {
-          console.log("No previous session found or error loading DB:", error);
-          loadDefaultImage();
         }
-      }
-
-      // NEW: Function to load the default image
-      function loadDefaultImage() {
-        if (
-          (state.pdfDoc && !state.pdfDoc.isStaticImage) ||
-          state.pageRendering
-        )
-          return;
-
-        els.pdfLoader.classList.remove("hidden");
-        els.pdfLoader.children[1].textContent = "Loading Sample Image...";
-
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-
-        img.onload = function () {
-          // 1. Set canvas dimensions
-          state.canvas.width = img.width;
-          state.canvas.height = img.height;
-
-          // 2. Draw image
-          state.ctx.drawImage(img, 0, 0);
-
-          // 3. Mock PDF State for compatibility
-          state.pdfDoc = { numPages: 1, isStaticImage: true };
-          state.pageNum = 1;
-
-          // 4. Update UI
-          els.pdfLoader.classList.add("hidden");
-          els.emptyState.classList.add("hidden");
-          els.navControls.style.display = "flex";
-          els.zoomControls.style.display = "none"; 
-
-          // Disable navigation buttons
-          els.prevBtn.disabled = true;
-          els.nextBtn.disabled = true;
-
-          // 5. Finalize setup
-          updateOverlayWrapperSize();
-          loadContentForCurrentPage(true); 
-          els.pdfLoader.children[1].textContent = "Rendering Page...";
-          
-          // Switch to the correct view state, ensuring the SVG canvas is initialized
-          switchMainView("overlay");
-        };
-
-        img.onerror = function () {
-          console.error(
-            "Failed to load default image from URL:",
-            DEFAULT_IMAGE_URL,
-          );
-          els.pdfLoader.classList.add("hidden");
-          els.emptyState.classList.remove("hidden"); 
-          els.pdfLoader.children[1].textContent = "Rendering Page..."; 
-        };
-
-        img.src = DEFAULT_IMAGE_URL; // THIS IS WHERE IT STARTS
-      }
-      
-      // RESTORED: switchMainView function
-      function switchMainView(viewId) {
-        saveContent();
-        state.activeTab = viewId;
         
-        // Stop playback if leaving debug
-        stopPlayback();
-
-        const containers = {
-          source: els.sourceContainer, 
-          overlay: els.overlayContainer,
-          write: els.editorContainerMd, 
-          preview: els.previewContainer, 
-          prompts: els.editorContainerPrompts,
-          debug: els.editorContainerDebug, 
+        // --- AI OPERATIONS ---
+        
+        // Exposed to global scope for HTML onclick handlers
+        window.app = {
+            clearSelection: deselect,
+            createPatch: createPatch
         };
-        const buttons = {
-          overlay: els.tabOverlay,
-          prompts: els.tabPrompts,
-          debug: els.tabDebug, 
-        };
-
-        if (state.isLogActive) {
-          state.isLogActive = false;
+        
+        async function createPatch(type, existingId = null) {
+            const sel = state.selection;
+            if(!sel) return;
+            
+            els.aiStatus.classList.remove('hidden');
+            els.selectionBar.style.display = 'none';
+            
+            // 1. Crop Image
+            const cw = state.canvas.width; const ch = state.canvas.height;
+            const px = Math.floor(sel.x * cw); const py = Math.floor(sel.y * ch);
+            const pw = Math.floor(sel.w * cw); const ph = Math.floor(sel.h * ch);
+            
+            const tmp = document.createElement('canvas');
+            tmp.width = pw * CONFIG.aiScale; 
+            tmp.height = ph * CONFIG.aiScale;
+            const ctx = tmp.getContext('2d');
+            ctx.drawImage(state.canvas, px, py, pw, ph, 0, 0, tmp.width, tmp.height);
+            const base64 = tmp.toDataURL('image/png').split(',')[1];
+            
+            // 2. Prepare Prompt
+            const prompt = `Generate valid SVG code for the text/content in this image.
+            - No markdown.
+            - No <svg> wrapper, just the inner elements (<text>, <path>, etc).
+            - Use font-size and fill="black".
+            - ViewBox context is 0 0 ${tmp.width} ${tmp.height}.
+            ${type === 'empty' ? 'Return empty string.' : ''}`;
+            
+            // 3. Call AI
+            try {
+                let svgContent = '';
+                if(type !== 'empty') {
+                    svgContent = await queryGemini(prompt, base64);
+                    svgContent = svgContent.replace(/```svg/g, '').replace(/```/g, '').trim();
+                }
+                
+                // 4. Save Patch
+                const patch = {
+                    id: existingId || `p${Date.now()}`,
+                    rect: sel,
+                    bpDims: { w: tmp.width, h: tmp.height },
+                    svgContent: svgContent
+                };
+                
+                const idx = state.patches.findIndex(x => x.id === patch.id);
+                if(idx >= 0) state.patches[idx] = patch;
+                else state.patches.push(patch);
+                
+                renderPatches();
+                selectPatch(patch.id);
+                
+            } catch(e) {
+                console.error(e);
+                alert("AI Error: " + e.message);
+            } finally {
+                els.aiStatus.classList.add('hidden');
+                els.selectionBox.style.display = 'none';
+            }
+        }
+        
+        async function queryGemini(text, imageB64) {
+             const body = {
+                 contents: [{
+                     role: "user",
+                     parts: [{ text: text }, { inlineData: { mimeType: "image/png", data: imageB64 } }]
+                 }]
+             };
+             
+             const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${CONFIG.apiKey}`, {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify(body)
+             });
+             
+             if(!resp.ok) throw new Error(await resp.text());
+             const json = await resp.json();
+             return json.candidates[0].content.parts[0].text;
+        }
+        
+        // --- EXPORT & UTILS ---
+        
+        function generateCompositeSVG() {
+            const w = state.canvas.width; const h = state.canvas.height;
+            let out = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n`;
+            out += `<rect width="100%" height="100%" fill="white"/>\n`;
+            state.patches.forEach(p => {
+                const x = (p.rect.x * w).toFixed(2);
+                const y = (p.rect.y * h).toFixed(2);
+                const wid = (p.rect.w * w).toFixed(2);
+                const hei = (p.rect.h * h).toFixed(2);
+                out += `<svg x="${x}" y="${y}" width="${wid}" height="${hei}" viewBox="0 0 ${p.bpDims.w} ${p.bpDims.h}" preserveAspectRatio="none">${p.svgContent}</svg>\n`;
+            });
+            out += `</svg>`;
+            return out;
+        }
+        
+        function exportSVG() {
+            const blob = new Blob([generateCompositeSVG()], {type: 'image/svg+xml'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = "scitext_export.svg";
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        }
+        
+        function switchTab(t) {
+             if(t === 'overlay') {
+                 document.getElementById('workspace-container').classList.remove('hidden');
+                 document.getElementById('debug-container').classList.add('hidden');
+                 document.getElementById('tab-overlay').classList.add('active');
+                 document.getElementById('tab-debug').classList.remove('active');
+             } else {
+                 document.getElementById('workspace-container').classList.add('hidden');
+                 document.getElementById('debug-container').classList.remove('hidden');
+                 document.getElementById('debug-container').classList.add('flex');
+                 document.getElementById('tab-overlay').classList.remove('active');
+                 document.getElementById('tab-debug').classList.add('active');
+             }
+        }
+        
+        function updateDebug(patch) {
+             // Simple debug view population
+             els.debugSvg.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 ${patch.bpDims.w} ${patch.bpDims.h}" style="border:1px solid red">${patch.svgContent}</svg>`;
+             // Note: Source image crop would require re-extraction here, skipped for lean version
+             els.debugLog.textContent = JSON.stringify(patch, null, 2);
         }
 
-        // View specific logic
-        if (viewId === "overlay") {
-          // Mount canvas to overlay wrapper
-          if (els.theCanvas && !els.overlayCanvasMount.contains(els.theCanvas)) {
-             els.overlayCanvasMount.appendChild(els.theCanvas);
-          }
-          // Ensure SVG is rendered
-          renderPatchesToSVG();
-        } else if (viewId === "prompts") {
-          els.promptInput.value = formatPromptsForEditor(state.prompts);
-        }
-
-        // Toggle visibility
-        Object.values(containers).forEach((c) => {
-          if (c) c.classList.add("hidden");
-        });
-        Object.values(buttons).forEach((b) => {
-          if (b) b.classList.remove("active");
-        });
-
-        if (containers[viewId]) containers[viewId].classList.remove("hidden");
-        if (buttons[viewId]) buttons[viewId].classList.add("active");
-      }
-      
-      // NEW: Missing initPersistence function definition restored
-      function initPersistence() {
-        try {
-          const storedData = localStorage.getItem(STORAGE_KEY);
-          if (storedData) transcriptionData = JSON.parse(storedData);
-
-          const storedPrompts = localStorage.getItem(STORAGE_KEY_PROMPTS);
-          if (storedPrompts) {
-            parsePrompts(storedPrompts);
-          }
-          els.promptInput.value = formatPromptsForEditor(state.prompts);
-        } catch (error) {
-          console.error("Error loading persistence data:", error);
-        }
-
-        state.isAuthReady = true;
-        restoreSessionFromDB();
-      }
-
-      // Helper for formatting prompts (used in initPersistence)
-      function formatPromptsForEditor(prompts) {
-        let output = `# AI Prompts Configuration\n\nThis document contains the core system instructions and user queries for the AI model's operations. Edit these templates to refine the model's behavior.\n\n---\n`;
-        for (const key in prompts) {
-          output += `\n## ${key}\n\n\`\`\`\n${prompts[key]}\n\`\`\`\n\n---\n`;
-        }
-        return output.trim();
-      }
-
-      // Helper for parsing prompts
-      function parsePrompts(markdownText) {
-        const blocks = {};
-        const regex = /##\s*(\w+)\s*\n+\s*```\s*([\s\S]*?)\s*```/g;
-        let match;
-        while ((match = regex.exec(markdownText)) !== null) {
-          const key = match[1].trim();
-          const content = match[2].trim();
-          blocks[key] = content;
-        }
-        const requiredKeys = Object.keys(state.prompts);
-        requiredKeys.forEach((key) => {
-          if (blocks[key]) {
-            state.prompts[key] = blocks[key];
-          }
-        });
-      }
-      
-      // --- RESTORED EVENT LISTENERS ---
-      // These were lost during refactor but are essential for header controls
-      
-      els.prevBtn.addEventListener("click", () => {
-        if (state.pdfDoc && !state.pdfDoc.isStaticImage && state.pageNum > 1) {
-          state.pageNum--;
-          queueRenderPage(state.pageNum);
-        }
-      });
-      els.nextBtn.addEventListener("click", () => {
-        if (
-          state.pdfDoc &&
-          !state.pdfDoc.isStaticImage &&
-          state.pageNum < state.pdfDoc.numPages
-        ) {
-          state.pageNum++;
-          queueRenderPage(state.pageNum);
-        }
-      });
-      els.zoomInBtn.addEventListener("click", () => {
-        if (state.pdfDoc && state.pdfDoc.isStaticImage) return; 
-        state.scale += 0.2;
-        els.zoomLevelSpan.innerText = Math.round(state.scale * 100) + "%";
-        queueRenderPage(state.pageNum);
-      });
-      els.zoomOutBtn.addEventListener("click", () => {
-        if (state.pdfDoc && state.pdfDoc.isStaticImage) return; 
-        if (state.scale > 0.4) {
-          state.scale -= 0.2;
-          els.zoomLevelSpan.innerText = Math.round(state.scale * 100) + "%";
-          queueRenderPage(state.pageNum);
-        }
-      });
-      
-      els.fullscreenBtn.addEventListener("click", () => {
-        document.fullscreenElement
-          ? document.exitFullscreen()
-          : document.documentElement.requestFullscreen();
-      });
-      
-      initPersistence();
-      switchMainView("overlay");
+        // Start
+        init();
     </script>
   </body>
 </html>
