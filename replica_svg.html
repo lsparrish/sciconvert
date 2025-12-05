@@ -3,883 +3,1153 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PNG to Semantic SVG Generator (AI-Enhanced)</title>
+    <title>SVG Compositor Workbench</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        /* Base Dark Theme & Font */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f4f7f9;
+            background-color: #121212; /* Deep dark background */
+            color: #E0E0E0; /* Light gray text */
         }
-        /* Custom scrollbar styling for the code output */
-        .code-output::-webkit-scrollbar {
-            height: 8px;
-            width: 8px;
+        
+        /* Scrollbar Styling for Code Blocks */
+        .code-output::-webkit-scrollbar { height: 6px; width: 6px; }
+        .code-output::-webkit-scrollbar-thumb { background: #444444; border-radius: 3px; }
+        .code-output::-webkit-scrollbar-track { background: #1C1C1C; }
+        
+        /* Canvas & Overlays */
+        /* Set cursor on the overlay, which handles the selection drawing */
+        #workbook-overlay { cursor: crosshair; }
+        #original-canvas { image-rendering: pixelated; }
+
+        .canvas-wrapper {
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+            border-radius: 12px;
+            overflow: hidden;
+            background: white; /* Canvas background */
+            max-width: 100%;
+            border: 2px solid #333;
         }
-        .code-output::-webkit-scrollbar-thumb {
-            background: #9ca3af;
-            border-radius: 10px;
+
+        /* Overlay Positioning */
+        #workbook-overlay, #preview-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10;
         }
-        .code-output::-webkit-scrollbar-track {
-            background: #e5e7eb;
-            border-radius: 10px;
+        
+        /* The workbook overlay (for existing patches and selection) needs pointer events */
+        #workbook-overlay {
+             pointer-events: all; 
         }
-        /* Style for the final SVG output to ensure text is legible */
-        #final-preview svg {
-            font-family: 'Inter', sans-serif;
+        /* The preview overlay needs pointer events disabled so clicks go through to workbook for re-selection */
+        #preview-overlay { 
+            z-index: 20;
+            /* Preview overlay is now only used for visual feedback during generation, 
+               but we are removing it/not using it in the simplified flow, 
+               so it can remain pointer-events: none. */
+            pointer-events: none; 
         }
-        /* Ensure canvas and SVG previews align visually */
-        .preview-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+        
+        #workbook-svg-element, #preview-svg-element {
+            width: 100%; height: 100%; display: block;
+            background-color: transparent !important;
+            z-index: 11;
         }
-        #original-canvas, #svg-output, #final-preview {
-            width: 100%;
-            max-width: 500px; /* Max size for visual consistency across previews */
-            height: auto;
-            image-rendering: pixelated; /* Crucial for RLE visualization */
+        
+        /* Floating Action Bar - Sleek Design */
+        #action-bar {
+            position: fixed;
+            bottom: 30px; 
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 50;
+            width: 90%; 
+            max-width: 500px;
+            transition: all 0.3s ease-in-out;
+            background-color: rgba(30, 30, 30, 0.95); /* Semi-transparent dark */
+            backdrop-filter: blur(10px);
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 1rem;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
+            /* FIX: Ensure bar is visible by default by removing opacity/visibility control */
+            opacity: 1; 
+            pointer-events: auto;
         }
-        /* Ensure the SVG is contained correctly for visual alignment */
-        #svg-output svg {
-            display: block;
-            width: 100%;
-            height: auto;
+        /* REMOVED: #action-bar.hidden-bar */
+        
+        /* Utility Sidebar Panel (Fixed on Desktop, Hidden/Modal on Mobile) */
+        .panel-container {
+            width: 320px;
+            background-color: #1E1E1E;
+            box-shadow: -4px 0 15px rgba(0, 0, 0, 0.4);
+            overflow-y: auto;
         }
+        
+        /* Desktop Fixed Sidebar Layout (Two-Column) */
+        @media (min-width: 1024px) {
+            .app-layout {
+                display: flex;
+                flex-direction: row;
+                height: 100vh;
+            }
+            .main-content {
+                flex-grow: 1;
+                /* Max width is important for centering the canvas */
+                max-width: calc(100vw - 320px); 
+            }
+            .panel-container {
+                position: static; /* Remove fixed positioning */
+                height: 100vh;
+                border-left: 1px solid #333;
+                flex-shrink: 0;
+            }
+        }
+        /* Mobile Layout */
+        @media (max-width: 1023px) {
+            .app-layout {
+                flex-direction: column;
+                min-height: 100vh;
+            }
+            .panel-container {
+                 /* Hide on mobile by default, only shown when button is pressed */
+                position: fixed;
+                top: 0; right: 0; bottom: 0; left: 0; 
+                width: 100%;
+                z-index: 70;
+                transform: translateX(100%);
+                transition: transform 0.3s ease-out;
+                border-left: none;
+            }
+            .panel-container.active {
+                transform: translateX(0);
+            }
+        }
+        
+        .panel-header {
+            background-color: #282828;
+            border-bottom: 1px solid #333;
+        }
+
+        /* Button & Form Utilities */
+        .btn { @apply font-medium rounded-lg transition duration-200 py-2 px-4 text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[#121212]; }
+        .btn-primary { @apply btn bg-indigo-600 text-white hover:bg-indigo-500 focus:ring-indigo-500; }
+        .btn-success { @apply btn bg-emerald-600 text-white hover:bg-emerald-500 focus:ring-emerald-500; }
+        .btn-danger { @apply btn bg-red-600 text-white hover:bg-red-500 focus:ring-red-500; }
+        .btn-secondary { @apply btn bg-gray-600 text-white hover:bg-gray-500 focus:ring-gray-500; }
+        .btn-tertiary { @apply btn bg-gray-700 text-gray-300 hover:bg-gray-600 focus:ring-gray-500; }
+        input[type="text"], input[type="number"], textarea {
+            @apply p-2 bg-[#1C1C1C] border border-[#333] rounded-lg text-white text-sm focus:border-indigo-500 focus:ring-indigo-500;
+        }
+        .code-block { @apply bg-black p-3 rounded-lg border border-gray-700; }
+
+        /* Tabs */
+        .tab-button.active { @apply border-indigo-500 text-white; }
+        .tab-button:not(.active) { @apply border-transparent text-gray-400 hover:text-white; }
+        
+        /* New Patch Highlight Style */
+        .patch-highlight {
+            cursor: pointer;
+            stroke: #4F46E5; /* Indigo */
+            stroke-width: 3;
+            fill: none;
+            opacity: 0.0;
+            transition: opacity 0.15s;
+        }
+        .patch-highlight:hover {
+            opacity: 0.8;
+            stroke-width: 4;
+            stroke: #6366f1;
+        }
+        
+        /* Applied Patch List Item Style */
+        .patch-list-item {
+            @apply flex justify-between items-center text-xs p-2 bg-gray-600 rounded cursor-pointer transition duration-150 border-2 border-transparent;
+        }
+        .patch-list-item:hover {
+            @apply bg-gray-500;
+        }
+        .patch-list-item.editing {
+            @apply bg-indigo-700 border-indigo-400 text-white font-semibold;
+        }
+
     </style>
 </head>
-<body class="p-4 sm:p-8">
-
-    <div class="max-w-4xl mx-auto bg-white p-6 rounded-xl shadow-2xl">
-        <h1 class="text-3xl font-bold text-gray-800 mb-6 border-b pb-2">
-            PNG → Optimized SVG Blueprint (2D RLE) → Semantic SVG (AI)
-        </h1>
-        <p class="text-gray-600 mb-6">
-            The image is converted to a highly optimized **2D RLE** pixel-art SVG using the single `<path>` per color method. The Gemini AI uses this precise, geometrically optimized blueprint to generate a clean, semantic SVG replica.
-        </p>
-        <button id="fullscreen-btn" onclick="document.documentElement.requestFullscreen()">Full Screen</button>
-
-        <!-- Input and Controls -->
-        <div class="space-y-4 mb-8 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
-            <label class="block text-sm font-medium text-indigo-700">
-                1. Load your Image
-            </label>
-
-            <!-- Option B: URL Input -->
-            <div class="border p-3 rounded-lg bg-white">
-                <label for="image-url" class="block text-xs font-medium text-gray-700 mb-2">
-                    Enter Image URL
-                </label>
-                <div class="flex space-x-2">
-                    <!-- don't change the URL! -->
-
-                    <input type="text" id="image-url" value="https://lsparrish.github.io/sciconvert/sample.png" placeholder="Enter image URL" class="flex-grow p-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500"/>
-                    <button id="load-url-button" class="py-2 px-4 bg-indigo-500 text-white rounded-lg text-sm hover:bg-indigo-600 transition duration-150">Load URL</button>
-                </div>
-            </div>
-            
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
-                <div class="flex items-center space-x-2">
-                    <label for="max-width" class="text-sm font-medium text-indigo-700 whitespace-nowrap">
-                        2. Max Width:
-                    </label>
-                    <!-- Setting default Max Width to 357 to match the sample image's intrinsic width -->
-                    <input type="number" id="max-width" value="357" min="50" max="2000" class="w-20 p-2 border border-gray-300 rounded-lg text-center focus:ring-indigo-500 focus:border-indigo-500"/>
-                </div>
-                <!-- Removed 2b. Block Size input as 2D RLE finds optimal blocks -->
-            </div>
-            
-            <div class="space-y-4 pt-4">
-                <!-- Step 3a: Client-side Conversion -->
-                <button id="convert-button" 
-                    class="w-full py-3 px-6 bg-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:bg-indigo-700 transition duration-150 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                    onclick="convertToOptimizedSVG()">
-                    3a. Convert Image to Optimized SVG Blueprint (2D RLE)
-                </button>
-                
-                <!-- Step 3b: Initial AI Generation -->
-                <button id="generate-ai-button" disabled
-                    class="w-full py-3 px-6 bg-green-500 text-white font-semibold rounded-xl shadow-lg hover:bg-green-600 transition duration-150 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                    onclick="triggerInitialSemanticGeneration()">
-                    3b. Start Initial Semantic SVG Generation
-                </button>
-                
-                <!-- Step 4: AI Refinement/Retry System (NEW) -->
-                <div class="flex flex-wrap gap-3 items-center p-3 bg-yellow-100 rounded-lg border border-yellow-300">
-                    <label for="max-attempts" class="text-sm font-medium text-yellow-800 whitespace-nowrap">
-                        4. Refinement Attempts:
-                    </label>
-                    <input type="number" id="max-attempts" value="1" min="1" max="10" class="w-16 p-2 border border-yellow-500 rounded-lg text-center text-yellow-800 focus:ring-yellow-600 focus:border-yellow-600"/>
-                    
-                    <button id="refine-ai-button" disabled
-                        class="flex-grow py-3 px-6 bg-yellow-500 text-white font-semibold rounded-xl shadow-lg hover:bg-yellow-600 transition duration-150 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                        onclick="triggerRefinementGeneration()">
-                        Refine SVG (Adjust Fonts/Positions)
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Output Display -->
-        <div id="output-area" class="space-y-8">
-            <div class="grid lg:grid-cols-3 gap-6">
-                <!-- Original Image Canvas -->
-                <div class="bg-gray-100 p-4 rounded-xl shadow-inner col-span-1 preview-container">
-                    <h2 class="text-xl font-semibold mb-3 text-gray-700">Original Image</h2>
-                    <canvas id="original-canvas" class="rounded-lg border border-gray-300 bg-white"></canvas>
-                </div>
-
-                <!-- Generated SVG Intermediate -->
-                <div class="bg-gray-100 p-4 rounded-xl shadow-inner col-span-1 preview-container">
-                    <h2 class="text-xl font-semibold mb-3 text-gray-700">Intermediate SVG</h2>
-                    <!-- Removed p-4 to fix alignment/margin issue -->
-                    <div id="svg-output" class="rounded-lg border border-gray-300 bg-white overflow-hidden min-h-40"> 
-                        <p class="text-gray-500">The generated optimized SVG will appear here.</p>
-                    </div>
-                </div>
-
-                <!-- Generated Final SVG Preview -->
-                <div class="bg-gray-100 p-4 rounded-xl shadow-inner col-span-1 preview-container">
-                    <h2 class="text-xl font-semibold mb-3 text-gray-700">Final Semantic SVG Replica</h2>
-                    <div id="final-preview" class="rounded-lg border border-gray-300 bg-white overflow-auto p-4 min-h-40">
-                        <p class="text-gray-500 p-4">The AI-generated SVG will appear here.</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- SVG Intermediate Code Output -->
-            <div class="bg-gray-800 p-4 rounded-xl">
-                <h2 class="text-xl font-semibold text-white mb-3 flex justify-between items-center">
-                    SVG Intermediate Code (2D RLE Path-Aggregated)
-                    <button id="copy-svg-button" disabled class="text-sm px-3 py-1 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition duration-150 disabled:bg-gray-600">
-                        Copy Intermediate SVG
-                    </button>
-                </h2>
-                <textarea id="svg-code-output" readonly rows="6" class="code-output w-full p-3 text-xs bg-gray-900 text-green-300 border border-gray-700 rounded-lg resize-none"></textarea>
-            </div>
-
-            <!-- Final SVG Code Output -->
-            <div class="bg-gray-800 p-4 rounded-xl">
-                <h2 class="text-xl font-semibold text-white mb-3 flex justify-between items-center">
-                    Generated Semantic SVG Code
-                    <button id="copy-final-button" disabled class="text-sm px-3 py-1 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition duration-150 disabled:bg-gray-600">
-                        Copy Final SVG
-                    </button>
-                </h2>
-                <textarea id="final-code-output" readonly rows="6" class="code-output w-full p-3 text-xs bg-gray-900 text-green-300 border border-gray-700 rounded-lg resize-none"></textarea>
-            </div>
-
-            <!-- API Logs Panel -->
-            <div class="bg-gray-700 p-4 rounded-xl space-y-4">
-                <h2 class="text-xl font-semibold text-white">API Logs (Payload & Response)</h2>
-                <div id="log-attempt-info" class="text-sm text-yellow-300">Last Attempt: N/A</div>
-                <div class="grid md:grid-cols-2 gap-4">
-                    <!-- Request Payload Log -->
-                    <div>
-                        <h3 class="text-lg font-medium text-gray-300 mb-2">Request Payload (JSON)</h3>
-                        <textarea id="payload-output" readonly rows="10" class="code-output w-full p-3 text-xs bg-gray-900 text-yellow-200 border border-gray-600 rounded-lg resize-none"></textarea>
-                    </div>
-                    <!-- Response Log -->
-                    <div>
-                        <h3 class="text-lg font-medium text-gray-300 mb-2">Response (JSON)</h3>
-                        <textarea id="response-output" readonly rows="10" class="code-output w-full p-3 text-xs bg-gray-900 text-cyan-200 border border-gray-600 rounded-lg resize-none"></textarea>
-                    </div>
-                </div>
-                <!-- Image Data Thumbnail -->
-                <div id="image-data-area" class="p-3 bg-gray-800 rounded-lg hidden">
-                    <h4 class="text-sm font-medium text-gray-400 mb-2">Image Data for Payload (Click Thumbnail to View Full Image)</h4>
-                    <div id="image-thumbnail-container" class="w-24 h-auto cursor-pointer rounded-lg overflow-hidden border-2 border-indigo-400 shadow-lg transition hover:shadow-indigo-500/50"></div>
-                </div>
-            </div>
-
-
-            <!-- Messages -->
-            <div id="message-box" class="p-3 text-sm rounded-lg transition duration-300 opacity-0 hidden"></div>
-        </div>
-    </div>
+<body class="min-h-screen">
+<div class="app-layout">
     
-    <!-- Simple Modal for Full Image View -->
-    <div id="image-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 hidden" onclick="this.classList.add('hidden')">
-        <div class="bg-white p-2 rounded-lg max-w-4xl max-h-full" onclick="event.stopPropagation()">
-            <img id="modal-image" class="max-w-full max-h-[90vh] object-contain" alt="Full size image data">
+    <!-- MAIN CONTENT AREA (Canvas) -->
+    <div class="main-content flex flex-col items-center justify-start pt-10 pb-32">
+        <h1 class="text-3xl font-bold text-white mb-8 tracking-wide">
+            <span class="text-indigo-400">SVG</span> Compositor
+        </h1>
+        
+        <div class="canvas-wrapper mb-6">
+            <canvas id="original-canvas" class="block"></canvas>
+            <div id="workbook-overlay"></div>
+            <!-- Preview overlay is no longer needed in this simplified flow, but kept for structural consistency -->
+            <div id="preview-overlay"></div>
+        </div>
+
+        <div class="w-full max-w-[500px] space-y-2">
+            <div id="workbook-status" class="text-center text-sm text-gray-400 py-2">
+                <span id="status-text">Draw a selection box or click an existing patch to edit.</span>
+            </div>
+            
+            <div class="flex justify-center mt-4 space-x-4">
+                <!-- Toggle Workbook Overlay -->
+                <label class="flex items-center space-x-2 cursor-pointer bg-gray-700 px-3 py-1 rounded-full border border-gray-600 hover:bg-gray-600 transition">
+                    <input type="checkbox" id="toggle-workbook" class="h-4 w-4 text-indigo-500 rounded bg-gray-800 border-gray-600 focus:ring-0" checked onchange="toggleWorkbookVisibility()">
+                    <span class="text-xs font-medium text-gray-300">SVG Layer</span>
+                </label>
+                
+                <!-- Toggle Background Image (Canvas) -->
+                 <label class="flex items-center space-x-2 cursor-pointer bg-gray-700 px-3 py-1 rounded-full border border-gray-600 hover:bg-gray-600 transition">
+                    <input type="checkbox" id="toggle-background" class="h-4 w-4 text-emerald-500 rounded bg-gray-800 border-gray-600 focus:ring-0" checked onchange="toggleBackgroundVisibility()">
+                    <span class="text-xs font-medium text-gray-300">Background Image</span>
+                </label>
+             </div>
         </div>
     </div>
+
+    <!-- UTILITY SIDEBAR PANEL (Fixed Right Column on Desktop) -->
+    <div id="movable-panel" class="panel-container">
+        <div id="panel-header" class="panel-header p-4 flex justify-between items-center select-none">
+            <span class="font-bold text-sm text-indigo-400 uppercase tracking-widest">Workbench</span>
+            <button id="close-panel-btn" class="lg:hidden text-gray-400 hover:text-white text-lg transition duration-150" onclick="togglePanel(false)">
+                &times; Close
+            </button>
+        </div>
+        
+        <!-- Tabbed Content -->
+        <div class="p-4">
+            <div class="flex border-b border-gray-700 mb-4">
+                <button data-tab="setup" class="tab-button text-sm font-semibold py-2 px-4 border-b-2 transition duration-200" onclick="showPanelTab('setup')">Setup</button>
+                <button data-tab="code" class="tab-button text-sm font-semibold py-2 px-4 border-b-2 transition duration-200" onclick="showPanelTab('code')">Code</button>
+                <button data-tab="logs" class="tab-button text-sm font-semibold py-2 px-4 border-b-2 transition duration-200" onclick="showPanelTab('logs')">API Logs</button>
+            </div>
+
+            <!-- Tab Content: Setup (Inputs & Controls) -->
+            <div id="tab-setup" class="tab-content space-y-4">
+                <div class="space-y-3 p-3 bg-gray-700 rounded-lg border border-gray-600">
+                    <h3 class="text-xs font-semibold text-gray-300 uppercase border-b border-gray-600 pb-1">Image Source</h3>
+                    <label class="block text-xs font-semibold text-gray-400 mb-1">Image URL</label>
+                    <div class="flex space-x-2">
+                        <input type="text" id="image-url" value="https://lsparrish.github.io/sciconvert/sample.png" class="flex-grow" placeholder="Image URL"/>
+                        <button id="load-url-button" class="px-3 py-1 btn-primary">Load</button>
+                    </div>
+                </div>
+
+                <div class="space-y-3 p-3 bg-gray-700 rounded-lg border border-gray-600">
+                    <h3 class="text-xs font-semibold text-gray-300 uppercase border-b border-gray-600 pb-1">Canvas & State</h3>
+                    <label class="block text-xs font-semibold text-gray-400 mb-1">Max Processing Width (px)</label>
+                    <input type="number" id="max-width" value="714" min="50" max="2000" class="w-full text-center"/>
+                    <button id="convert-button" onclick="initWorkbookBaseEmpty()" class="w-full mt-3 btn-tertiary">
+                        Re-Initialize Workbook (Empty)
+                    </button>
+                    <button id="export-button" onclick="exportCompositeSVG()" class="w-full mt-2 btn-success">
+                        Export Composite SVG
+                    </button>
+                </div>
+
+                <div id="applied-patches-container" class="space-y-3 p-3 bg-gray-700 rounded-lg border border-gray-600">
+                    <h3 class="text-xs font-semibold text-gray-300 uppercase border-b border-gray-600 pb-1">Applied Patches (0)</h3>
+                    <div id="applied-patches-list" class="text-sm text-gray-400">
+                        No patches applied yet.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Content: Code Inspection -->
+            <div id="tab-code" class="tab-content space-y-4 hidden">
+                <div class="code-block space-y-3">
+                    <h3 class="text-xs font-semibold text-gray-400 uppercase">Region Blueprint (RLE SVG)</h3>
+                    <textarea id="svg-code-output" readonly rows="6" class="code-output w-full p-2 text-xs text-yellow-300 rounded resize-none" placeholder="Blueprint SVG Output"></textarea>
+                </div>
+                <div class="code-block space-y-3">
+                    <h3 class="text-xs font-semibold text-gray-400 uppercase">Last Patch SVG Output (AI Generated)</h3>
+                    <textarea id="zoom-code-output" readonly rows="6" class="code-output w-full p-2 text-xs text-cyan-300 rounded resize-none" placeholder="AI-generated SVG Patch"></textarea>
+                </div>
+                <div class="code-block space-y-3">
+                    <h3 class="text-xs font-semibold text-gray-400 uppercase">Composite SVG Output (Merged)</h3>
+                    <textarea id="composite-code-output" readonly rows="6" class="code-output w-full p-2 text-xs text-emerald-300 rounded resize-none" placeholder="Merged SVG Output"></textarea>
+                </div>
+            </div>
+
+            <!-- Tab Content: API Communication Logs -->
+            <div id="tab-logs" class="tab-content space-y-4 hidden">
+                <div class="code-block space-y-3">
+                    <h3 class="text-xs font-semibold text-gray-400 uppercase">API Communication</h3>
+                    <div id="log-attempt-info" class="text-xs text-indigo-300 mb-2">Last Attempt: N/A</div>
+                    <label class="block text-xs font-semibold text-gray-400 mb-1">Request Payload</label>
+                    <textarea id="payload-output" readonly rows="4" class="code-output w-full p-2 text-xs text-red-300 rounded resize-none" placeholder="Request Payload (Redacted)"></textarea>
+                    <label class="block text-xs font-semibold text-gray-400 mb-1">Response (Raw JSON)</label>
+                    <textarea id="response-output" readonly rows="4" class="code-output w-full p-2 text-xs text-green-300 rounded resize-none" placeholder="Response JSON"></textarea>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+</div>
+
+    <!-- Floating Action Bar -->
+    <div id="action-bar">
+        <div class="flex justify-between items-center mb-4 border-b border-[#333] pb-3">
+            <span id="action-bar-title" class="text-sm font-bold text-white uppercase tracking-wider">Draw a selection box or click a patch.</span>
+            <button id="open-panel-btn" class="lg:hidden btn-tertiary px-3 py-1" onclick="togglePanel(true)">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 inline-block align-text-bottom mr-1">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
+                </svg>
+                Details
+            </button>
+        </div>
+
+        <!-- SELECTION ACTIONS -->
+        <div id="actions-selection" class="hidden flex gap-3">
+            <button onclick="clearSelection()" class="flex-1 btn-secondary">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 inline-block align-text-bottom mr-1">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Cancel
+            </button>
+            <button onclick="triggerZoomGeneration()" class="flex-[2] btn-primary">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 inline-block align-text-bottom mr-1">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 01-3.08-3.08L3.75 12l2.846-.813a4.5 4.5 0 013.08-3.08L12 3.75l.813 2.846a4.5 4.5 0 013.08 3.08L18.75 12l-2.846.813a4.5 4.5 0 01-3.08 3.08zM17.5 7.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5z" />
+                </svg>
+                Generate Detail
+            </button>
+        </div>
+
+        <!-- REGENERATE ACTIONS -->
+        <div id="actions-regenerate" class="hidden flex gap-3">
+            <button onclick="deletePatch()" class="flex-1 btn-danger">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 inline-block align-text-bottom mr-1">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.166m7.5 0a48.08 48.08 0 003.478-.397M11.25 10.5h.008v.008h-.008V10.5zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                </svg>
+                Delete Patch
+            </button>
+            <button onclick="triggerZoomGeneration(selectionState.editingPatchId)" class="flex-[2] btn-primary">
+                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 inline-block align-text-bottom mr-1">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+                Regenerate
+            </button>
+        </div>
+
+        <!-- APPROVAL ACTIONS (REMOVED: Keeping the block but hiding it) -->
+        <div id="actions-approval" class="hidden flex gap-3">
+            <button onclick="discardPatch()" class="flex-1 btn-danger">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 inline-block align-text-bottom mr-1">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.166m7.5 0a48.08 48.08 0 003.478-.397M11.25 10.5h.008v.008h-.008V10.5zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                </svg>
+                Discard
+            </button>
+            <button onclick="triggerZoomGeneration(selectionState.editingPatchId)" class="flex-1 btn-secondary">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 inline-block align-text-bottom mr-1">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+                Retry
+            </button>
+            <button onclick="acceptPatch()" class="flex-[2] btn-success">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 inline-block align-text-bottom mr-1">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Accept & Apply
+            </button>
+        </div>
+    </div>
+
+    <!-- Message Box (Toast Notification) -->
+    <div id="message-box" class="fixed top-4 right-4 max-w-sm z-50 p-4 rounded-xl shadow-2xl transition-opacity duration-300 opacity-0 hidden text-sm font-medium"></div>
 
     <script>
         const urlInput = document.getElementById('image-url');
         const loadUrlButton = document.getElementById('load-url-button');
         const canvas = document.getElementById('original-canvas');
-        
-        // --- BUTTONS & INPUTS ---
-        const convertButton = document.getElementById('convert-button');
-        const generateAiButton = document.getElementById('generate-ai-button');
-        const refineAiButton = document.getElementById('refine-ai-button'); // NEW
-        const maxAttemptsInput = document.getElementById('max-attempts');
-        const MAX_WIDTH_INPUT = document.getElementById('max-width'); 
-        // SAMPLE_SIZE_INPUT is no longer needed
-
-        const svgOutput = document.getElementById('svg-output');
-        const finalPreview = document.getElementById('final-preview');
+        const convertButton = document.getElementById('convert-button'); 
         const svgCodeOutput = document.getElementById('svg-code-output');
-        const finalCodeOutput = document.getElementById('final-code-output');
-        const copySvgButton = document.getElementById('copy-svg-button');
-        const copyFinalButton = document.getElementById('copy-final-button');
         const messageBox = document.getElementById('message-box');
-        
-        // LOGGING CONSTANTS
+        const actionBar = document.getElementById('action-bar');
+        const actionBarTitle = document.getElementById('action-bar-title');
+        const actionsSelection = document.getElementById('actions-selection');
+        const actionsApproval = document.getElementById('actions-approval');
+        const actionsRegenerate = document.getElementById('actions-regenerate');
+        const zoomCropCanvas = document.createElement('canvas'); 
+        const zoomCodeOutput = document.getElementById('zoom-code-output');
+        const compositeCodeOutput = document.getElementById('composite-code-output'); 
+        const workbookOverlay = document.getElementById('workbook-overlay');
+        const previewOverlay = document.getElementById('preview-overlay');
+        const toggleWorkbookCheckbox = document.getElementById('toggle-workbook');
+        const toggleBackgroundCheckbox = document.getElementById('toggle-background');
+        const workbookStatus = document.getElementById('status-text');
         const payloadOutput = document.getElementById('payload-output');
         const responseOutput = document.getElementById('response-output');
-        const imageDataArea = document.getElementById('image-data-area');
-        const imageThumbnailContainer = document.getElementById('image-thumbnail-container');
-        const imageModal = document.getElementById('image-modal');
-        const modalImage = document.getElementById('modal-image');
         const logAttemptInfo = document.getElementById('log-attempt-info'); 
+        const MAX_WIDTH_INPUT = document.getElementById('max-width');
+        const appliedPatchesList = document.getElementById('applied-patches-list');
+        const appliedPatchesContainer = document.getElementById('applied-patches-container');
 
-        let loadedImage = {
-            img: null,
-            originalWidth: 0,
-            originalHeight: 0
-        };
-        
         const apiKey = ""; 
-        let base64ImageString = null; 
-        let rawSVGBlueprint = null; 
+
+        // Movable Panel Elements
+        const movablePanel = document.getElementById('movable-panel');
         
-        // --- NEW STATE ---
-        let lastSuccessfulSemanticSVG = ''; // Stores the output of the last successful run
+        let loadedImage = { img: null, originalWidth: 0, originalHeight: 0, displayScale: 1 };
+        
+        // --- NEW PERSISTENCE DATA STRUCTURE ---
+        // Stores {id, rect, svgContent, bpDims} for all applied patches
+        let appliedPatches = []; 
+        let currentPatchId = 0;
+        // -------------------------------------
 
-        // Strategy Enum - Simplified
-        const Modes = {
-            INITIAL: 'INITIAL',
-            REFINE: 'REFINE'
+        let workbookRLEData = []; 
+        let workbookScaleX = 1; 
+        let workbookScaleY = 1;
+        
+        const BLUEPRINT_MAX_WIDTH = 150; 
+        const Modes = { ZOOM: 'ZOOM' };
+        let selectionState = { 
+            isSelecting: false, 
+            startX: 0, 
+            startY: 0, 
+            currentRect: null, // Used for new selection
+            editingPatchId: null // Used for clicking existing patch
         };
+        // Removed: let pendingPatch = null; 
 
-        // Utility to display temporary messages
+        // --- PANEL CONTROL LOGIC (Mobile only) ---
+        function togglePanel(activate) {
+            movablePanel.classList.toggle('active', activate);
+        }
+
+        // --- TABBED PANEL LOGIC ---
+        function showPanelTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => {
+                el.classList.add('hidden');
+            });
+            document.querySelectorAll('.tab-button').forEach(el => {
+                el.classList.remove('active');
+            });
+            
+            const content = document.getElementById(`tab-${tabId}`);
+            if (content) content.classList.remove('hidden');
+            
+            const button = document.querySelector(`.tab-button[data-tab="${tabId}"]`);
+            if (button) button.classList.add('active');
+        }
+
+
+        // --- UTILS ---
+        function generateUniqueId() {
+            currentPatchId += 1;
+            return `patch-${currentPatchId}`;
+        }
+
         function showMessage(text, isError = false) {
             messageBox.textContent = text;
-            messageBox.className = `p-3 text-sm rounded-lg transition duration-300 opacity-100`;
-            if (isError) {
-                messageBox.classList.add('bg-red-100', 'text-red-700');
-            } else {
-                messageBox.classList.add('bg-yellow-100', 'text-yellow-700');
-            }
+            messageBox.className = `fixed top-4 right-4 max-w-sm z-50 p-4 rounded-xl shadow-2xl transition-opacity duration-300 opacity-100 ${isError ? 'bg-red-800 text-red-100 border border-red-600' : 'bg-indigo-800 text-indigo-100 border border-indigo-600'}`;
             messageBox.style.display = 'block';
-            setTimeout(() => {
-                messageBox.classList.remove('opacity-100');
-                messageBox.classList.add('opacity-0');
-                setTimeout(() => messageBox.style.display = 'none', 300);
-            }, 5000);
+            setTimeout(() => { messageBox.classList.remove('opacity-100'); messageBox.classList.add('opacity-0'); setTimeout(() => messageBox.style.display = 'none', 300); }, 5000);
         }
         
-        // Helper function to convert the canvas content to a data URL (JPEG for compression)
-        function canvasToDataURL() {
-            // Using PNG for higher quality blueprint fidelity, although it results in larger API payloads.
-            return canvas.toDataURL('image/png'); 
-        }
-
-        // Helper function to create the multi-part structure for the Gemini API
         function dataURLToGenerativePart(dataURL) {
             const parts = dataURL.split(';base64,');
-            if (parts.length !== 2) {
-                throw new Error("Invalid data URL format.");
-            }
-            const mimeType = parts[0].split(':')[1];
-            const base64Data = parts[1];
-
-            return {
-                inlineData: {
-                    data: base64Data,
-                    mimeType: mimeType
-                }
-            };
+            return { inlineData: { data: parts[1], mimeType: parts[0].split(':')[1] } };
         }
-
-        // Helper function to convert base64 SVG string to a base64-data-URL for API attachment
-        function base64ToSVGPart(svgString) {
-            // 1. Encode the raw SVG string to Base64
-            const base64Svg = btoa(unescape(encodeURIComponent(svgString)));
-            
-            // 2. Return the inlineData structure
-            return {
-                inlineData: {
-                    data: base64Svg,
-                    mimeType: 'image/svg+xml'
-                }
-            };
-        }
-
-        // Handles displaying the thumbnail and modal functionality
-        function displayImageThumbnail(base64Data, mimeType) {
-            imageDataArea.classList.remove('hidden');
-            imageThumbnailContainer.innerHTML = ''; 
-
-            const img = document.createElement('img');
-            img.src = base64Data;
-            img.classList.add('w-full', 'h-full', 'object-contain');
-            
-            imageThumbnailContainer.appendChild(img);
-
-            // Set up click handler for the modal
-            imageThumbnailContainer.onclick = () => {
-                modalImage.src = base64Data;
-                imageModal.classList.remove('hidden');
-            };
-        }
-
-
-        // Helper function to load and draw an image onto the canvas (scaling it down for processing)
-        function loadImage(source, isUrl = false) {
-            convertButton.disabled = true;
-            generateAiButton.disabled = true;
-            refineAiButton.disabled = true; // Disable refine button on new load
-            lastSuccessfulSemanticSVG = ''; // Clear previous output
-            
-            if (isUrl) {
-                showMessage('Attempting to load image from URL...', false);
-                loadUrlButton.disabled = true;
-            }
-
-            const img = new Image();
-            img.crossOrigin = "Anonymous"; 
-
-            img.onload = () => {
-                loadedImage.img = img;
-                loadedImage.originalWidth = img.width;
-                loadedImage.originalHeight = img.height;
-                
-                const MAX_WIDTH = parseInt(MAX_WIDTH_INPUT.value) || 357; // Use 357 as fallback
-                let width = loadedImage.originalWidth; 
-                let height = loadedImage.originalHeight; 
-                
-                if (width > MAX_WIDTH) {
-                    height = (height / width) * MAX_WIDTH;
-                    width = MAX_WIDTH;
-                }
-                
-                // CRUCIAL FIX: Ensure integer dimensions are locked immediately
-                const finalWidth = Math.floor(width);
-                const finalHeight = Math.floor(height);
-
-                canvas.width = finalWidth;
-                canvas.height = finalHeight;
-                const ctx = canvas.getContext('2d');
-                ctx.clearRect(0, 0, finalWidth, finalHeight);
-                ctx.drawImage(img, 0, 0, finalWidth, finalHeight); 
-                
-                console.log(`Canvas initialized to dimensions: ${finalWidth}x${finalHeight}`); // Debugging log
-                
-                base64ImageString = canvasToDataURL();
-
-                convertButton.disabled = false;
-                if (isUrl) loadUrlButton.disabled = false;
-                showMessage(`Image loaded. Processing dimensions: ${finalWidth}x${finalHeight}px. Click '3a' to convert.`, false);
-            };
-
-            img.onerror = () => {
-                loadedImage.img = null;
-                if (isUrl) loadUrlButton.disabled = false;
-                showMessage('Error loading image. Check URL or file format.', true);
-                convertButton.disabled = true;
-                generateAiButton.disabled = true;
-                refineAiButton.disabled = true;
-            };
-
-            img.src = source;
-        }
-
-        // Handle URL Load
-        loadUrlButton.addEventListener('click', () => {
-            const url = urlInput.value.trim();
-            if (url) {
-                loadImage(url, true);
-            } else {
-                showMessage('Please enter a valid image URL.', true);
-            }
-        });
-
-        // Get user-friendly description of a strategy
-        function getModeDescription(mode) {
-            return mode === Modes.INITIAL ? 'Initial Generation' : 'Refinement';
-        }
-
-        // Removed compressSVG function as we are now sending SVG as a data attachment.
-        
-        /**
-         * 3a. STEP 1: Client-side PNG/Canvas to SVG Conversion
-         * Converts the current canvas content into a highly optimized, path-aggregated SVG string 
-         * using the advanced 2D RLE algorithm.
-         */
-        function convertToOptimizedSVG() {
-            if (!loadedImage.img) {
-                showMessage('Please load an image first.', true);
-                return;
-            }
-
-            // Reset state for a new conversion run
-            rawSVGBlueprint = null;
-            lastSuccessfulSemanticSVG = ''; 
-            convertButton.disabled = true;
-            generateAiButton.disabled = true;
-            refineAiButton.disabled = true;
-            
-            svgOutput.innerHTML = '<div class="text-gray-500">Generating Optimized 2D RLE SVG...</div>';
-            svgCodeOutput.value = '';
-            finalPreview.innerHTML = '<div class="text-gray-500">Awaiting Semantic SVG...</div>';
-            finalCodeOutput.value = '';
-            copySvgButton.disabled = true;
-            copyFinalButton.disabled = true;
-            payloadOutput.value = '';
-            responseOutput.value = '';
-            imageDataArea.classList.add('hidden');
-            logAttemptInfo.textContent = `Last Attempt: N/A`;
-
-
-            convertButton.textContent = '3a. Converting to Optimized SVG...';
-
-            try {
-                // Step 1: Generate Optimized SVG from Canvas using 2D RLE
-                rawSVGBlueprint = convertToSVG_OptimizedRLE(); // Use the RLE/Path function
-                
-                // For direct alignment, we wrap the raw SVG string in a div for display
-                svgOutput.innerHTML = rawSVGBlueprint; 
-                svgCodeOutput.value = rawSVGBlueprint;
-                copySvgButton.disabled = false;
-                showMessage('Step 1: Optimized 2D RLE SVG blueprint created. Ready for initial AI generation (3b).', false);
-            } catch (error) {
-                console.error("SVG Generation Error:", error);
-                showMessage(`Optimized SVG Conversion failed: ${error.message}.`, true);
-                rawSVGBlueprint = null;
-            }
-
-            // Success: Enable the AI generation button
-            convertButton.disabled = false;
-            convertButton.textContent = '3a. Convert Image to Optimized SVG Blueprint (2D RLE)';
-            if (rawSVGBlueprint) {
-                generateAiButton.disabled = false;
-            }
-        }
-        
-        // Helper function to convert RGB components to a single hexadecimal color string
-        function rgbToHex(r, g, b) {
-            // Note: Alpha is handled separately for transparency
-            return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
-        }
-
-        // Helper function to check if a color is close to the background color (255, 255, 255)
+        function compressSVG(svgString) { return svgString.replace(/\s+/g, ' ').replace(/>\s*</g, '><').trim(); }
+        function rgbToHex(r, g, b) { return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase(); }
         function isNearBackground(r, g, b, a) {
-            // Treat near-transparent as background (alpha < 10/255)
             if (a < 10) return true; 
-
-            // Background color is pure white
-            const backgroundR = 255;
-            const backgroundG = 255;
-            const backgroundB = 255;
-            
-            // Increased Tolerance: 1000 (approx 31*31). This aggressively filters out anti-aliasing pixels.
-            const toleranceSquared = 1000; 
-
-            const distSq = (r - backgroundR) * (r - backgroundR) +
-                           (g - backgroundG) * (g - backgroundG) +
-                           (b - backgroundB) * (b - backgroundB);
-
-            return distSq < toleranceSquared;
+            const distSq = (r - 255)**2 + (g - 255)**2 + (b - 255)**2;
+            return distSq < 1000;
         }
 
-        // CORE LOGIC: Optimized 2D RLE from the external converter (with tolerance added)
-        function convertToSVG_OptimizedRLE() {
-            const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            const width = canvas.width;
-            const height = canvas.height;
-            const imageData = ctx.getImageData(0, 0, width, height).data;
+        // --- VISIBILITY CONTROLS ---
+        function toggleBackgroundVisibility() {
+             const isVisible = toggleBackgroundCheckbox.checked;
+             canvas.style.display = isVisible ? 'block' : 'none';
+             
+             const wrapper = canvas.parentElement;
+             if (wrapper) {
+                 // Set canvas wrapper background to black/dark when image is hidden
+                 wrapper.style.backgroundColor = isVisible ? 'white' : '#282828';
+             }
+        }
+        function toggleWorkbookVisibility() {
+            const isVisible = toggleWorkbookCheckbox.checked;
+            workbookOverlay.style.display = isVisible ? 'block' : 'none';
+        }
 
-            // Define colors to ignore (standard white background) - Note: BACKGROUND_A=255 check is now handled by isNearBackground
-            const BACKGROUND_R = 255;
-            const BACKGROUND_G = 255;
-            const BACKGROUND_B = 255;
-            const BACKGROUND_A = 255; 
-
-            const pixelCount = width * height;
-            const covered = new Array(pixelCount).fill(false); // Tracks pixels already included in a rect
-            
-            const rectData = []; 
-            let rectCount = 0;
-
-            // Iterate row by row (y-axis)
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const i = (y * width + x); // 1D pixel index
-
-                    // A. Skip if already covered
-                    if (covered[i]) {
-                        continue;
-                    }
-
-                    const dataIndex = i * 4;
-                    const r = imageData[dataIndex];
-                    const g = imageData[dataIndex + 1];
-                    const b = imageData[dataIndex + 2];
-                    const a = imageData[dataIndex + 3];
-
-                    // --- CRITICAL FIX: Use tolerance check for background exclusion ---
-                    if (isNearBackground(r, g, b, a)) {
-                        covered[i] = true;
-                        continue;
-                    }
-
-
-                    const color = rgbToHex(r, g, b);
-
-                    // B. Horizontal RLE (Find max width of the run at this starting row)
-                    let runLength = 1;
-                    let nextX = x + 1;
-                    while (nextX < width) {
-                        const nextI_map = y * width + nextX; // Map index
-                        const nextI_data = nextI_map * 4; // Data index
-                        
-                        // Check covered status first
-                        if (covered[nextI_map]) {
-                            break;
-                        }
-
-                        const nextR = imageData[nextI_data];
-                        const nextG = imageData[nextI_data + 1];
-                        const nextB = imageData[nextI_data + 2];
-                        const nextA = imageData[nextI_data + 3];
-
-                        // Check if the next pixel has the exact same color/alpha
-                        const isSameColor = nextR === r && nextG === g && nextB === b && nextA === a;
-                        
-                        // NOTE: We MUST match the exact color for the run integrity.
-                        if (isSameColor) {
-                            runLength++;
-                            nextX++;
-                        } else {
-                            break;
-                        }
-                    }
-
-                    // C. Vertical Expansion (Find max height for this run)
-                    let rectHeight = 1;
-                    let nextY = y + 1;
-                    while (nextY < height) {
-                        let rowMatches = true;
-                        for (let dx = 0; dx < runLength; dx++) {
-                            const currentPixelIndex = (nextY * width + x + dx);
-
-                            if (covered[currentPixelIndex]) {
-                                rowMatches = false;
-                                break;
-                            }
-
-                            const currentDataIndex = currentPixelIndex * 4;
-                            const currentR = imageData[currentDataIndex];
-                            const currentG = imageData[currentDataIndex + 1];
-                            const currentB = imageData[currentDataIndex + 2];
-                            const currentA = imageData[currentDataIndex + 3];
-
-                            // Check for exact color match against the starting pixel (r,g,b,a)
-                            const isMatch = currentR === r && currentG === g && currentB === b && currentA === a;
-
-                            if (!isMatch) {
-                                rowMatches = false;
-                                break;
-                            }
-                        }
-
-                        if (rowMatches) {
-                            rectHeight++;
-                            nextY++;
-                        } else {
-                            break;
-                        }
-                    }
-
-                    // D. Store the large SVG <rect> data object
-                    const fillOpacity = (a / 255); 
-                    // Use Math.round() for positions and sizes to ensure integers, although coordinates are already integers (x, y, runLength, rectHeight)
-                    rectData.push({ x: x, y: y, width: runLength, height: rectHeight, fill: color, opacity: fillOpacity });
-                    rectCount++;
-
-                    // E. Mark all pixels covered by this new rectangle
-                    for (let dy = 0; dy < rectHeight; dy++) {
-                        for (let dx = 0; dx < runLength; dx++) {
-                            covered[(y + dy) * width + x + dx] = true;
-                        }
-                    }
-                } 
-            } 
-
-            // 4. Assemble the final SVG string using ONE <path> element per unique color
-            
-            // Group rectangles by color
+        // --- RLE & WORKBOOK LOGIC ---
+        function generateSVGPathsFromRLE(rectData) {
             let uniqueColors = {};
             rectData.forEach(rect => {
                 const colorKey = rect.fill + (rect.opacity !== 1 ? `|${rect.opacity}` : '');
-                if (!uniqueColors[colorKey]) {
-                    uniqueColors[colorKey] = { fill: rect.fill, opacity: rect.opacity, rects: [] };
-                }
+                if (!uniqueColors[colorKey]) uniqueColors[colorKey] = { fill: rect.fill, opacity: rect.opacity, rects: [] };
                 uniqueColors[colorKey].rects.push(rect);
             });
-
-            let pathSegments = [];
+            let segments = [];
             Object.keys(uniqueColors).forEach(key => {
                 const group = uniqueColors[key];
                 let d = '';
                 group.rects.forEach(rect => {
-                    const { x, y, width: w, height: h } = rect;
-                    
-                    // Construct path segment for one rectangle:
-                    // M x y (MoveTo top-left) L x+w y (LineTo top-right) L x+w y+h (LineTo bottom-right) L x y+h (LineTo bottom-left) Z (Close path)
-                    d += `M${x} ${y}L${x+w} ${y}L${x+w} ${y+h}L${x} ${y+h}Z`;
+                    d += `M${rect.x} ${rect.y}L${rect.x+rect.width} ${rect.y}L${rect.x+rect.width} ${rect.y+rect.height}L${rect.x} ${rect.y+rect.height}Z`;
                 });
-                
                 let pathAttributes = `d="${d}" fill="${group.fill}"`;
-                if (group.opacity !== 1) {
-                    pathAttributes += ` fill-opacity="${group.opacity.toFixed(2)}"`;
-                }
-
-                // Create one path element for all rectangles of this color group
-                const pathElement = `<path ${pathAttributes} shape-rendering="crispEdges" />`;
-                pathSegments.push(pathElement);
+                if (group.opacity !== 1) pathAttributes += ` fill-opacity="${group.opacity.toFixed(2)}"`;
+                segments.push(`<path ${pathAttributes} shape-rendering="crispEdges" />`);
             });
+            return segments.join('');
+        }
 
 
-            const svgContent = pathSegments.join('\n    ');
-            const finalSVG = `
-<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" style="background-color: transparent;">
-    <!-- Generated by Optimized 2D RLE Converter (${rectCount} constituent elements combined into ${pathSegments.length} path(s)) -->
-    <!-- Optimization: 2D RLE geometry converted to path elements to minimize XML overhead. -->
-    ${svgContent}
-</svg>
-`.trim();
+        function loadImage(source, isUrl = false) {
+            convertButton.disabled = true;
+            clearSelection(); 
+            resetWorkbook(); 
+            if (isUrl) { showMessage('Loading...', false); loadUrlButton.disabled = true; }
+            const img = new Image();
+            img.crossOrigin = "Anonymous"; 
+            img.onload = () => {
+                loadedImage.img = img;
+                loadedImage.originalWidth = img.width;
+                loadedImage.originalHeight = img.height;
+                const MAX_WIDTH = parseInt(MAX_WIDTH_INPUT.value) || 714; 
+                let width = loadedImage.originalWidth; let height = loadedImage.originalHeight; 
+                if (width > MAX_WIDTH) { height = (height / width) * MAX_WIDTH; width = MAX_WIDTH; }
+                const finalWidth = Math.floor(width); const finalHeight = Math.floor(height);
+                loadedImage.displayScale = finalWidth / loadedImage.originalWidth;
+                canvas.width = finalWidth; canvas.height = finalHeight;
+                drawCanvas(); // Draw the image on the canvas
+                
+                initWorkbookBaseEmpty();
+                toggleBackgroundVisibility(); 
 
-            // Sanity check for the AI prompt
-            console.log(`2D RLE Generated. Total rectangles: ${rectCount}, Total paths: ${pathSegments.length}. Output SVG dimensions: ${width}x${height}`);
+                if (isUrl) loadUrlButton.disabled = false;
+                showMessage(`Image loaded. Draw a box or click a patch to begin.`, false);
+                workbookStatus.textContent = "Image loaded. Draw a selection box or click an existing patch to edit.";
+                convertButton.disabled = false;
+                updateActionUI('HIDDEN'); // Ensure initial state is clean
+            };
+            img.onerror = () => { loadedImage.img = null; if (isUrl) loadUrlButton.disabled = false; showMessage('Error loading image.', true); convertButton.disabled = false; };
+            img.src = source;
+        }
 
-            return finalSVG;
+        function resetWorkbook() {
+            workbookOverlay.innerHTML = '';
+            previewOverlay.innerHTML = '';
+            appliedPatches = []; // Reset persistence data
+            currentPatchId = 0; // Reset patch ID counter
+            workbookRLEData = []; 
+            workbookScaleX = 1; 
+            workbookScaleY = 1;
+            // Removed: pendingPatch = null;
+            workbookStatus.textContent = "Waiting for image...";
+            updateAppliedPatchesList();
+            compositeCodeOutput.value = ""; // Clear composite output on reset
+        }
+
+        
+        function initWorkbookBaseEmpty() {
+            const w = canvas.width;
+            const h = canvas.height;
+
+            const rootSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            rootSvg.setAttribute('width', w);
+            rootSvg.setAttribute('height', h);
+            rootSvg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+            rootSvg.setAttribute('id', 'workbook-svg-element');
+            rootSvg.style.backgroundColor = 'transparent';
+
+            // Add layers for Patches (visual SVG output) and Highlights (clickable rects)
+            const patchesLayer = `<g id="workbook-patches-layer"></g>`;
+            const highlightsLayer = `<g id="workbook-highlights-layer"></g>`; 
+            
+            rootSvg.innerHTML = patchesLayer + highlightsLayer;
+
+            workbookOverlay.innerHTML = '';
+            workbookOverlay.appendChild(rootSvg);
+            
+            // Initialize Preview Overlay (Still useful for a potential future pre-render step)
+            initPreviewOverlay();
+            
+            workbookRLEData = [];
+            
+            workbookStatus.textContent = "Ready to patch. Draw a selection box or click an existing patch to edit.";
         }
         
-        // --- NEW ENTRY POINT FOR INITIAL GENERATION (3b) ---
-        async function triggerInitialSemanticGeneration() {
-            if (!rawSVGBlueprint) {
-                showMessage('Please run Step 3a first to create the SVG blueprint.', true);
-                return;
-            }
-            
-            // Reset for initial run
-            lastSuccessfulSemanticSVG = ''; 
-            refineAiButton.disabled = true;
-
-            const success = await startSemanticGeneration(Modes.INITIAL);
-            
-            // If the initial generation is successful, enable the refinement button
-            if (success) {
-                lastSuccessfulSemanticSVG = finalCodeOutput.value;
-                refineAiButton.disabled = false;
-            }
+        function convertToSVG_OptimizedRLE(inputCanvas, inputContext) {
+            const ctx = inputContext; const width = inputCanvas.width; const height = inputCanvas.height;
+            const imageData = ctx.getImageData(0, 0, width, height).data;
+            const covered = new Array(width * height).fill(false);
+            const rectData = []; 
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const i = (y * width + x); if (covered[i]) continue;
+                    const dataIndex = i * 4;
+                    const r = imageData[dataIndex]; const g = imageData[dataIndex+1]; const b = imageData[dataIndex+2]; const a = imageData[dataIndex+3];
+                    if (isNearBackground(r, g, b, a)) { covered[i] = true; continue; }
+                    const color = rgbToHex(r, g, b);
+                    let runLength = 1; let nextX = x + 1;
+                    while (nextX < width) {
+                        const nextI = y * width + nextX; if (covered[nextI]) break;
+                        const idx = nextI * 4;
+                        if (imageData[idx]===r && imageData[idx+1]===g && imageData[idx+2]===b && imageData[idx+3]===a) { runLength++; nextX++; } else break;
+                    }
+                    let rectHeight = 1; let nextY = y + 1;
+                    while (nextY < height) {
+                        let rowMatches = true;
+                        for (let dx = 0; dx < runLength; dx++) {
+                            const pIdx = (nextY * width + x + dx); if (covered[pIdx]) { rowMatches = false; break; }
+                            const dIdx = pIdx * 4;
+                            if (imageData[dIdx]!==r || imageData[dIdx+1]!==g || imageData[dIdx+2]!==b || imageData[dIdx+3]!==a) { rowMatches = false; break; }
+                        }
+                        if (rowMatches) { rectHeight++; nextY++; } else break;
+                    }
+                    const fillOpacity = (a / 255); 
+                    rectData.push({ x, y, width: runLength, height: rectHeight, fill: color, opacity: fillOpacity });
+                    for (let dy = 0; dy < rectHeight; dy++) {
+                        for (let dx = 0; dx < runLength; dx++) { covered[(y + dy) * width + x + dx] = true; }
+                    }
+                } 
+            } 
+            return { rectData, width, height };
         }
 
-        async function triggerRefinementGeneration() {
-            if (!lastSuccessfulSemanticSVG) {
-                showMessage('Please run the initial generation (3b) successfully before refining.', true);
-                return;
-            }
 
-            const MAX_ATTEMPTS = parseInt(maxAttemptsInput.value) || 3;
-            let currentAttempt = 0;
+        // --- PATCHING ---
+        // Simplified Discard: Now only clears the canvas selection state.
+        function discardPatch() {
+            // Removed: pendingPatch = null;
+            previewOverlay.innerHTML = '';
+            initPreviewOverlay();
             
-            generateAiButton.disabled = true;
-            refineAiButton.disabled = true;
-
-            // Start the refinement loop
-            for (let i = 1; i <= MAX_ATTEMPTS; i++) {
-                currentAttempt = i;
-                const success = await startSemanticGeneration(Modes.REFINE, currentAttempt);
-                
-                if (success) {
-                    // Update the stored successful output
-                    lastSuccessfulSemanticSVG = finalCodeOutput.value;
-                    refineAiButton.disabled = false;
-                    break; // Exit loop on success
-                }
-                
-                if (i < MAX_ATTEMPTS) {
-                    showMessage(`Refinement attempt ${i} failed. Retrying...`, true);
-                    await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before next attempt
-                } else {
-                    showMessage(`Maximum ${MAX_ATTEMPTS} refinement attempts failed. Check logs.`, true);
-                }
-            }
+            // Clear current selection/editing state
+            selectionState.currentRect = null;
+            selectionState.editingPatchId = null;
+            drawCanvas(); 
             
-            generateAiButton.disabled = false;
-            if (lastSuccessfulSemanticSVG) {
-                 refineAiButton.disabled = false;
-            }
+            // Go back to the correct action bar state
+            updateActionUI('HIDDEN');
+            updateAppliedPatchesList(); // Remove highlights from list items
         }
-
 
         /**
-         * STEP 2: Send input to AI to generate a Semantic SVG Replica
-         * @param {string} mode The generation mode ('INITIAL' or 'REFINE').
-         * @param {number} [attempt=1] The current attempt number (used for refinement mode).
-         * @returns {boolean} True if the generation was successful.
+         * The former 'acceptPatch' logic is now merged into the generation success handler (applyPatch).
          */
-        async function startSemanticGeneration(mode, attempt = 1) {
-            const isRefining = mode === Modes.REFINE;
-            const actionText = isRefining ? `Refinement Attempt ${attempt}` : 'Initial Generation';
-
-            logAttemptInfo.textContent = `Last Attempt: ${actionText}`;
-
-            generateAiButton.disabled = true;
-            refineAiButton.disabled = true;
+        function applyPatch(svgContent, rect, bpDims, patchIdToEdit = null) {
             
-            finalPreview.innerHTML = `<div class="p-8 text-indigo-500 flex items-center justify-center">
-                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                AI Generation (${actionText})...
-            </div>`;
-            
-            finalCodeOutput.value = '';
-            copyFinalButton.disabled = true;
-            payloadOutput.value = '';
-            responseOutput.value = '';
-            imageDataArea.classList.add('hidden'); // Ensure logs are reset
+            const newPatch = {
+                id: patchIdToEdit || generateUniqueId(),
+                rect: rect,
+                svgContent: svgContent,
+                bpDims: bpDims
+            };
 
+            const patchesLayer = document.getElementById('workbook-patches-layer');
+            const highlightsLayer = document.getElementById('workbook-highlights-layer');
+
+            // Find and remove existing elements if regenerating/updating
+            document.getElementById(`svg-${newPatch.id}`)?.remove();
+            document.getElementById(`highlight-${newPatch.id}`)?.remove();
+            
+            // 1. Update/Add to appliedPatches array
+            const existingIndex = appliedPatches.findIndex(p => p.id === newPatch.id);
+            if (existingIndex > -1) {
+                appliedPatches[existingIndex] = newPatch; // Update existing
+                showMessage(`Patch ${newPatch.id} updated successfully.`, false);
+            } else {
+                appliedPatches.push(newPatch); // Add new
+                showMessage(`Patch ${newPatch.id} applied successfully.`, false);
+            }
+
+            // 2. Render Patch (Visual SVG)
+            patchesLayer.appendChild(createNestedPatch(newPatch.svgContent, newPatch.rect, newPatch.bpDims, newPatch.id));
+
+            // 3. Render Highlight (Clickable Area)
+            highlightsLayer.appendChild(createHighlightRect(newPatch.rect, newPatch.id));
+
+            // 4. Clean up and update UI
+            discardPatch(); // Clear selection and update UI state
+            updateAppliedPatchesList();
+        }
+
+        function deletePatch() {
+            if (!selectionState.editingPatchId) return;
+
+            const patchId = selectionState.editingPatchId;
+            appliedPatches = appliedPatches.filter(p => p.id !== patchId);
+            
+            // Remove from DOM
+            document.getElementById(`svg-${patchId}`)?.remove();
+            document.getElementById(`highlight-${patchId}`)?.remove();
+
+            showMessage(`Patch ${patchId} deleted.`, false);
+            discardPatch();
+            updateAppliedPatchesList();
+        }
+
+
+        async function triggerZoomGeneration(patchIdToEdit = null) {
+            let rect;
+            let currentPatchId = patchIdToEdit;
+
+            if (patchIdToEdit) {
+                // Regenerating an existing patch
+                const existingPatch = appliedPatches.find(p => p.id === patchIdToEdit);
+                if (!existingPatch) return;
+                rect = existingPatch.rect;
+                selectionState.editingPatchId = patchIdToEdit;
+            } else if (selectionState.currentRect) {
+                // Generating a brand new patch from drawn selection
+                rect = selectionState.currentRect;
+                selectionState.editingPatchId = null; // Stays null for new patch creation below
+            } else {
+                return;
+            }
+
+            const scale = 1 / loadedImage.displayScale;
+            
+            const origX = Math.floor(rect.x * scale);
+            const origY = Math.floor(rect.y * scale);
+            const origW = Math.floor(rect.w * scale);
+            const origH = Math.floor(rect.h * scale);
+            
+            if (origW <= 0 || origH <= 0) return;
+
+            // 1. Crop PNG 
+            zoomCropCanvas.width = origW; zoomCropCanvas.height = origH;
+            zoomCropCanvas.getContext('2d').drawImage(loadedImage.img, origX, origY, origW, origH, 0, 0, origW, origH);
+
+            // 2. Generate RLE Blueprint 
+            const ZOOM_BLUEPRINT_MAX = 300; 
+            let bpWidth = origW, bpHeight = origH;
+            if (origW > ZOOM_BLUEPRINT_MAX) {
+                bpHeight = (origH / origW) * ZOOM_BLUEPRINT_MAX; bpWidth = ZOOM_BLUEPRINT_MAX;
+            }
+            const zoomBpCanvas = document.createElement('canvas');
+            zoomBpCanvas.width = bpWidth; zoomBpCanvas.height = bpHeight;
+            zoomBpCanvas.getContext('2d', { willReadFrequently: true }).drawImage(zoomCropCanvas, 0, 0, bpWidth, bpHeight);
+            
+            const zoomBpResult = convertToSVG_OptimizedRLE(zoomBpCanvas, zoomBpCanvas.getContext('2d'));
+            const zoomBlueprintStr = generateSVGPathsFromRLE(zoomBpResult.rectData);
+            const cropBase64 = zoomCropCanvas.toDataURL('image/png');
+            
+            svgCodeOutput.value = `<svg viewBox="0 0 ${bpWidth} ${bpHeight}">${zoomBlueprintStr}</svg>`;
+            
+            // Show loading status
+            workbookStatus.textContent = `Generating patch for ${currentPatchId || 'new region'}... Please wait.`;
+            showMessage("Generating Candidate...", false);
+            
+            const success = await startSemanticGeneration(Modes.ZOOM, rect, { w: bpWidth, h: bpHeight }, currentPatchId, cropBase64);
+            // If successful, startSemanticGeneration will call applyPatch internally
+        }
+
+        // Removed: function showPatchPreview(svgContent, rect, bpDims) {...}
+
+        function createNestedPatch(svgString, rect, bpDims, id) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(svgString, "image/svg+xml");
+            const generatedSvg = doc.querySelector('svg');
+            
+            let viewBox = null;
+            if (generatedSvg) {
+                viewBox = generatedSvg.getAttribute('viewBox');
+                if (!viewBox) {
+                    const w = generatedSvg.getAttribute('width');
+                    const h = generatedSvg.getAttribute('height');
+                    if (w && h && !w.includes('%') && !h.includes('%')) {
+                        viewBox = `0 0 ${parseFloat(w)} ${parseFloat(h)}`;
+                    }
+                }
+            }
+            
+            if (!viewBox && bpDims) {
+                viewBox = `0 0 ${bpDims.w} ${bpDims.h}`;
+            }
+
+            const nested = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            nested.setAttribute('x', rect.x);
+            nested.setAttribute('y', rect.y);
+            nested.setAttribute('width', rect.w);
+            nested.setAttribute('height', rect.h);
+            nested.setAttribute('id', `svg-${id}`);
+            if (viewBox) nested.setAttribute('viewBox', viewBox);
+            
+            nested.setAttribute('preserveAspectRatio', 'none');
+            nested.setAttribute('shape-rendering', 'geometricPrecision');
+            nested.style.fill = 'black';
+            nested.style.color = 'black'; 
+
+            if (generatedSvg) {
+                while (generatedSvg.firstChild) nested.appendChild(generatedSvg.firstChild);
+            }
+            return nested;
+        }
+
+        function createHighlightRect(rect, id) {
+            const highlightRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            highlightRect.setAttribute('x', rect.x);
+            highlightRect.setAttribute('y', rect.y);
+            highlightRect.setAttribute('width', rect.w);
+            highlightRect.setAttribute('height', rect.h);
+            highlightRect.setAttribute('data-patch-id', id);
+            highlightRect.setAttribute('id', `highlight-${id}`);
+            highlightRect.classList.add('patch-highlight');
+            return highlightRect;
+        }
+
+        function updateAppliedPatchesList() {
+            const container = appliedPatchesList;
+            const countHeader = appliedPatchesContainer.querySelector('h3');
+            container.innerHTML = '';
+
+            if (appliedPatches.length === 0) {
+                container.textContent = "No patches applied yet.";
+                countHeader.textContent = "Applied Patches (0)";
+                return;
+            }
+
+            countHeader.textContent = `Applied Patches (${appliedPatches.length})`;
+
+            appliedPatches.forEach(patch => {
+                // Get a snippet of the SVG content for display
+                const svgSnippet = patch.svgContent ? 
+                    patch.svgContent.substring(0, 30).replace(/<[^>]+>/g, '').trim() + '...' :
+                    'Empty Content';
+                
+                const item = document.createElement('div');
+                item.setAttribute('data-id', patch.id);
+                item.className = 'patch-list-item';
+                
+                // Add highlight class if this patch is currently being edited
+                if (selectionState.editingPatchId === patch.id) {
+                     item.classList.add('editing');
+                }
+
+                item.innerHTML = `
+                    <div class="flex flex-col overflow-hidden w-4/5">
+                        <span class="font-bold text-white truncate">ID: ${patch.id}</span>
+                        <span class="text-gray-400 truncate text-xs">${svgSnippet}</span>
+                    </div>
+                    <button data-id="${patch.id}" class="text-white hover:text-yellow-300 font-semibold ml-2" onclick="loadPatchForEditing('${patch.id}')">Edit</button>
+                `;
+                container.appendChild(item);
+            });
+        }
+        
+        function loadPatchForEditing(patchId) {
+            const patch = appliedPatches.find(p => p.id === patchId);
+            if (!patch) return;
+
+            // 1. Set current selection to this patch's coordinates and ID
+            selectionState.currentRect = patch.rect;
+            selectionState.editingPatchId = patchId;
+            
+            // 2. Draw the selection highlight on canvas
+            drawCanvas();
+
+            // 3. Update action bar to Regenerate mode
+            updateActionUI('REGENERATE');
+            
+            // 4. Update status and list highlight
+            workbookStatus.textContent = `Editing existing Patch: ${patchId}. Regenerate or clear selection.`;
+            showMessage(`Patch ${patchId} selected for editing.`, false);
+            updateAppliedPatchesList();
+        }
+
+        // --- EXPORT LOGIC ---
+        function exportCompositeSVG() {
+            if (appliedPatches.length === 0) {
+                showMessage("No patches have been applied to export.", true);
+                return;
+            }
+
+            const canvasWidth = canvas.width;
+            const canvasHeight = canvas.height;
+            let compositeSVGContent = '';
+
+            // This part constructs the composite SVG content
+            appliedPatches.forEach(patch => {
+                const { x, y } = patch.rect;
+                const nestedSvg = `
+                    <g transform="translate(${x}, ${y})">
+                        ${patch.svgContent}
+                    </g>
+                `;
+                compositeSVGContent += nestedSvg;
+            });
+            
+            // Wrap the content in the final SVG container. 
+            // We use the canvas dimensions for the final viewBox and size.
+            const finalSVG = `<svg 
+                xmlns="http://www.w3.org/2000/svg" 
+                width="${canvasWidth}" 
+                height="${canvasHeight}" 
+                viewBox="0 0 ${canvasWidth} ${canvasHeight}"
+                version="1.1" 
+                preserveAspectRatio="xMidYMid meet"
+                shape-rendering="geometricPrecision"
+            >
+                <!-- Composite SVG Patches -->
+                ${compositeSVGContent}
+            </svg>`;
+            
+            // Display the final SVG in the code output area
+            compositeCodeOutput.value = compressSVG(finalSVG);
+            showPanelTab('code');
+            showMessage(`Composite SVG generated. See 'Composite SVG Output (Merged)' tab.`, false);
+            
+            // Optionally, prompt download (removed to keep flow smooth, but user can copy from textarea)
+        }
+        // --- END EXPORT LOGIC ---
+
+        // --- CANVAS INTERACTION ---
+        function handleWorkbookClick(e) {
+            // Removed: if (pendingPatch) return;
+            if (!loadedImage.img) return; // Only allow interaction if image is loaded
+
+            // Check if user clicked on an existing highlight rect in the SVG layer
+            let target = e.target;
+            if (target.classList.contains('patch-highlight')) {
+                const patchId = target.getAttribute('data-patch-id');
+                loadPatchForEditing(patchId);
+                // Prevent drag/new selection start when clicking a patch
+                selectionState.isSelecting = false;
+                return; 
+            }
+            
+            // Otherwise, allow new selection logic (handled by mousedown/mousemove/mouseup)
+        }
+        // NOTE: Click handler remains on workbookOverlay
+
+        function drawCanvas() {
+            if (!loadedImage.img) return;
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(loadedImage.img, 0, 0, canvas.width, canvas.height);
+            
+            let rectToDraw = null;
+            // The selection box (drawn on canvas) should only appear when actively selecting
+            // or when a selection/edit state is active (currentRect or editingPatchId is set)
+            if (selectionState.isSelecting && selectionState.currentRect) {
+                rectToDraw = selectionState.currentRect;
+            } else if (selectionState.editingPatchId) {
+                const patch = appliedPatches.find(p => p.id === selectionState.editingPatchId);
+                if (patch) rectToDraw = patch.rect;
+            } else if (selectionState.currentRect) {
+                 // After mouseup, currentRect holds the final selection for generation
+                 rectToDraw = selectionState.currentRect;
+            }
+
+            if (rectToDraw) {
+                const { x, y, w, h } = rectToDraw;
+                ctx.strokeStyle = '#6366f1'; 
+                ctx.lineWidth = selectionState.editingPatchId ? 4 : 2; // Thicker border for editing
+                ctx.setLineDash([5, 3]);
+                ctx.strokeRect(x, y, w, h); 
+                ctx.setLineDash([]);
+                ctx.fillStyle = 'rgba(99, 102, 241, 0.3)'; 
+                ctx.fillRect(x, y, w, h);
+            }
+        }
+        
+        function getMousePos(evt) {
+            const rect = canvas.getBoundingClientRect();
+            // Calculate scale from CSS-displayed size to canvas pixel size
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            // Use the clientX/Y relative to the *overlay* which matches the canvas position
+            return { x: (evt.clientX - rect.left) * scaleX, y: (evt.clientY - rect.top) * scaleY };
+        }
+        
+        // --- Selection Event Handlers attached to workbookOverlay ---
+        workbookOverlay.addEventListener('mousedown', (e) => {
+            if (!loadedImage.img) return;
+            
+            // Check if user clicked on an existing patch highlight
+            if (e.target.classList.contains('patch-highlight')) {
+                // handleWorkbookClick is called on click event, but we need to stop selection start here
+                selectionState.isSelecting = false;
+                return;
+            }
+
+            // Start new selection
+            const pos = getMousePos(e);
+            selectionState.isSelecting = true;
+            selectionState.editingPatchId = null; // Clear editing state for new selection
+            selectionState.startX = pos.x; selectionState.startY = pos.y;
+            selectionState.currentRect = { x: pos.x, y: pos.y, w: 0, h: 0 };
+            discardPatch();
+            updateActionUI('HIDDEN'); // Hide controls until a meaningful selection is made
+        });
+        
+        workbookOverlay.addEventListener('mousemove', (e) => {
+            if (!selectionState.isSelecting) return;
+            const pos = getMousePos(e);
+            const w = pos.x - selectionState.startX; const h = pos.y - selectionState.startY;
+            // Normalize rectangle to have positive width/height
+            selectionState.currentRect = { 
+                x: w > 0 ? selectionState.startX : pos.x, 
+                y: h > 0 ? selectionState.startY : pos.y, 
+                w: Math.abs(w), 
+                h: Math.abs(h) 
+            };
+            drawCanvas();
+        });
+        
+        workbookOverlay.addEventListener('mouseup', () => {
+            if (!selectionState.isSelecting) return;
+            selectionState.isSelecting = false;
+            
+            // Validate selection size (minimum 5x5 pixels on canvas scale)
+            if (selectionState.currentRect && selectionState.currentRect.w > 5 && selectionState.currentRect.h > 5) {
+                 updateActionUI('SELECTION');
+                 drawCanvas(); // Re-draw to finalize the selection box appearance
+            } else { 
+                selectionState.currentRect = null; 
+                drawCanvas(); // Clears the selection box
+                updateActionUI('HIDDEN'); 
+            }
+        });
+        
+        workbookOverlay.addEventListener('click', handleWorkbookClick);
+        // --- End Selection Event Handlers ---
+        
+        function clearSelection() {
+            selectionState.currentRect = null;
+            selectionState.editingPatchId = null;
+            updateActionUI('HIDDEN');
+            discardPatch();
+            drawCanvas(); // Clears the selection box
+        }
+
+        function updateActionUI(state) {
+            actionsSelection.classList.add('hidden');
+            actionsApproval.classList.add('hidden');
+            actionsRegenerate.classList.add('hidden');
+            
+            if (state === 'SELECTION') {
+                actionBarTitle.textContent = "New Region Selected (Click Generate Detail)";
+                actionsSelection.classList.remove('hidden');
+            } else if (state === 'REGENERATE') {
+                 actionBarTitle.textContent = `Edit Patch: ${selectionState.editingPatchId}`;
+                 actionsRegenerate.classList.remove('hidden');
+            } else if (state === 'HIDDEN') {
+                // Default state when nothing is actively selected or pending review
+                actionBarTitle.textContent = "Draw a selection box or click an existing patch to edit.";
+            }
+            
+            // Ensure patch list highlights are updated based on the new state
+            updateAppliedPatchesList();
+        }
+
+        async function startSemanticGeneration(mode, rect, bpDims, patchIdToEdit, cropBase64) {
+            logAttemptInfo.textContent = `Last Attempt: ${mode}`;
 
             try {
-                if (!base64ImageString || !rawSVGBlueprint) { throw new Error("Image or SVG blueprint data is missing.");
-                }
-                
-                // --- CRITICAL MODIFICATION: Prepare SVG for attachment ---
-                const svgPart = base64ToSVGPart(rawSVGBlueprint);
+                const compressedBlueprint = compressSVG(svgCodeOutput.value); // Use value already set in triggerZoomGeneration
+                const userPrompt = `You are a precision graphic designer. 
+                    Task: Generate a high-detail Semantic SVG snippet for a cropped region.
+                    Requirements:
+                    - Output only valid SVG code. No markdown.
+                    - ViewBox must match blueprint dimensions (${bpDims.w} x ${bpDims.h}).
+                    - Focus on text legibility and geometric precision.
+                    - CRITICAL: Ensure all <text> elements explicitly define font-size and use fill="black" or another dark color for visibility against a white background.
+                    Blueprint:\n${compressedBlueprint}`;
 
-                let parts = [];
-                let userPrompt = '';
-                
-                
-                const systemPrompt = `You are an expert SVG graphic designer. Your task is to analyze the provided input(s) and generate a clean, semantic SVG replica.
-1. The code must be a single, complete SVG element.
-2. The SVG must be semantic (use <rect>, <circle>, <text>, etc.) to match the original design's layout, colors, and content.
-3. Use a placeholder rectangle to represent any non-textual content.
-4. For text, ensure accurate text content, font size, and color are used within <text> elements.
-5. **CRITICAL REQUIREMENT:** The final SVG's element positions (x, y coordinates) and sizes must be selected to be **pixel-perfectly consistent with the provided Optimized SVG Blueprint** and the original image layout. No elements should overlap.
-6. DO NOT wrap the output in markdown code fences (\`\`\`svg) or add any explanatory text. Output ONLY the raw SVG code.`;
-
-                if (isRefining) {
-                    // Refinement Mode: Attach blueprint (SVG) and provide previous semantic output (text).
-                    userPrompt = `Based on the attached Optimized SVG Blueprint (for perfect geometry) and the following PREVIOUS Semantic SVG OUTPUT (for content), generate a **corrected and improved Semantic SVG replica**. 
-                    
-                    The original image is omitted for payload efficiency. Crucially, you must **adjust text alignment, font sizes, and precise positioning** of the text and shapes to be pixel-perfect based on the geometry from the **Optimized SVG Blueprint**.
-
-                    PREVIOUS Semantic SVG OUTPUT to be corrected:\n${lastSuccessfulSemanticSVG}`;
-                    
-                    parts.push({ text: userPrompt });
-                    parts.push(svgPart); // Attach Blueprint
-
-                } else {
-                    // Initial Mode: Attach original image (PNG) and blueprint (SVG).
-                    userPrompt = `Recreate the visual design represented by the attached image (for text content) and the attached Optimized SVG Blueprint (for geometry) as a single, self-contained, clean SVG block. The output SVG must be "semantic", meaning it should use structured SVG elements like <rect>, <circle>, and crucially, **<text>** for any visible text. Use the PNG image for accurate text content, but rely on the Optimized SVG Blueprint for general layout, colors, and precise positional information.`;
-                    
-                    parts.push({ text: userPrompt });
-                    //shouldn't need this:
-                    //parts.push(dataURLToGenerativePart(base64ImageString)); // Attach PNG
-                    parts.push(svgPart); // Attach SVG Blueprint
-                }
-
-
+                const parts = [{ text: userPrompt }, dataURLToGenerativePart(cropBase64)];
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-
+                
                 const payload = {
                     contents: [{ role: "user", parts: parts }],
-                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                    systemInstruction: { parts: [{ text: "Output ONLY raw SVG code. No markdown fences." }] }
                 };
-                
-                // --- LOGGING THE PAYLOAD ---
+
+                // LOGGING PAYLOAD
                 const payloadToLog = JSON.parse(JSON.stringify(payload));
-                // Redact image and SVG data for log brevity
-                payloadToLog.contents[0].parts.forEach(p => {
-                    if (p.inlineData) {
-                        const mimeType = p.inlineData.mimeType;
-                        const dataLength = p.inlineData.data.length;
-                        p.inlineData.data = `[REDACTED: ${mimeType}, ${dataLength} bytes]`;
-                    }
-                });
-                // Only show PNG thumbnail if it was included
-                if (!isRefining) {
-                    displayImageThumbnail(base64ImageString, 'image/png');
-                } else {
-                    imageDataArea.classList.add('hidden');
-                }
-
+                payloadToLog.contents[0].parts.forEach(p => { if (p.inlineData) p.inlineData.data = "[REDACTED]"; });
                 payloadOutput.value = JSON.stringify(payloadToLog, null, 2);
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.status === 429) throw new Error("API Rate limit exceeded. Try again later.");
                 
-                // --- API CALL AND RESPONSE LOGGING ---
-                let responseJson = null;
-                let maxRetries = 5;
-                let delay = 1000;
-
-                for (let i = 0; i < maxRetries; i++) {
-                    try {
-                        const response = await fetch(apiUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload)
-                        });
-
-                        if (response.status === 429 && i < maxRetries - 1) {
-                            await new Promise(resolve => setTimeout(resolve, delay));
-                            delay *= 2;
-                            continue;
-                        }
-
-                        if (!response.ok) {
-                            throw new Error(`API call failed with status: ${response.status}`);
-                        }
-
-                        responseJson = await response.json();
-                        break;
-                    } catch (error) {
-                        if (i === maxRetries - 1) {
-                            throw new Error(`Failed to fetch from API after ${maxRetries} attempts. Network or API error.`);
-                        }
-                        await new Promise(resolve => setTimeout(resolve, delay));
-                        delay *= 2;
+                const responseText = await response.text();
+                if (!response.ok) {
+                    let message = `HTTP ${response.status}`;
+                    if (response.status === 401 || response.status === 403) {
+                        message = `API Authorization Failed (${response.status}). Check your API key or permissions.`;
                     }
+                    throw new Error(message);
                 }
+
+                let json;
+                try {
+                    json = JSON.parse(responseText);
+                } catch (e) {
+                    throw new Error(`Failed to parse API response as JSON. Raw response: ${responseText.substring(0, 100)}...`);
+                }
+
+                // LOGGING RESPONSE
+                responseOutput.value = JSON.stringify(json, null, 2);
+
+                const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text) throw new Error("Empty AI response.");
                 
-                responseOutput.value = JSON.stringify(responseJson, null, 2);
-
-                const generatedText = responseJson?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-                if (!generatedText.trim()) {
-                    throw new Error("AI returned an empty response.");
-                }
-
-                // SUCCESS
-                finalPreview.innerHTML = generatedText;
-                finalCodeOutput.value = generatedText;
-                copyFinalButton.disabled = false;
-                showMessage(`Semantic SVG generation successful! (${actionText})`, false);
+                const cleanSVG = text.replace(/```svg/g, '').replace(/```/g, '').trim();
+                zoomCodeOutput.value = cleanSVG; // Debug log
+                
+                // *** NEW: Immediately apply the patch on success ***
+                applyPatch(cleanSVG, rect, bpDims, patchIdToEdit); 
+                
                 return true;
-
             } catch (error) {
-                console.error("AI Generation Error:", error);
-                responseOutput.value = JSON.stringify({ error: error.message }, null, 2); 
-                finalPreview.innerHTML = `<p class="text-red-500 p-8">Error on ${actionText}. ${error.message}</p>`;
-                finalCodeOutput.value = `Error on ${actionText}: ${error.message}`;
+                console.error(error);
+                showMessage(`Error: ${error.message}`, true);
+                responseOutput.value = JSON.stringify({ error: error.message }, null, 2);
+                
+                // Clear state on failure
+                discardPatch();
                 return false;
-            } finally {
-                // Re-enable buttons based on the current state
-                generateAiButton.disabled = !lastSuccessfulSemanticSVG;
-                refineAiButton.disabled = !lastSuccessfulSemanticSVG;
-                convertButton.disabled = false;
             }
         }
 
-        // Load the default URL on startup for a quick demo
-        window.onload = () => {
-             loadUrlButton.click();
+        function initPreviewOverlay() {
+            const w = canvas.width;
+            const h = canvas.height;
+
+            const rootSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            rootSvg.setAttribute('width', w);
+            rootSvg.setAttribute('height', h);
+            rootSvg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+            rootSvg.setAttribute('id', 'preview-svg-element');
+            rootSvg.style.backgroundColor = 'transparent';
+
+            previewOverlay.innerHTML = '';
+            previewOverlay.appendChild(rootSvg);
+        }
+
+        // Init
+        loadUrlButton.addEventListener('click', () => {
+            const url = urlInput.value.trim();
+            if (url) loadImage(url, true);
+        });
+        
+        // Auto-load default
+        window.onload = () => { 
+            loadUrlButton.click(); 
+            showPanelTab('setup'); // Initialize with the first tab active
         }
     </script>
-
 </body>
 </html>
