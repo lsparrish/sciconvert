@@ -623,22 +623,8 @@
 
 
         // --- PATCHING ---
-        // Simplified Discard: Now only clears the canvas selection state.
-        function discardPatch() {
-            // Removed: pendingPatch = null;
-            previewOverlay.innerHTML = '';
-            initPreviewOverlay();
-            
-            // Clear current selection/editing state
-            selectionState.currentRect = null;
-            selectionState.editingPatchId = null;
-            drawCanvas(); 
-            
-            // Go back to the correct action bar state
-            updateActionUI('HIDDEN');
-            updateAppliedPatchesList(); // Remove highlights from list items
-        }
-
+        // Simplified Discard is now DELETED. clearSelection handles the state reset.
+        
         /**
          * The former 'acceptPatch' logic is now merged into the generation success handler (applyPatch).
          */
@@ -669,13 +655,14 @@
             }
 
             // 2. Render Patch (Visual SVG)
+            // Ensure the newly applied patch is clearly visible, replacing the old content.
             patchesLayer.appendChild(createNestedPatch(newPatch.svgContent, newPatch.rect, newPatch.bpDims, newPatch.id));
 
             // 3. Render Highlight (Clickable Area)
             highlightsLayer.appendChild(createHighlightRect(newPatch.rect, newPatch.id));
 
             // 4. Clean up and update UI
-            discardPatch(); // Clear selection and update UI state
+            clearSelection(); // Use clearSelection for a clean transition to the ready state
             updateAppliedPatchesList();
         }
 
@@ -690,7 +677,7 @@
             document.getElementById(`highlight-${patchId}`)?.remove();
 
             showMessage(`Patch ${patchId} deleted.`, false);
-            discardPatch();
+            clearSelection(); // Use clearSelection
             updateAppliedPatchesList();
         }
 
@@ -754,7 +741,8 @@
 
         function createNestedPatch(svgString, rect, bpDims, id) {
             const parser = new DOMParser();
-            const doc = parser.parseFromString(svgString, "image/svg+xml");
+            // Wrap the SVG content in a container to parse the children elements
+            const doc = parser.parseFromString(`<svg>${svgString}</svg>`, "image/svg+xml");
             const generatedSvg = doc.querySelector('svg');
             
             let viewBox = null;
@@ -774,6 +762,7 @@
             }
 
             const nested = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            // These attributes are critical for positioning the visual patch correctly over the canvas
             nested.setAttribute('x', rect.x);
             nested.setAttribute('y', rect.y);
             nested.setAttribute('width', rect.w);
@@ -787,6 +776,7 @@
             nested.style.color = 'black'; 
 
             if (generatedSvg) {
+                // Append contents of the generated SVG into the nested SVG container
                 while (generatedSvg.firstChild) nested.appendChild(generatedSvg.firstChild);
             }
             return nested;
@@ -864,6 +854,109 @@
         }
 
         // --- EXPORT LOGIC ---
+        
+        /**
+         * Parses the SVG string, finds adjacent <text> elements with the same style and y-position, 
+         * merges their content into the first element, and removes the rest.
+         * @param {string} svgString - The raw SVG content of a patch.
+         * @returns {string} The SVG content with merged text elements.
+         */
+        function mergeAdjacentTextElements(svgString) {
+            if (!svgString.includes('<text')) return svgString;
+
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(`<svg>${svgString}</svg>`, "image/svg+xml");
+            const svgRoot = doc.querySelector('svg');
+
+            if (!svgRoot) return svgString;
+
+            const textElements = Array.from(svgRoot.querySelectorAll('text'));
+            
+            // Sort by Y position (main alignment) and then X position (order)
+            textElements.sort((a, b) => {
+                const ay = parseFloat(a.getAttribute('y') || '0');
+                const by = parseFloat(b.getAttribute('y') || '0');
+                if (ay !== by) return ay - by;
+                
+                const ax = parseFloat(a.getAttribute('x') || '0');
+                const bx = parseFloat(b.getAttribute('x') || '0');
+                return ax - bx;
+            });
+
+            if (textElements.length < 2) return svgString;
+
+            const mergedElements = [];
+            let currentGroup = [];
+            
+            const getStyleKey = (el) => {
+                let key = el.getAttribute('font-family') + '|' + 
+                          el.getAttribute('font-size') + '|' + 
+                          el.getAttribute('font-weight') + '|' + 
+                          el.getAttribute('fill');
+                
+                // Also check for inline style attributes like fill or font properties
+                const style = el.getAttribute('style') || '';
+                key += '|' + style;
+                return key;
+            };
+
+            for (const textEl of textElements) {
+                if (currentGroup.length === 0) {
+                    currentGroup.push(textEl);
+                    continue;
+                }
+
+                const lastEl = currentGroup[currentGroup.length - 1];
+                const currentY = parseFloat(textEl.getAttribute('y') || '0');
+                const lastY = parseFloat(lastEl.getAttribute('y') || '0');
+                
+                // Tolerance for vertical alignment (e.g., 0.5 unit pixel difference)
+                const yTolerance = 0.5;
+
+                // Check 1: Same style and same Y-position (within tolerance)
+                if (getStyleKey(textEl) === getStyleKey(lastEl) && Math.abs(currentY - lastY) < yTolerance) {
+                    currentGroup.push(textEl);
+                } else {
+                    // Start a new group
+                    mergedElements.push(currentGroup);
+                    currentGroup = [textEl];
+                }
+            }
+            if (currentGroup.length > 0) mergedElements.push(currentGroup);
+
+
+            // Perform the merge operation on the groups
+            for (const group of mergedElements) {
+                if (group.length > 1) {
+                    const firstEl = group[0];
+                    let mergedText = firstEl.textContent;
+
+                    for (let i = 1; i < group.length; i++) {
+                        const nextEl = group[i];
+                        
+                        // Calculate spacing: use the X of the next element minus the X of the first, 
+                        // and put an appropriate space if needed, otherwise just append.
+                        // Simple approach: append the text, adding a single space if it doesn't break flow.
+                        mergedText += ' ' + nextEl.textContent;
+                        
+                        // Remove the redundant element from the DOM
+                        nextEl.remove();
+                    }
+                    
+                    // Update the text content of the primary element
+                    firstEl.textContent = mergedText.trim();
+                    
+                    // The easiest way to handle the original x-positions is to remove all subsequent x attributes
+                    // and rely on the browser's default spacing, or manually insert spaces.
+                    
+                    // Note: We MUST remove all <text> elements that were merged into the first one.
+                }
+            }
+
+            // Return the serialized, modified SVG
+            return svgRoot.innerHTML;
+        }
+
         function exportCompositeSVG() {
             if (appliedPatches.length === 0) {
                 showMessage("No patches have been applied to export.", true);
@@ -873,30 +966,50 @@
             const canvasWidth = canvas.width;
             const canvasHeight = canvas.height;
             let compositeSVGContent = '';
+            
+            // 1. Add a white background rectangle that covers the entire viewBox.
+            compositeSVGContent += `<rect x="0" y="0" width="${canvasWidth}" height="${canvasHeight}" fill="white"/>`;
 
-            // This part constructs the composite SVG content
+            // 2. Iterate through patches and assemble them using nested SVG tags.
             appliedPatches.forEach(patch => {
-                const { x, y } = patch.rect;
+                const { x, y, w, h } = patch.rect;
+                
+                // 2a. Merge text elements in the patch content
+                const mergedContent = mergeAdjacentTextElements(patch.svgContent);
+                
+                // 2b. Extract or determine the viewBox of the original generated content
+                // This is stored as patch.bpDims (blueprint dimensions)
+                const viewBox = `0 0 ${patch.bpDims.w} ${patch.bpDims.h}`;
+
+                // 2c. Wrap the merged content in a nested <svg> element.
+                // This structure ensures that the content is positioned (x, y) 
+                // and scaled (width, height, viewBox, preserveAspectRatio="none") 
+                // exactly according to the dimensions of the original selection rectangle.
                 const nestedSvg = `
-                    <g transform="translate(${x}, ${y})">
-                        ${patch.svgContent}
-                    </g>
+                    <svg 
+                        x="${x}" 
+                        y="${y}" 
+                        width="${w}" 
+                        height="${h}" 
+                        viewBox="${viewBox}" 
+                        preserveAspectRatio="none"
+                    >
+                        ${mergedContent}
+                    </svg>
                 `;
                 compositeSVGContent += nestedSvg;
             });
             
-            // Wrap the content in the final SVG container. 
-            // We use the canvas dimensions for the final viewBox and size.
+            // 3. Wrap the content in the final SVG container. 
             const finalSVG = `<svg 
                 xmlns="http://www.w3.org/2000/svg" 
                 width="${canvasWidth}" 
                 height="${canvasHeight}" 
                 viewBox="0 0 ${canvasWidth} ${canvasHeight}"
                 version="1.1" 
-                preserveAspectRatio="xMidYMid meet"
                 shape-rendering="geometricPrecision"
             >
-                <!-- Composite SVG Patches -->
+                <!-- Composite SVG Patches on Blank Background -->
                 ${compositeSVGContent}
             </svg>`;
             
@@ -904,8 +1017,6 @@
             compositeCodeOutput.value = compressSVG(finalSVG);
             showPanelTab('code');
             showMessage(`Composite SVG generated. See 'Composite SVG Output (Merged)' tab.`, false);
-            
-            // Optionally, prompt download (removed to keep flow smooth, but user can copy from textarea)
         }
         // --- END EXPORT LOGIC ---
 
@@ -985,7 +1096,6 @@
             selectionState.editingPatchId = null; // Clear editing state for new selection
             selectionState.startX = pos.x; selectionState.startY = pos.y;
             selectionState.currentRect = { x: pos.x, y: pos.y, w: 0, h: 0 };
-            discardPatch();
             updateActionUI('HIDDEN'); // Hide controls until a meaningful selection is made
         });
         
@@ -1009,12 +1119,12 @@
             
             // Validate selection size (minimum 5x5 pixels on canvas scale)
             if (selectionState.currentRect && selectionState.currentRect.w > 5 && selectionState.currentRect.h > 5) {
+                 // Selection is valid, keep currentRect, update UI to show 'Generate Detail'
                  updateActionUI('SELECTION');
-                 drawCanvas(); // Re-draw to finalize the selection box appearance
+                 drawCanvas(); // Finalize the drawing
             } else { 
-                selectionState.currentRect = null; 
-                drawCanvas(); // Clears the selection box
-                updateActionUI('HIDDEN'); 
+                // Selection too small or invalid, clear it
+                clearSelection(); // Use clearSelection for small/invalid selection reset
             }
         });
         
@@ -1025,7 +1135,6 @@
             selectionState.currentRect = null;
             selectionState.editingPatchId = null;
             updateActionUI('HIDDEN');
-            discardPatch();
             drawCanvas(); // Clears the selection box
         }
 
@@ -1073,7 +1182,7 @@
 
                 // LOGGING PAYLOAD
                 const payloadToLog = JSON.parse(JSON.stringify(payload));
-                payloadToLog.contents[0].parts.forEach(p => { if (p.inlineData) p.inlineData.data = "[REDACTED]"; });
+                payloadToL
                 payloadOutput.value = JSON.stringify(payloadToLog, null, 2);
 
                 const response = await fetch(apiUrl, {
@@ -1119,7 +1228,7 @@
                 responseOutput.value = JSON.stringify({ error: error.message }, null, 2);
                 
                 // Clear state on failure
-                discardPatch();
+                clearSelection(); // Use clearSelection for failure state now
                 return false;
             }
         }
@@ -1138,6 +1247,41 @@
             previewOverlay.innerHTML = '';
             previewOverlay.appendChild(rootSvg);
         }
+
+        // --- KEYBOARD CONTROLS ---
+        document.addEventListener('keydown', (e) => {
+            // Get current action state based on visibility of action bars
+            const isSelectionActive = !actionsSelection.classList.contains('hidden');
+            const isRegenerateActive = !actionsRegenerate.classList.contains('hidden');
+
+            if (e.key === 'Escape') {
+                // If a selection is active OR we are in editing/regenerate mode
+                if (isSelectionActive || isRegenerateActive) {
+                    e.preventDefault();
+                    clearSelection();
+                } else if (movablePanel.classList.contains('active') && window.innerWidth < 1024) {
+                    // If side panel is open on mobile, close it
+                    e.preventDefault();
+                    togglePanel(false);
+                }
+            } else if (e.key === 'Enter') {
+                // Check if the target is an input field. If so, let the input handle Enter.
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                    return;
+                }
+                
+                if (isSelectionActive) {
+                    // State: SELECTION -> Generate Detail
+                    e.preventDefault();
+                    triggerZoomGeneration();
+                } else if (isRegenerateActive) {
+                    // State: REGENERATE -> Regenerate
+                    e.preventDefault();
+                    triggerZoomGeneration(selectionState.editingPatchId);
+                }
+            }
+        });
+        // --- END KEYBOARD CONTROLS ---
 
         // Init
         loadUrlButton.addEventListener('click', () => {
