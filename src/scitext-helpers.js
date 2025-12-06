@@ -1,10 +1,12 @@
 // scitext-helpers.js
-// Robust utility functions for SciText Digitizer. Should only include functions unlikely to change.
+// Robust utility functions and the Core Application API for SciText Digitizer.
+// Should only include functions unlikely to change.
 // lives at https://lsparrish.github.io/sciconvert/src/scitext-helpers.js
-// AI instructions: Consider how to ensure bulletproof behavior.
 
 const SciTextHelpers = (function () {
-    // --- Geometry & Normalization ---
+    
+    // --- 1. CORE MATH & NORMALIZATION UTILITIES ---
+
     function normalizeRect(x, y, w, h, canvasWidth, canvasHeight) {
         return {
             x: x / canvasWidth,
@@ -23,27 +25,8 @@ const SciTextHelpers = (function () {
         };
     }
 
-    // --- SVG Content Utilities ---
-    function parseSVGContent(content) {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(`<svg>${content}</svg>`, "image/svg+xml");
-        return doc.documentElement;
-    }
+    // --- 2. SVG RENDERING & COMPOSITION ---
 
-    function serializeSVGElement(el) {
-        return new XMLSerializer().serializeToString(el);
-    }
-
-    function getContentBBox(groupElement) {
-        // Temporarily remove transform to get intrinsic bbox
-        const transform = groupElement.getAttribute('transform') || '';
-        groupElement.removeAttribute('transform');
-        const bbox = groupElement.getBBox();
-        if (transform) groupElement.setAttribute('transform', transform);
-        return bbox;
-    }
-
-    // --- Run-Length Encoding (core digitization helper) ---
     function runLengthEncode(imageData) {
         let path = "";
         const { width, height, data } = imageData;
@@ -51,7 +34,7 @@ const SciTextHelpers = (function () {
             let startX = -1;
             for (let x = 0; x < width; x++) {
                 const idx = (y * width + x) * 4;
-                const isDark = data[idx + 3] > 128 && data[idx] < 128;
+                const isDark = data[idx + 3] > 128 && data[idx] < 128 && data[idx+1] < 128 && data[idx+2] < 128;
                 if (isDark) {
                     if (startX === -1) startX = x;
                 } else {
@@ -68,61 +51,11 @@ const SciTextHelpers = (function () {
         return path;
     }
 
-    // --- Merge adjacent <text> elements (optimization) ---
-    function mergeAdjacentTextElements(svgString) {
-        if (!svgString.includes('<text')) return svgString;
-        const root = parseSVGContent(svgString);
-        const texts = Array.from(root.querySelectorAll('text'));
-
-        if (texts.length < 2) return root.innerHTML;
-
-        texts.sort((a, b) => {
-            const ay = parseFloat(a.getAttribute('y') || 0);
-            const by = parseFloat(b.getAttribute('y') || 0);
-            if (Math.abs(ay - by) > 0.5) return ay - by;
-            return (parseFloat(a.getAttribute('x') || 0)) - (parseFloat(b.getAttribute('x') || 0));
-        });
-
-        const getStyleKey = el => [
-            el.getAttribute('font-family') || '',
-            el.getAttribute('font-size') || '',
-            el.getAttribute('font-weight') || '',
-            el.getAttribute('fill') || '',
-            el.getAttribute('style') || ''
-        ].join('|');
-
-        const groups = [];
-        let current = [];
-
-        for (const el of texts) {
-            if (!current.length || 
-                (Math.abs(parseFloat(el.getAttribute('y') || 0) - parseFloat(current[0].getAttribute('y') || 0)) < 1 &&
-                 getStyleKey(el) === getStyleKey(current[0]))) {
-                current.push(el);
-            } else {
-                groups.push(current);
-                current = [el];
-            }
-        }
-        if (current.length) groups.push(current);
-
-        for (const group of groups) {
-            if (group.length > 1) {
-                group.sort((a, b) => parseFloat(a.getAttribute('x') || 0) - parseFloat(b.getAttribute('x') || 0));
-                const first = group[0];
-                let text = first.textContent;
-                for (let i = 1; i < group.length; i++) {
-                    text += ' ' + group[i].textContent;
-                    group[i].remove();
-                }
-                first.textContent = text.trim();
-            }
-        }
-
-        return root.innerHTML;
+    function compressSVG(svgString) { 
+        if (!svgString) return '';
+        return svgString.replace(/\s+/g, ' ').replace(/>\s*</g, '><').trim(); 
     }
 
-    // --- Export SVG composer ---
     function composeSVG(regions, canvasWidth, canvasHeight) {
         let out = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n`;
         out += `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasWidth}" height="${canvasHeight}" viewBox="0 0 ${canvasWidth} ${canvasHeight}">\n`;
@@ -145,15 +78,176 @@ const SciTextHelpers = (function () {
         out += `</svg>`;
         return out;
     }
+    
+    // --- 3. UI RENDERING LOGIC (Stable API for main.html) ---
+    // These functions manipulate the DOM based on state but should remain stable.
+
+    function renderRegionList(state, els, activePatchId) {
+         if (!els.regionListContainer) return;
+         const container = els.regionListContainer;
+         container.innerHTML = '';
+         
+         if (state.regiones.length === 0) {
+             container.innerHTML = `<div class="p-4 text-xs text-gray-400">Draw a selection to create the first region.</div>`;
+             return;
+         }
+         
+         state.regiones.forEach((p, index) => {
+             const item = document.createElement('div');
+             item.className = 'region-list-item';
+             item.dataset.id = p.id;
+             
+             let statusIndicator = p.status === 'draft' ? 
+                 `<span class="text-blue-500 font-medium">Draft</span>` : 
+                 p.svgContent && p.svgContent.length > 10 ? 
+                 `<span class="text-green-600">Generated</span>` : 
+                 `<span class="text-gray-500">Empty</span>`;
+                 
+             if (p.id === activeRegionId) {
+                 item.classList.add('active');
+             }
+             
+             item.innerHTML = `
+                <div class="flex flex-col">
+                    <span class="text-sm font-medium">Region #${index + 1}</span>
+                    <span class="text-[10px] text-gray-400">(${p.rect.w.toFixed(3)} x ${p.rect.h.toFixed(3)})</span>
+                </div>
+                <div>${statusIndicator}</div>
+             `;
+             container.appendChild(item);
+         });
+    }
+
+    function renderRegiones(state, els, activePatchId, dragAction) {
+        const rootSvg = document.getElementById('main-svg');
+        if (!rootSvg) return;
+
+        const gRegiones = rootSvg.querySelector('#regiones');
+        const gHighlights = rootSvg.querySelector('#highlights');
+        
+        if (!gRegiones || !gHighlights) {
+            console.error("SVG structure is incomplete.");
+            return;
+        }
+
+        gRegiones.innerHTML = ''; 
+        gHighlights.innerHTML = '';
+        
+        if (!dragAction || dragAction === 'create') els.interactionLayer.innerHTML = '';
+        
+        const cw = state.canvas.width; 
+        const ch = state.canvas.height;
+        
+        state.regiones.forEach(p => {
+            p.scale = p.scale || {x:1, y:1}; p.offset = p.offset || {x:0, y:0};
+            if (!p.bpDims) p.bpDims = { w: p.rect.w*cw, h: p.rect.h*ch };
+
+            const px = p.rect.x * cw; const py = p.rect.y * ch;
+            const pw = p.rect.w * cw; const ph = p.rect.h * ch;
+            
+            if (p.status === 'draft') {
+                const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                rect.setAttribute("x", px); rect.setAttribute("y", py);
+                rect.setAttribute("width", pw); rect.setAttribute("height", ph);
+                rect.setAttribute("class", "region-draft");
+                gRegiones.appendChild(rect);
+            } else if (p.svgContent) {
+                const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                svg.setAttribute("x", px); svg.setAttribute("y", py);
+                svg.setAttribute("width", pw); svg.setAttribute("height", ph);
+                svg.setAttribute("viewBox", `0 0 ${p.bpDims.w} ${p.bpDims.h}`); 
+                svg.setAttribute("preserveAspectRatio", "none");
+                svg.setAttribute("id", `svg-region-${p.id}`);
+                svg.innerHTML = `<g id="group-${p.id}" transform="translate(${p.offset.x}, ${p.offset.y}) scale(${p.scale.x}, ${p.scale.y})">${p.svgContent}</g>`;
+                gRegiones.appendChild(svg);
+            }
+            
+            if (p.id === activeRegionId && !dragAction) renderActiveSelectionControls(p, state, els);
+            else {
+                const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                rect.setAttribute("x", px); rect.setAttribute("y", py);
+                rect.setAttribute("width", pw); rect.setAttribute("height", ph);
+                rect.setAttribute("class", "region-highlight");
+                rect.setAttribute("data-id", p.id);
+                gHighlights.appendChild(rect);
+            }
+        });
+    }
+
+    function renderActiveSelectionControls(region, state, els) {
+        if (!els.interactionLayer) return;
+
+        // Clear existing frames
+        els.interactionLayer.querySelectorAll('.selection-frame').forEach(el => el.remove());
+
+        const w = state.canvas.width; const h = state.canvas.height;
+        const ds = state.scaleMultiplier;
+
+        const px = region.rect.x * w * ds; 
+        const py = region.rect.y * h * ds;
+        const pw = region.rect.w * w * ds; 
+        const ph = region.rect.h * h * ds;
+
+        const frame = document.createElement('div');
+        frame.className = 'selection-frame'; 
+        frame.id = `frame-${region.id}`;
+        frame.style.left = `${px}px`; 
+        frame.style.top = `${py}px`;
+        frame.style.width = `${pw}px`; 
+        frame.style.height = `${ph}px`;
+        frame.dataset.id = region.id; 
+        frame.dataset.action = 'move';
+
+        ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].forEach(pos => {
+            const handle = document.createElement('div');
+            handle.className = `resize-handle handle-${pos}`;
+            handle.dataset.action = pos;
+            frame.appendChild(handle);
+        });
+        els.interactionLayer.appendChild(frame);
+    }
+    
+    function updateRegionVisuals(p, cw, ch, ds) {
+        const frame = document.getElementById(`frame-${p.id}`);
+        const nested = document.getElementById(`svg-region-${p.id}`);
+        
+        if(frame) {
+            frame.style.left = (p.rect.x * cw * ds) + 'px'; 
+            frame.style.top = (p.rect.y * ch * ds) + 'px';
+            frame.style.width = (p.rect.w * cw * ds) + 'px'; 
+            frame.style.height = (p.rect.h * ch * ds) + 'px';
+        }
+        
+        if(nested) {
+            const pw = p.rect.w * cw;
+            const ph = p.rect.h * ch;
+
+            nested.setAttribute('x', p.rect.x * cw); 
+            nested.setAttribute('y', p.rect.y * ch);
+            nested.setAttribute('width', pw); 
+            nested.setAttribute('height', ph);
+            nested.setAttribute('viewBox', `0 0 ${p.bpDims.w} ${p.bpDims.h}`); 
+            
+            const grp = document.getElementById(`group-${p.id}`);
+            if (grp) {
+                grp.setAttribute('transform', `translate(${p.offset.x}, ${p.offset.y}) scale(${p.scale.x}, ${p.scale.y})`);
+                grp.innerHTML = p.svgContent;
+            }
+        }
+    }
+
 
     return {
-        normalizeRect,
-        denormalizeRect,
-        parseSVGContent,
-        serializeSVGElement,
-        getContentBBox,
+        // Core Utilities
         runLengthEncode,
-        mergeAdjacentTextElements,
-        composeSVG
+        compressSVG,
+        composeSVG,
+        
+        // UI Rendering API
+        renderRegionList,
+        renderRegiones,
+        updateRegionVisuals,
+        // The remaining core functions relying on these (e.g., loadDefaultImage, updateUI) 
+        // will remain in main.html as they use the main 'state' and 'els' objects directly.
     };
 })();
