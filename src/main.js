@@ -265,6 +265,7 @@ function applyZoom() {
 function renderPage() { 
     els.pdfLayer.innerHTML = ''; 
     els.pdfLayer.appendChild(state.canvas); 
+    state.canvas.style.display = 'block';
     state.canvas.style.width='100%'; 
     state.canvas.style.height='100%'; 
     applyZoom(); 
