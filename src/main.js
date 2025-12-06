@@ -27,8 +27,9 @@ const state = {
     dragAction: null, 
     dragStart: { x: 0, y: 0 }, 
     initialRect: null, 
-    initialScale: null,
-    canvas: document.getElementById('processing-canvas'),
+    initialScale: null, 
+    // canvas: document.getElementById('processing-canvas'), // Removed: canvas is now created in init() below
+    canvas: document.createElement('canvas'), // Use a utility canvas until the DOM is ready
 };
 
 const els = {}; // Populated in init to ensure DOM is ready
@@ -56,12 +57,16 @@ function getRegion(id) {
     return state.regions.find(x => x.id === id);
 }
 
-// --- INIT & SETUP ---
+// --- INIT & SETUP (EXPORTED) ---
 
 /**
  * Initializes DOM element references and starts the application.
+ * Must be exported for the main.html script to call it.
  */
-function init() {
+export function init() {
+    // Canvas element is hidden in HTML, but we need it initialized for drawing operations
+    state.canvas = document.getElementById('processing-canvas');
+
     // Populate element references after template has loaded into the DOM
     els.upload = document.getElementById('pdf-upload');
     els.btnZoomIn = document.getElementById('zoom-in');
@@ -273,7 +278,7 @@ function initSvgLayer() {
     renderRegions();
 }
 
-// --- MOUSE HANDLERS (Same as previous implementation) ---
+// --- MOUSE HANDLERS ---
 function handleMouseDown(e) {
     if(e.button !== 0) return;
     const target = e.target;
@@ -844,6 +849,10 @@ function deselect() {
     [els.propX, els.propY, els.propW, els.propH].forEach(el => { el.value = ''; el.disabled = true; });
 }
 
+export function clearSelection() {
+    deselect();
+}
+
 function updateUIProperties(r) {
     const multiple = state.selectedIds.size > 1;
     [els.propX, els.propY, els.propW, els.propH].forEach(el => { 
@@ -921,10 +930,11 @@ async function handleFileUpload(e) {
 
 /**
  * Creates a new vector blueprint and dummy SVG content for a draft region.
+ * Must be exported to be callable from HTML.
  * @param {string} type - 'text', 'image', 'empty'
  * @param {string} id - Region ID
  */
-async function createRegion(type, id) {
+export async function createRegion(type, id) {
     const tid = id || state.activeRegionId; if(!tid) return;
     const r = getRegion(tid); if(!r) return;
     els.aiStatus.classList.remove('hidden'); els.selectionBar.style.display = 'none';
@@ -950,14 +960,23 @@ async function createRegion(type, id) {
         bpC.getContext('2d').drawImage(tmp, 0, 0, bpW, bpH);
         
         // Use the global helper function for RLE
+        // Note: SciTextHelpers must be imported/available globally. Assuming it's available via HTML script.
         const rlePath = SciTextHelpers.runLengthEncode(bpC.getContext('2d').getImageData(0,0,bpW,bpH));
         
         r.blueprint = `<svg viewBox="0 0 ${bpW} ${bpH}"><path d="${rlePath}" fill="#00ff00"/></svg>`;
         
-        // Initial SVG content is the path of the Blueprint
-        r.svgContent = `<path d="${rlePath}" fill="black" />`;
+        // Initial SVG content is the path of the Blueprint (or placeholder for image/empty)
+        if (type === 'image') {
+             r.svgContent = `<rect x="0" y="0" width="${bpW}" height="${bpH}" fill="#f0f0f0" stroke="#ccc"/>
+                             <text x="${bpW/2}" y="${bpH/2}" font-size="${bpH/10}" text-anchor="middle" fill="#555">Image Placeholder</text>`;
+        } else if (type === 'empty') {
+            r.svgContent = '';
+        } else {
+            // 'text' type defaults to the RLE blueprint
+            r.svgContent = `<path d="${rlePath}" fill="black" />`;
+        }
         
-        r.bpDims = {w: pxW, h: pxH}; // Set intrinsic size to actual high-res pixel size
+        r.bpDims = {w: bpW, h: bpH}; // Set intrinsic size to blueprint pixel size
         r.status = undefined; 
         r.scale = {x: 1, y: 1}; r.offset = {x: 0, y: 0};
         
@@ -988,6 +1007,7 @@ async function digitizeRegion() {
     const bpC = document.createElement('canvas');
     bpC.width = pw; bpC.height = ph; 
     bpC.getContext('2d').drawImage(state.canvas, r.rect.x * cw, r.rect.y * ch, pw, ph, 0, 0, pw, ph);
+    // Note: SciTextHelpers must be imported/available globally.
     const rle = SciTextHelpers.runLengthEncode(bpC.getContext('2d').getImageData(0,0,pw,ph));
 
     const prompt = `You are a precision SVG Typesetter.
@@ -1010,7 +1030,7 @@ ${rle.substring(0, 500)}...`;
     const payload = { 
         contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: base64 } }] }] 
     };
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent`;
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
     const MAX_RETRIES = 5;
     let attempt = 0;
@@ -1092,6 +1112,7 @@ function optimizeActiveRegion() {
 function groupSelectedRegions() {
     const selected = state.regions.filter(r => state.selectedIds.has(r.id));
     if (selected.length < 2) {
+        // Replaced alert()
         console.error("Please select at least 2 regions to group.");
         return;
     }
@@ -1169,6 +1190,8 @@ function handleSplitAction() {
          const extractedIndices = Array.from(state.splitSelection).sort((a,b) => a-b);
          const remainingNodes = domChildren.filter((_, idx) => !extractedIndices.includes(idx));
          
+         const extractedNodes = [];
+
          extractedIndices.forEach(idx => {
              const child = domChildren[idx];
              const renderedChild = children[idx];
@@ -1177,15 +1200,18 @@ function handleSplitAction() {
                  let absX, absY, absW, absH, content, bpW, bpH;
                  
                  try {
+                     // Get bounding box in screen coordinates relative to the canvas
                      const rect = renderedChild.getBoundingClientRect();
-                     const absX_screen = (rect.left - wrapperRect.left) * ratio;
-                     const absY_screen = (rect.top - wrapperRect.top) * ratio;
+                     const layerRect = els.interactionLayer.getBoundingClientRect();
+                     const absX_screen = (rect.left - layerRect.left) * ratio;
+                     const absY_screen = (rect.top - layerRect.top) * ratio;
                      absW = rect.width * ratio;
                      absH = rect.height * ratio;
                      
                      absX = absX_screen;
                      absY = absY_screen;
                      
+                     // Get intrinsic content size (BBox) and offset for the new region's content
                      const bbox = renderedChild.getBBox();
                      content = `<g transform="translate(${-bbox.x}, ${-bbox.y})">${child.outerHTML}</g>`;
                      bpW = bbox.width; 
@@ -1205,11 +1231,16 @@ function handleSplitAction() {
                     offset: { x: 0, y: 0 },
                     status: 'optimized'
                 });
+                
+                extractedNodes.push(child);
              }
          });
+         
+         // Remove extracted nodes from parent DOM structure
+         extractedNodes.forEach(node => node.parentNode.removeChild(node));
 
          // Update Parent Region with remaining nodes
-         r.svgContent = remainingNodes.map(n => n.outerHTML).join('\n');
+         r.svgContent = root.innerHTML.trim();
          
          // If parent is empty, remove it.
          if (!r.svgContent || r.svgContent.replace(/\s/g, '') === '') {
@@ -1253,7 +1284,7 @@ function mergeAdjacentTextElements(svgString) {
     textElements.sort((a, b) => {
         const ay = parseFloat(a.getAttribute('y') || '0');
         const by = parseFloat(b.getAttribute('y') || '0');
-        if (Math.abs(ay - by) > 1.0) return ay - by; // Group by Y position proximity (one pixel tolerance)
+        if (Math.abs(ay - by) > 0.5) return ay - by;
         const ax = parseFloat(a.getAttribute('x') || '0');
         const bx = parseFloat(b.getAttribute('x') || '0');
         return ax - bx;
@@ -1299,18 +1330,7 @@ function mergeAdjacentTextElements(svgString) {
             
             for (let i = 1; i < group.length; i++) {
                 const nextEl = group[i];
-                // Check for gap size. If elements are too far apart, maybe use a space, otherwise concatenate.
-                const lastXEnd = parseFloat(group[i-1].getAttribute('x') || '0') + (group[i-1].textContent.length * (parseFloat(group[i-1].getAttribute('font-size') || '10') * 0.5)); // rough estimate
-                const nextX = parseFloat(nextEl.getAttribute('x') || '0');
-                
-                // If there's a significant gap between the end of the previous word and the start of the next one
-                // Assume space is needed. Otherwise, merge without space (e.g. for sub/sup scripts)
-                if (nextX - lastXEnd > 2) { 
-                    mergedText += ' ' + nextEl.textContent;
-                } else {
-                     mergedText += nextEl.textContent;
-                }
-                
+                mergedText += ' ' + nextEl.textContent;
                 nextEl.remove();
             }
             firstEl.textContent = mergedText.trim();
@@ -1339,15 +1359,3 @@ function exportSVG() {
     const url = URL.createObjectURL(new Blob([out], {type: 'image/svg+xml'}));
     const a = document.createElement('a'); a.href = url; a.download = "scitext.svg"; a.click();
 }
-
-document.addEventListener('DOMContentLoaded', () => {
-    // This is the primary entry point after main.html has loaded its template.
-    init();
-});
-
-window.app = { 
-    clearSelection: deselect, 
-    createRegion: createRegion,
-    setMode: setMode,
-    selectRegion: selectRegion 
-};
