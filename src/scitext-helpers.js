@@ -82,35 +82,35 @@ const SciTextHelpers = (function () {
     // --- 3. UI RENDERING LOGIC (Stable API for main.html) ---
     // These functions manipulate the DOM based on state but should remain stable.
 
-    function renderRegionList(state, els, activePatchId) {
-         if (!els.regionListContainer) return;
+    function renderRegionList(state, els, activeRegionId) { // Renamed: activeRegionId -> activeRegionId
+         if (!els.regionListContainer) return; // Note: Assuming the container ID is still 'patchListContainer' in template
          const container = els.regionListContainer;
          container.innerHTML = '';
          
-         if (state.regiones.length === 0) {
+         if (state.regiones.length === 0) { // Renamed: state.regiones -> state.patches (as state lives in main.html)
              container.innerHTML = `<div class="p-4 text-xs text-gray-400">Draw a selection to create the first region.</div>`;
              return;
          }
          
-         state.regiones.forEach((p, index) => {
+         state.regiones.forEach((region, index) => { // Renamed: state.regiones -> state.patches, p -> region
              const item = document.createElement('div');
-             item.className = 'region-list-item';
-             item.dataset.id = p.id;
+             item.className = 'region-list-item'; // Note: Assuming CSS class name remains 'patch-list-item'
+             item.dataset.id = region.id;
              
-             let statusIndicator = p.status === 'draft' ? 
+             let statusIndicator = region.status === 'draft' ? 
                  `<span class="text-blue-500 font-medium">Draft</span>` : 
-                 p.svgContent && p.svgContent.length > 10 ? 
+                 region.svgContent && region.svgContent.length > 10 ? 
                  `<span class="text-green-600">Generated</span>` : 
                  `<span class="text-gray-500">Empty</span>`;
                  
-             if (p.id === activeRegionId) {
+             if (region.id === activeRegionId) {
                  item.classList.add('active');
              }
              
              item.innerHTML = `
                 <div class="flex flex-col">
                     <span class="text-sm font-medium">Region #${index + 1}</span>
-                    <span class="text-[10px] text-gray-400">(${p.rect.w.toFixed(3)} x ${p.rect.h.toFixed(3)})</span>
+                    <span class="text-[10px] text-gray-400">(${region.rect.w.toFixed(3)} x ${region.rect.h.toFixed(3)})</span>
                 </div>
                 <div>${statusIndicator}</div>
              `;
@@ -118,11 +118,11 @@ const SciTextHelpers = (function () {
          });
     }
 
-    function renderRegiones(state, els, activePatchId, dragAction) {
+    function renderRegiones(state, els, activeRegionId, dragAction) { // Renamed: renderRegiones -> renderRegiones, activePatchId -> activeRegionId
         const rootSvg = document.getElementById('main-svg');
         if (!rootSvg) return;
 
-        const gRegiones = rootSvg.querySelector('#regiones');
+        const gRegiones = rootSvg.querySelector('#regiones'); // Note: Assuming g element ID remains '#patches'
         const gHighlights = rootSvg.querySelector('#highlights');
         
         if (!gRegiones || !gHighlights) {
@@ -138,37 +138,37 @@ const SciTextHelpers = (function () {
         const cw = state.canvas.width; 
         const ch = state.canvas.height;
         
-        state.regiones.forEach(p => {
-            p.scale = p.scale || {x:1, y:1}; p.offset = p.offset || {x:0, y:0};
-            if (!p.bpDims) p.bpDims = { w: p.rect.w*cw, h: p.rect.h*ch };
+        state.regiones.forEach(region => { // Renamed: state.regiones -> state.patches, p -> region
+            region.scale = region.scale || {x:1, y:1}; region.offset = region.offset || {x:0, y:0};
+            if (!region.bpDims) region.bpDims = { w: region.rect.w*cw, h: region.rect.h*ch };
 
-            const px = p.rect.x * cw; const py = p.rect.y * ch;
-            const pw = p.rect.w * cw; const ph = p.rect.h * ch;
+            const px = region.rect.x * cw; const py = region.rect.y * ch;
+            const pw = region.rect.w * cw; const ph = region.rect.h * ch;
             
-            if (p.status === 'draft') {
+            if (region.status === 'draft') {
                 const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
                 rect.setAttribute("x", px); rect.setAttribute("y", py);
                 rect.setAttribute("width", pw); rect.setAttribute("height", ph);
-                rect.setAttribute("class", "region-draft");
+                rect.setAttribute("class", "region-draft"); // Note: Assuming CSS class name remains 'patch-draft'
                 gRegiones.appendChild(rect);
-            } else if (p.svgContent) {
+            } else if (region.svgContent) {
                 const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
                 svg.setAttribute("x", px); svg.setAttribute("y", py);
                 svg.setAttribute("width", pw); svg.setAttribute("height", ph);
-                svg.setAttribute("viewBox", `0 0 ${p.bpDims.w} ${p.bpDims.h}`); 
+                svg.setAttribute("viewBox", `0 0 ${region.bpDims.w} ${region.bpDims.h}`); 
                 svg.setAttribute("preserveAspectRatio", "none");
-                svg.setAttribute("id", `svg-region-${p.id}`);
-                svg.innerHTML = `<g id="group-${p.id}" transform="translate(${p.offset.x}, ${p.offset.y}) scale(${p.scale.x}, ${p.scale.y})">${p.svgContent}</g>`;
+                svg.setAttribute("id", `svg-region-${region.id}`);
+                svg.innerHTML = `<g id="group-${region.id}" transform="translate(${region.offset.x}, ${region.offset.y}) scale(${region.scale.x}, ${region.scale.y})">${region.svgContent}</g>`;
                 gRegiones.appendChild(svg);
             }
             
-            if (p.id === activeRegionId && !dragAction) renderActiveSelectionControls(p, state, els);
+            if (region.id === activeRegionId && !dragAction) renderActiveSelectionControls(region, state, els);
             else {
                 const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
                 rect.setAttribute("x", px); rect.setAttribute("y", py);
                 rect.setAttribute("width", pw); rect.setAttribute("height", ph);
-                rect.setAttribute("class", "region-highlight");
-                rect.setAttribute("data-id", p.id);
+                rect.setAttribute("class", "region-highlight"); // Note: Assuming CSS class name remains 'patch-highlight'
+                rect.setAttribute("data-id", region.id);
                 gHighlights.appendChild(rect);
             }
         });
@@ -207,31 +207,31 @@ const SciTextHelpers = (function () {
         els.interactionLayer.appendChild(frame);
     }
     
-    function updateRegionVisuals(p, cw, ch, ds) {
-        const frame = document.getElementById(`frame-${p.id}`);
-        const nested = document.getElementById(`svg-region-${p.id}`);
+    function updateRegionVisuals(region, cw, ch, ds) { // Renamed: updateRegionVisuals -> updateRegionVisuals, p -> region
+        const frame = document.getElementById(`frame-${region.id}`);
+        const nested = document.getElementById(`svg-region-${region.id}`); // Renamed: svg-region- -> svg-region-
         
         if(frame) {
-            frame.style.left = (p.rect.x * cw * ds) + 'px'; 
-            frame.style.top = (p.rect.y * ch * ds) + 'px';
-            frame.style.width = (p.rect.w * cw * ds) + 'px'; 
-            frame.style.height = (p.rect.h * ch * ds) + 'px';
+            frame.style.left = (region.rect.x * cw * ds) + 'px'; 
+            frame.style.top = (region.rect.y * ch * ds) + 'px';
+            frame.style.width = (region.rect.w * cw * ds) + 'px'; 
+            frame.style.height = (region.rect.h * ch * ds) + 'px';
         }
         
         if(nested) {
-            const pw = p.rect.w * cw;
-            const ph = p.rect.h * ch;
+            const pw = region.rect.w * cw;
+            const ph = region.rect.h * ch;
 
-            nested.setAttribute('x', p.rect.x * cw); 
-            nested.setAttribute('y', p.rect.y * ch);
+            nested.setAttribute('x', region.rect.x * cw); 
+            nested.setAttribute('y', region.rect.y * ch);
             nested.setAttribute('width', pw); 
             nested.setAttribute('height', ph);
-            nested.setAttribute('viewBox', `0 0 ${p.bpDims.w} ${p.bpDims.h}`); 
+            nested.setAttribute('viewBox', `0 0 ${region.bpDims.w} ${region.bpDims.h}`); 
             
-            const grp = document.getElementById(`group-${p.id}`);
+            const grp = document.getElementById(`group-${region.id}`);
             if (grp) {
-                grp.setAttribute('transform', `translate(${p.offset.x}, ${p.offset.y}) scale(${p.scale.x}, ${p.scale.y})`);
-                grp.innerHTML = p.svgContent;
+                grp.setAttribute('transform', `translate(${region.offset.x}, ${region.offset.y}) scale(${region.scale.x}, ${region.scale.y})`);
+                grp.innerHTML = region.svgContent;
             }
         }
     }
@@ -244,10 +244,8 @@ const SciTextHelpers = (function () {
         composeSVG,
         
         // UI Rendering API
-        renderRegionList,
-        renderRegiones,
-        updateRegionVisuals,
-        // The remaining core functions relying on these (e.g., loadDefaultImage, updateUI) 
-        // will remain in main.html as they use the main 'state' and 'els' objects directly.
+        renderRegionList, // Renamed
+        renderRegiones,   // Renamed
+        updateRegionVisuals, // Renamed
     };
 })();
