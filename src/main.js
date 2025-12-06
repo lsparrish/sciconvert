@@ -308,7 +308,7 @@ function handleMouseDown(e) {
         
         const r = getRegion(state.activeRegionId);
         if (r) {
-            r.scale = { x: 1, y: 1 }; r.offset = { x: 0, y: 0 };
+            r.scale = r.scale || {x: 1, y: 1}; r.offset = r.offset || {x: 0, y: 0};
             state.initialRect = { ...r.rect }; 
             state.initialScale = { ...r.scale };
             updateUIProperties(r);
@@ -379,7 +379,7 @@ function handleMouseMove(e) {
         
         if (newRect.w > 0.005 && newRect.h > 0.005) {
             r.rect = newRect;
-            updateRegionVisuals(r, cw, ch);
+            updateRegionVisuals(r, cw, ch, state.scaleMultiplier);
             updatePropertyInputs();
         }
     }
@@ -390,16 +390,18 @@ function handleMouseUp(e) {
     
     if (state.dragAction === 'create') {
          const sb = els.selectionBox;
-         if ((parseFloat(sb.style.width)||0) > 5) {
-             const rect = els.interactionLayer.getBoundingClientRect();
-             const ratio = state.canvas.width / rect.width;
-             const lx = parseFloat(sb.style.left) * ratio;
-             const ly = parseFloat(sb.style.top) * ratio;
-             const w = parseFloat(sb.style.width) * ratio;
-             const h = parseFloat(sb.style.height) * ratio;
+         
+         // Use local coordinates to determine drag distance in canvas pixels
+         const w = Math.abs(getLocalPos(e).x - state.dragStart.x);
+         const h = Math.abs(getLocalPos(e).y - state.dragStart.y);
+         
+         if (w > 5 && h > 5) { // Check if the drag distance in canvas pixels is significant
+             const lx = Math.min(getLocalPos(e).x, state.dragStart.x);
+             const ly = Math.min(getLocalPos(e).y, state.dragStart.y);
              
              const newRegion = {
                  id: `r${Date.now()}`,
+                 // Coordinates are already in canvas pixels (0 to cw/ch)
                  rect: { x: lx/state.canvas.width, y: ly/state.canvas.height, w: w/state.canvas.width, h: h/state.canvas.height },
                  bpDims: { w: w, h: h },
                  svgContent: '', 
@@ -479,7 +481,8 @@ function updateRegionFromInput() {
         if (inputH > 0) r.bpDims.h = inputH;
     }
     
-    updateRegionVisuals(r, cw, ch);
+    // FIX: Pass scaleMultiplier
+    updateRegionVisuals(r, cw, ch, state.scaleMultiplier);
 }
 
 function renderLayerList(r) {
@@ -511,8 +514,15 @@ function createLayerItem(content, index) {
     const div = document.createElement('div');
     div.className = 'bg-white border border-gray-300 rounded p-2 shadow-sm group relative mb-2';
     
+    let tagName = 'element';
     const match = content.match(/^<([a-z0-9]+)/i);
-    const tagName = match ? match[1] : 'element';
+    if (match) {
+        tagName = match[1];
+    } else if (content.startsWith('<')) {
+        tagName = content.substring(1, content.indexOf(' ')).replace('/', '').trim() || 'element';
+    } else {
+        tagName = 'Text Content';
+    }
     
     const header = document.createElement('div');
     header.className = 'text-[10px] font-bold text-blue-500 uppercase mb-1 flex justify-between items-center';
@@ -534,7 +544,7 @@ function createLayerItem(content, index) {
     ta.className = 'w-full text-[10px] font-mono border border-gray-100 bg-gray-50 rounded p-1 resize-y outline-none focus:border-blue-300 h-16';
     ta.value = content;
     ta.spellcheck = false;
-    ta.oninput = () => updateRegionFromList();
+    ta.oninput = updateRegionFromList;
     ta.onblur = () => { updateRegionFromList(); saveState(); };
     ta.dataset.index = index;
     
@@ -544,14 +554,21 @@ function createLayerItem(content, index) {
 
 function deleteLayer(index) {
     const textareas = Array.from(els.layerList.querySelectorAll('textarea'));
-    textareas.splice(index, 1);
     
     const r = getRegion(state.activeRegionId);
     if(!r) return;
+
+    let newSvgContent = '';
+    textareas.forEach((ta, idx) => {
+        if (idx !== index) {
+            newSvgContent += ta.value + '\n';
+        }
+    });
     
-    r.svgContent = textareas.map(ta => ta.value).join('\n');
+    r.svgContent = newSvgContent.trim();
     
-    updateRegionVisuals(r, state.canvas.width, state.canvas.height);
+    // FIX: Pass scaleMultiplier
+    updateRegionVisuals(r, state.canvas.width, state.canvas.height, state.scaleMultiplier);
     renderLayerList(r);
     saveState();
 }
@@ -561,7 +578,8 @@ function addLayerToRegion() {
     if(!r) return;
     
     r.svgContent += `\n<text x="10" y="10" font-size="10" fill="black">New Text</text>`;
-    updateRegionVisuals(r, state.canvas.width, state.canvas.height);
+    // FIX: Pass scaleMultiplier
+    updateRegionVisuals(r, state.canvas.width, state.canvas.height, state.scaleMultiplier);
     renderLayerList(r);
     saveState();
 }
@@ -573,28 +591,40 @@ function updateRegionFromList() {
     const textareas = Array.from(els.layerList.querySelectorAll('textarea'));
     r.svgContent = textareas.map(ta => ta.value).join('\n');
     
-    updateRegionVisuals(r, state.canvas.width, state.canvas.height);
+    // FIX: Pass scaleMultiplier
+    updateRegionVisuals(r, state.canvas.width, state.canvas.height, state.scaleMultiplier);
 }
 
-function updateRegionVisuals(r, cw, ch) {
+/**
+ * Updates the visual representation (frame on interaction layer, and nested SVG on svg layer)
+ * @param {object} r - The region object.
+ * @param {number} cw - Canvas width.
+ * @param {number} ch - Canvas height.
+ * @param {number} ds - Display scale multiplier.
+ */
+function updateRegionVisuals(r, cw, ch, ds) {
     const frame = document.getElementById(`frame-${r.id}`);
     const nested = document.getElementById(`svg-region-${r.id}`);
     
     if(frame) {
-        frame.style.left = (r.rect.x * cw) + 'px'; 
-        frame.style.top = (r.rect.y * ch) + 'px';
-        frame.style.width = (r.rect.w * cw) + 'px'; 
-        frame.style.height = (r.rect.h * ch) + 'px';
+        // FIX: Apply ds (scaleMultiplier) to frame position and size
+        frame.style.left = (r.rect.x * cw * ds) + 'px'; 
+        frame.style.top = (r.rect.y * ch * ds) + 'px';
+        frame.style.width = (r.rect.w * cw * ds) + 'px'; 
+        frame.style.height = (r.rect.h * ch * ds) + 'px';
     }
+    
     if(nested) {
         const pxW = r.rect.w * cw; const pxH = r.rect.h * ch;
+        // SVG element attributes (x, y, width, height) are in canvas pixels, not scaled screen pixels
         nested.setAttribute('x', r.rect.x * cw); nested.setAttribute('y', r.rect.y * ch);
         nested.setAttribute('width', pxW); nested.setAttribute('height', pxH);
         nested.setAttribute('viewBox', `0 0 ${r.bpDims.w} ${r.bpDims.h}`); 
         
         const grp = document.getElementById(`group-${r.id}`);
         if (grp) {
-            grp.setAttribute('transform', `translate(${r.offset.x}, ${r.offset.y})`);
+            // Include scale in the transform for consistency
+            grp.setAttribute('transform', `translate(${r.offset.x}, ${r.offset.y}) scale(${r.scale.x}, ${r.scale.y})`);
             grp.innerHTML = r.svgContent;
         }
     }
@@ -636,7 +666,8 @@ function fitContentToArea() {
     }
 
     renderLayerList(r);
-    updateRegionVisuals(r, state.canvas.width, state.canvas.height);
+    // FIX: Pass scaleMultiplier
+    updateRegionVisuals(r, state.canvas.width, state.canvas.height, state.scaleMultiplier);
     renderRegions(); 
     updatePropertyInputs(); 
     saveState();
@@ -668,7 +699,7 @@ function fitAreaToContent() {
             h: absH / ch 
         };
 
-        updateRegionVisuals(r, cw, ch);
+        updateRegionVisuals(r, cw, ch, state.scaleMultiplier);
         fitContentToArea(); // Reset internal content to align with new container (0,0)
         
     } catch(e) {
@@ -710,7 +741,7 @@ function renderRegions() {
             svg.setAttribute("preserveAspectRatio", "none");
             svg.setAttribute("id", `svg-region-${r.id}`);
             
-            svg.innerHTML = `<g id="group-${r.id}" transform="translate(${r.offset.x}, ${r.offset.y})">${r.svgContent}</g>`;
+            svg.innerHTML = `<g id="group-${r.id}" transform="translate(${r.offset.x}, ${r.offset.y}) scale(${r.scale.x}, ${r.scale.y})">${r.svgContent}</g>`;
             gRegions.appendChild(svg);
         }
         
@@ -739,11 +770,22 @@ function renderRegions() {
     updateUI();
 }
 
+/**
+ * Renders the resize/move handles for the active region.
+ * (FIX: Corrected to use state.scaleMultiplier for scaled positioning)
+ */
 function renderActiveSelectionControls(region) {
+    // Prevent re-drawing if already exists (only remove on full renderRegions)
     if (document.querySelector(`.selection-frame[data-id="${region.id}"]`)) return;
+
     const w = state.canvas.width; const h = state.canvas.height;
-    const px = region.rect.x * w; const py = region.rect.y * h;
-    const pw = region.rect.w * w; const ph = region.rect.h * h;
+    const ds = state.scaleMultiplier; // Get scale multiplier
+
+    // Position and size must be scaled to match the canvas-wrapper's size
+    const px = region.rect.x * w * ds; 
+    const py = region.rect.y * h * ds;
+    const pw = region.rect.w * w * ds; 
+    const ph = region.rect.h * h * ds;
 
     const frame = document.createElement('div');
     frame.className = 'selection-frame'; frame.id = `frame-${region.id}`;
@@ -767,7 +809,8 @@ function renderSplitOverlays(region) {
      const children = Array.from(group.children);
      const wrapperRect = els.interactionLayer.getBoundingClientRect();
      const cw = state.canvas.width;
-     const ratio = cw / wrapperRect.width;
+     // The ratio converts screen pixels to canvas pixels.
+     const ratio = cw / wrapperRect.width; 
 
      // Clear old overlays
      els.interactionLayer.querySelectorAll('.split-overlay').forEach(el => el.remove());
@@ -777,6 +820,7 @@ function renderSplitOverlays(region) {
          
          const rect = child.getBoundingClientRect();
          const layerRect = els.interactionLayer.getBoundingClientRect();
+         // Position calculation needs to be in screen pixels for the div overlay
          const x = (rect.left - layerRect.left);
          const y = (rect.top - layerRect.top);
          const w = rect.width;
@@ -952,14 +996,14 @@ export async function createRegion(type, id) {
         const MAX_BP = 300;
         let bpW = pxW, bpH = pxH;
         if (pxW > MAX_BP || pxH > MAX_BP) {
-            const ratio = Math.min(MAX_BP/pxW, MAX_BP/pxH);
+            const ratio = Math.min(MAX_BP/pxW, MAX_BP/pxH); // FIX: Corrected variable name from 'ph' to 'pxH'
             bpW = Math.floor(pxW*ratio); bpH = Math.floor(pxH*ratio);
         }
         bpC.width = bpW; bpC.height = bpH;
         bpC.getContext('2d').drawImage(tmp, 0, 0, bpW, bpH);
         
         // Use the global helper function for RLE
-        // Note: SciTextHelpers must be imported/available globally. Assuming it's available via HTML script.
+        // Note: SciTextHelpers is loaded globally via a separate script tag in main.html
         const rlePath = SciTextHelpers.runLengthEncode(bpC.getContext('2d').getImageData(0,0,bpW,bpH));
         
         r.blueprint = `<svg viewBox="0 0 ${bpW} ${bpH}"><path d="${rlePath}" fill="#00ff00"/></svg>`;
@@ -977,7 +1021,7 @@ export async function createRegion(type, id) {
         
         r.bpDims = {w: bpW, h: bpH}; // Set intrinsic size to blueprint pixel size
         r.status = undefined; 
-        r.scale = {x: 1, y: 1}; r.offset = {x: 0, y: 0};
+        r.scale = { x: 1, y: 1 }; r.offset = { x: 0, y: 0 };
         
         saveState(); selectRegion(r.id);
     } catch(e) { console.error(e); }
@@ -1006,7 +1050,6 @@ async function digitizeRegion() {
     const bpC = document.createElement('canvas');
     bpC.width = pw; bpC.height = ph; 
     bpC.getContext('2d').drawImage(state.canvas, r.rect.x * cw, r.rect.y * ch, pw, ph, 0, 0, pw, ph);
-    // Note: SciTextHelpers must be imported/available globally.
     const rle = SciTextHelpers.runLengthEncode(bpC.getContext('2d').getImageData(0,0,pw,ph));
 
     const prompt = `You are a precision SVG Typesetter.
@@ -1102,7 +1145,7 @@ function optimizeActiveRegion() {
          const optimized = mergeAdjacentTextElements(original);
          r.svgContent = optimized;
          renderLayerList(r);
-         updateRegionVisuals(r, state.canvas.width, state.canvas.height);
+         updateRegionVisuals(r, state.canvas.width, state.canvas.height, state.scaleMultiplier);
          saveState();
          console.log("Optimization complete");
     }
@@ -1111,7 +1154,6 @@ function optimizeActiveRegion() {
 function groupSelectedRegions() {
     const selected = state.regions.filter(r => state.selectedIds.has(r.id));
     if (selected.length < 2) {
-        // Replaced alert()
         console.error("Please select at least 2 regions to group.");
         return;
     }
@@ -1139,7 +1181,7 @@ function groupSelectedRegions() {
         const visH = r.rect.h * ch;
         
         mergedContent += `<svg x="${relX.toFixed(3)}" y="${relY.toFixed(3)}" width="${visW.toFixed(3)}" height="${visH.toFixed(3)}" viewBox="0 0 ${r.bpDims.w} ${r.bpDims.h}" preserveAspectRatio="none" overflow="visible">
-            <g transform="translate(${r.offset.x}, ${r.offset.y})">
+            <g transform="translate(${r.offset.x}, ${r.offset.y}) scale(${r.scale.x}, ${r.scale.y})">
                 ${r.svgContent}
             </g>
         </svg>`;
@@ -1212,7 +1254,7 @@ function handleSplitAction() {
                      
                      // Get intrinsic content size (BBox) and offset for the new region's content
                      const bbox = renderedChild.getBBox();
-                     content = `<g transform="translate(${-bbox.x}, ${-bbox.y})">${child.outerHTML}</g>`;
+                     content = child.outerHTML;
                      bpW = bbox.width; 
                      bpH = bbox.height;
 
@@ -1224,11 +1266,13 @@ function handleSplitAction() {
                  newRegions.push({
                     id: `r${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
                     rect: { x: absX / cw, y: absY / ch, w: absW / cw, h: absH / ch },
-                    bpDims: { w: bpW, h: bpH },
+                    bpDims: { w: bpW, h: bpH }, // Estimated BPDims from BBox
                     svgContent: content,
                     scale: { x: 1, y: 1 },
                     offset: { x: 0, y: 0 },
-                    status: 'optimized'
+                    status: 'optimized', // Mark as optimized
+                    // Store the original BBox origin to shift the content later:
+                    _splitBBox: { x: bbox.x, y: bbox.y } 
                 });
                 
                 extractedNodes.push(child);
@@ -1236,7 +1280,13 @@ function handleSplitAction() {
          });
          
          // Remove extracted nodes from parent DOM structure
-         extractedNodes.forEach(node => node.parentNode.removeChild(node));
+         extractedNodes.forEach(node => {
+             if (node.parentNode) {
+                 node.parentNode.removeChild(node);
+             } else {
+                 console.warn("Node to remove has no parent, skipping removal.");
+             }
+         });
 
          // Update Parent Region with remaining nodes
          r.svgContent = root.innerHTML.trim();
@@ -1247,12 +1297,19 @@ function handleSplitAction() {
          } else {
              // If parent still exists, optimize its new bounds
              r.status = 'optimized';
-             updateRegionVisuals(r, cw, ch);
-             fitContentToArea();
+             updateRegionVisuals(r, cw, ch, state.scaleMultiplier);
+             fitContentToArea(); // This resets the offset/bpDims based on new content BBox
          }
          
-         // Add new regions
-         state.regions = state.regions.concat(newRegions);
+         // Add new regions and fit their content
+         newRegions.forEach(newR => {
+             // Before adding, apply the BBox offset shift 
+             newR.offset.x = -newR._splitBBox.x;
+             newR.offset.y = -newR._splitBBox.y;
+             delete newR._splitBBox;
+             
+             state.regions.push(newR);
+         });
          
          deselect();
          saveState();
@@ -1341,6 +1398,8 @@ function mergeAdjacentTextElements(svgString) {
 function updateDebug(r) {
      if(r.srcCrop) els.debugImg.src = r.srcCrop;
      if(r.blueprint) els.debugBlueprint.innerHTML = r.blueprint;
+     // Note: The viewBox may need to be adjusted for scaling if the content is not fully visible.
+     // Currently using bpDims for viewBox, which is the internal canvas pixel size of the crop.
      els.debugSvg.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 ${r.bpDims.w} ${r.bpDims.h}" style="border:1px solid red">${r.svgContent}</svg>`;
      els.debugLog.textContent = JSON.stringify(r, null, 2);
 }
@@ -1351,6 +1410,9 @@ function switchTab(t) {
      els.debugContainer.classList.toggle('flex', t === 'debug');
      document.getElementById('tab-overlay').classList.toggle('active', t === 'overlay');
      document.getElementById('tab-debug').classList.toggle('active', t === 'debug');
+     if (t === 'debug' && state.activeRegionId) {
+        updateDebug(getRegion(state.activeRegionId));
+     }
 }
 
 function exportSVG() {
