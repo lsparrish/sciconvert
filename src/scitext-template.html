@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- This is the template file for main.html.
+    It should include only robustly implemented HTML and css that is unlikely to require modification in the context of this project. The details may be overridden by main.html during development. The goal is to keep main.html smaller.
+    This file lives at https://lsparrish.github.io/sciconvert/src/scitext-template.html
+    Changes made here will need to be pushed to github before they are available.
+    -->
+    <title>Main Template</title>
+
+    <!-- External Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+    </script>
+
+    <style>
+        /* Reset and Base */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #111827;
+            height: 100vh;
+            overflow: hidden;
+            color: #e5e7eb;
+        }
+
+        /* Layout */
+        .flex { display: flex; }
+        .flex-col { flex-direction: column; }
+        .flex-1 { flex: 1; }
+        .h-screen { height: 100vh; }
+        .overflow-hidden { overflow: hidden; }
+        .relative { position: relative; }
+        .absolute { position: absolute; }
+        .inset-0 { top: 0; left: 0; right: 0; bottom: 0; }
+        .z-10 { z-index: 10; }
+        .z-20 { z-index: 20; }
+        .z-30 { z-index: 30; }
+        .z-50 { z-index: 50; }
+        .z-100 { z-index: 100; }
+
+        /* Header */
+        header {
+            background-color: #1f2937;
+            padding: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+            border-bottom: 1px solid #000;
+        }
+        h1 { font-size: 1.5rem; font-weight: bold; }
+        h1 span { color: #60a5fa; }
+
+        /* Buttons */
+        button {
+            cursor: pointer;
+            border: none;
+            background: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: #2563eb; color: white; }
+        .btn-primary:hover { background: #3b82f6; }
+        .btn-small { padding: 4px 8px; font-size: 0.75rem; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 5px; border: 2px solid #1f2937; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+
+        /* Grid Overlay */
+        .grid-overlay {
+            background-size: 50px 50px;
+            background-image:
+                linear-gradient(to right, rgba(0,0,0,0.05) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(0,0,0,0.05) 1px, transparent 1px);
+            pointer-events: none;
+        }
+
+        /* Region Styles */
+        .region-highlight { stroke: #f97316; stroke-width: 2; fill: rgba(249,115,22,0.05); opacity: 0; transition: opacity 0.15s; pointer-events: all; }
+        .region-highlight:hover { opacity: 1; cursor: pointer; }
+        .region-selected { stroke: #3b82f6; stroke-width: 2; fill: rgba(59,130,246,0.2); pointer-events: all; cursor: move; }
+        .region-draft { fill: rgba(59,130,246,0.1); stroke: #3b82f6; stroke-width: 2; stroke-dasharray: 8,4; animation: dash 30s linear infinite; pointer-events: none; }
+
+        /* Split Overlay */
+        .split-overlay { stroke: #6366f1; stroke-width: 1; fill: rgba(99,102,241,0.1); stroke-dasharray: 4,2; pointer-events: all; cursor: pointer; }
+        .split-overlay:hover { stroke-width: 2; fill: rgba(99,102,241,0.3); }
+        .split-overlay.selected { stroke: #ef4444; stroke-width: 2; fill: rgba(239,68,68,0.4); }
+
+        @keyframes dash { to { stroke-dashoffset: -1000; } }
+
+        /* Selection Box */
+        #selection-box {
+            border: 2px dashed #3b82f6;
+            background: rgba(59,130,246,0.1);
+            position: absolute;
+            pointer-events: none;
+            display: none;
+            z-index: 50;
+        }
+
+        /* Resize Handles */
+        .selection-frame {
+            position: absolute;
+            border: 1px solid #3b82f6;
+            box-shadow: 0 0 0 1px rgba(59,130,246,0.3);
+            background: rgba(59,130,246,0.05);
+            cursor: move;
+            z-index: 40;
+        }
+        .resize-handle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background: white;
+            border: 2px solid #3b82f6;
+            border-radius: 2px;
+            z-index: 50;
+            transition: transform 0.1s;
+        }
+        .resize-handle:hover { transform: scale(1.2); background: #eff6ff; }
+        .handle-nw { top: -6px; left: -6px; cursor: nw-resize; }
+        .handle-n  { top: -6px; left: 50%; margin-left: -5px; cursor: n-resize; }
+        .handle-ne { top: -6px; right: -6px; cursor: ne-resize; }
+        .handle-e  { top: 50%; right: -6px; margin-top: -5px; cursor: e-resize; }
+        .handle-se { bottom: -6px; right: -6px; cursor: se-resize; }
+        .handle-s  { bottom: -6px; left: 50%; margin-left: -5px; cursor: s-resize; }
+        .handle-sw { bottom: -6px; left: -6px; cursor: sw-resize; }
+        .handle-w  { top: 50%; left: -6px; margin-top: -5px; cursor: w-resize; }
+
+        /* Action Bar */
+        #new-selection-action-bar {
+            position: fixed;
+            background: rgba(31,41,55,0.95);
+            border: 1px solid #374151;
+            border-radius: 8px;
+            padding: 6px 8px;
+            display: none;
+            gap: 8px;
+            align-items: center;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+            backdrop-filter: blur(8px);
+            z-index: 100;
+        }
+
+        /* Tabs */
+        .tab-button {
+            padding: 8px 16px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #9ca3af;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .tab-button.active {
+            color: #60a5fa;
+            border-bottom-color: #60a5fa;
+            background: white;
+            color: #1f2937;
+        }
+
+        /* Disabled States */
+        .disabled { opacity: 0.5; pointer-events: none; }
+
+        /* Inputs */
+        input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #4b5563;
+            border-radius: 4px;
+            background: white;
+            color: #1f2937;
+            font-family: monospace;
+        }
+        input:disabled { background: #f3f4f6; color: #9ca3af; }
+
+        /* Misc */
+        .border { border: 1px solid #4b5563; }
+        .rounded { border-radius: 4px; }
+        .shadow { box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .bg-white { background: white; }
+        .bg-gray { background: #1f2937; }
+        .text-gray { color: #9ca3af; }
+        .text-blue { color: #60a5fa; }
+        .uppercase { text-transform: uppercase; }
+        .font-bold { font-weight: bold; }
+    </style>
+</head>
+<body class="flex flex-col h-screen">
+
+    <!-- Header -->
+    <header>
+        <div class="flex items-center gap-4">
+            <h1>SciText <span>Digitizer</span></h1>
+            <input type="file" id="pdf-upload" accept="application/pdf, image/*" style="display:none">
+            <label for="pdf-upload" class="btn-primary">Load</label>
+            <div id="pdf-zoom-controls" class="flex items-center bg-gray rounded p-2 gap-2">
+                <button id="zoom-out">-</button>
+                <span id="zoom-level" class="text-xs w-12 text-center">100%</span>
+                <button id="zoom-in">+</button>
+            </div>
+            <button id="btn-undo" class="disabled" title="Undo">Undo</button>
+            <button id="btn-redo" class="disabled" title="Redo">Redo</button>
+        </div>
+        <div>
+            <span id="ai-status" class="hidden text-blue animate-pulse">Processing...</span>
+            <button id="fullscreen-toggle">Full Screen</button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col overflow-hidden bg-white">
+        <!-- Tabs -->
+        <div class="bg-gray-100 border-b flex">
+            <button id="tab-overlay" class="tab-button active">Compositor</button>
+            <button id="tab-debug" class="tab-button">Debug View</button>
+        </div>
+
+        <!-- Empty State / Loader -->
+        <div id="empty-state" class="absolute inset-0 flex items-center justify-center bg-gray-100 z-50">
+            <div class="bg-white p-12 rounded shadow text-center border">
+                <h2 class="text-2xl font-bold mb-2">No Document Loaded</h2>
+                <p>Upload a PDF or Image to begin.</p>
+            </div>
+        </div>
+        <div id="pdf-loader" class="absolute inset-0 bg-black bg-opacity-70 hidden flex items-center justify-center z-50">
+            <div class="text-white text-xl">Loading...</div>
+        </div>
+
+        <!-- Workspace -->
+        <div id="workspace-container" class="flex-1 flex overflow-hidden hidden">
+            <!-- Sidebar -->
+            <aside class="w-80 bg-white border-r shadow flex flex-col">
+                <!-- Properties Header -->
+                <div class="bg-gray-100 p-4 border-b text-xs font-bold flex justify-between items-center">
+                    <span>Properties</span>
+                    <div class="flex gap-2">
+                        <button id="mode-area" class="btn-small bg-white text-blue">Area</button>
+                        <button id="mode-content" class="btn-small">Content</button>
+                        <span id="region-count" class="bg-blue text-white px-2 py-1 rounded">0</span>
+                    </div>
+                </div>
+                <!-- Position/Size Inputs -->
+                <div class="p-4 grid grid-cols-2 gap-4 text-xs">
+                    <div><label>Pos X</label><input type="number" id="prop-x" disabled></div>
+                    <div><label>Pos Y</label><input type="number" id="prop-y" disabled></div>
+                    <div><label>Width</label><input type="number" id="prop-w" disabled></div>
+                    <div><label>Height</label><input type="number" id="prop-h" disabled></div>
+                </div>
+                <!-- Layer List -->
+                <div class="flex-1 overflow-auto p-4" id="layer-list">
+                    <div class="text-center text-gray">Select a region to view layers</div>
+                </div>
+                <!-- Actions -->
+                <div class="p-4 border-t flex justify-between flex-wrap gap-4">
+                    <button id="btn-export" class="btn-primary">Compose SVG</button>
+                    <button id="btn-clear-all" class="text-red-500">Reset</button>
+                    <div id="context-actions" class="flex gap-2 disabled">
+                        <button id="btn-digitize" class="btn-primary">AI Text</button>
+                        <button id="btn-split">Split</button>
+                        <button id="btn-group">Group</button>
+                        <button id="btn-optimize">Opt</button>
+                        <button id="btn-regen">Regen</button>
+                        <button id="btn-delete">Del</button>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Canvas Area -->
+            <div class="flex-1 flex flex-col bg-gray-200 relative overflow-hidden">
+                <div class="bg-white p-4 flex justify-center gap-8 text-xs font-bold border-b">
+                    <label><input type="checkbox" id="chk-source" checked> Source</label>
+                    <label><input type="checkbox" id="chk-svg" checked> SVG Overlay</label>
+                    <label><input type="checkbox" id="chk-grid"> Grid</label>
+                </div>
+                <div id="canvas-scroller" class="flex-1 overflow-auto flex justify-center items-center p-12">
+                    <div id="canvas-wrapper" class="relative bg-white shadow-2xl">
+                        <div id="pdf-layer"></div>
+                        <div id="grid-layer" class="absolute inset-0 grid-overlay hidden"></div>
+                        <div id="svg-layer" class="absolute inset-0" style="pointer-events:none"></div>
+                        <div id="interaction-layer" class="absolute inset-0"></div>
+                        <div id="selection-box"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Debug View -->
+        <div id="debug-container" class="flex-1 hidden flex-col p-24">
+            <!-- Debug panels go here in JS -->
+        </div>
+    </main>
+
+    <!-- New Selection Action Bar -->
+    <div id="new-selection-action-bar">
+        <span class="font-bold text-xs">Create:</span>
+        <button onclick="app.createRegion('text')">Text</button>
+        <button onclick="app.createRegion('image')">Image</button>
+        <button onclick="app.createRegion('empty')">Empty</button>
+        <button onclick="app.clearSelection()">Cancel</button>
+    </div>
+
+    <canvas id="processing-canvas" style="display:none"></canvas>
+
+    <!-- Scripts -->
+    <script src="scitext-helpers.js"></script>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
