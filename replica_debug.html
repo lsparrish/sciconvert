@@ -3,1300 +3,1498 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Alternating Alignment Engine (Lean)</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <title>main.html</title>
+
+    <!-- Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script>
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+    </script>
+
+    <!-- KaTeX is still useful for transcription, but not directly for SVG patching -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.4/katex.min.css"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.4/contrib/auto-render.min.js"></script>
+
+    <!-- Tailwind for layout (via CDN) -->
     <script src="https://cdn.tailwindcss.com"></script>
 
+    <!-- html2canvas is now only used for capturing the *source image* for AI -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    
     <style>
-      body {
-        background-color: #1f2937;
-        overflow: hidden;
-        font-family: sans-serif;
-        height: 100vh;
+      /* Custom Scrollbar for better aesthetics */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
       }
-      .editor {
-        font-family: monospace;
+      ::-webkit-scrollbar-track {
+        background: #f1f1f1;
       }
-      #overlay-html-layer * {
-        margin: 0;
-        padding: 0;
-        left: 0%;
-        top: 0%;
-        box-sizing: border-box;
-        line-height: 1;
-      }
-      .tab {
-        @apply px-3 py-1 text-xs cursor-pointer text-gray-400 hover:text-white border-b-2 border-transparent;
-      }
-      .tab.active {
-        @apply text-green-400 border-green-400 bg-gray-900;
-      }
-      .image-thumbnail-payload {
-        width: 100px;
-        height: auto;
-        margin-top: 5px;
-        border: 1px solid #4b5563;
+      ::-webkit-scrollbar-thumb {
+        background: #888;
         border-radius: 4px;
       }
-      .log-pre {
-        white-space: pre-wrap;
-        background: #111827;
-        padding: 0.5rem;
-        border-radius: 4px;
-        color: #d1d5db;
-        font-size: 0.7rem;
-        overflow-y: auto;
-      }
-      .log-history-entry {
-        border-bottom: 1px solid #374151;
-        padding-bottom: 1rem;
-        margin-bottom: 1rem;
-      }
-      /* New styles for disclosure folds */
-      .log-details {
-        margin-top: 10px;
-        border: 1px solid #374151; /* gray-700 */
-        border-radius: 6px;
-        overflow: hidden;
-      }
-      .log-summary {
-        padding: 6px 10px;
-        background-color: #1f2937; /* gray-800 */
-        color: #9ca3af; /* gray-400 */
-        font-size: 0.75rem;
-        cursor: pointer;
-        outline: none;
-      }
-      .log-summary:hover {
-        background-color: #111827; /* gray-900 */
-      }
-      .log-summary::marker, .log-summary::-webkit-details-marker {
-          color: #9ca3af;
-      }
-      .log-details .log-pre {
-        background: #111827;
-        border-radius: 0;
+      ::-webkit-scrollbar-thumb:hover {
+        background: #555;
       }
 
-      .mode-position {
-        color: #60a5fa;
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #e5e7eb;
+        height: 100vh;
+        overflow: hidden;
       }
-      .mode-size {
-        color: #fca311;
+
+      /* Custom Tab Styles */
+      .tab-button {
+        padding: 0.75rem 1.5rem;
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: #4b5563;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        transition: all 0.1s ease-in-out;
       }
-      /* Ensure canvas elements are layered correctly */
-      #view-canvas {
-        z-index: 10;
+      .tab-button:hover {
+        color: #1f2937;
+        border-bottom-color: #e5e7eb;
       }
-      #overlay-html-layer {
-        z-index: 0;
+      .tab-button.active {
+        color: #2563eb;
+        border-bottom-color: #2563eb;
+        background-color: #fff;
+      }
+
+      /* PDF Canvas Styles */
+      #pdf-render-container {
+        box-shadow:
+          0 4px 6px -1px rgba(0, 0, 0, 0.1),
+          0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        background-color: #525659;
+        overflow: auto;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        padding: 20px;
+      }
+
+      canvas {
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        max-width: none;
+      }
+
+      /* Editor Styles */
+      .editor-textarea {
+        font-family: "Consolas", "Monaco", "Courier New", monospace;
+        line-height: 1.6;
+        resize: none;
+      }
+      
+      /* New Patch Highlight Style (Used in Selection Layer) */
+      .patch-highlight {
+          cursor: pointer;
+          stroke: #f97316; /* Orange-500 (For editing) */
+          stroke-width: 3;
+          fill: none;
+          opacity: 0.0;
+          transition: opacity 0.15s;
+          pointer-events: all; /* Make it clickable in the SVG element */
+      }
+      .patch-highlight:hover {
+          opacity: 0.8;
+          stroke-width: 4;
+          stroke: #ea580c; /* Deeper Orange */
+      }
+
+      /* Selection Box Styles */
+      #selection-box {
+        border: 2px dashed #2563eb;
+        background-color: rgba(37, 99, 235, 0.1);
+        position: absolute;
+        pointer-events: none; /* Let events pass through to layer */
+        display: none;
+        z-index: 50;
+      }
+
+      /* Orange outline for Editing Mode */
+      #selection-box.edit-mode {
+        border-color: #f97316; /* Orange-500 */
+        background-color: rgba(249, 115, 22, 0.1);
+      }
+      
+      /* --- Action Bar Styles (Selection) --- */
+      #new-selection-action-bar {
+        position: fixed;
+        z-index: 10000;
+        display: none;
+        transform-origin: top center;
+        animation: fadeIn 0.1s ease-out;
+      }
+
+      .disabled-bar {
+        opacity: 0.5;
+        pointer-events: none;
+        transition: opacity 0.2s ease-in-out;
+      }
+
+      .action-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 0.5rem;
+        border-radius: 0.375rem;
+        cursor: pointer;
+        transition: all 0.15s;
+        color: #4b5563;
+        background: #f9fafb;
+        border: 1px solid #f3f4f6;
+        min-width: 50px;
+      }
+
+      .action-btn:hover {
+        background-color: #f3f4f6;
+        color: #1f2937;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+      }
+      
+      .action-btn.btn-export {
+          background-color: #d1fae5; /* light green */
+          border-color: #6ee7b7; /* green border */
+      }
+      .action-btn.btn-export:hover {
+          background-color: #a7f3d0;
+      }
+
+      .action-btn svg {
+        width: 1.25rem;
+        height: 1.25rem;
+        margin-bottom: 0.1rem;
+      }
+
+      .action-btn span {
+        font-size: 0.65rem;
+        font-weight: 600;
+        line-height: 1;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: scale(0.95) translateY(-5px);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+        }
       }
     </style>
   </head>
-  <body class="flex flex-col h-screen text-white">
+  <body class="flex flex-col h-screen">
+    <!-- Header / Toolbar -->
     <header
-      class="bg-gray-900 p-2 flex justify-between items-center shadow border-b border-gray-800"
+      class="bg-gray-800 text-white p-3 flex justify-between items-center shadow-md z-10 shrink-0"
     >
-      <h1 class="font-bold text-purple-400 tracking-wider">
-        Alternating Alignment Engine (<span id="current-mode-display">---</span
-        >)
-      </h1>
-      <button
-        id="fullscreen-btn"
-        class="bg-gray-700 hover:bg-gray-600 p-2 rounded-lg transition text-gray-300"
-        onclick="document.documentElement.requestFullscreen()"
-      >
-        Full Screen
-      </button>
-      <div class="flex items-center gap-2">
-        <span id="ai-status" class="text-blue-400 text-xs font-mono hidden"
-          >Processing...</span
+      <div class="flex items-center gap-4">
+        <h1 class="text-xl font-bold tracking-wider mr-4">
+          SciText <span class="text-blue-400">Digitizer</span>
+        </h1>
+        <h1>
+          <a href="https://github.com/lsparrish/sciconvert">GH</a>
+        </h1>
+
+        <div class="relative">
+          <input
+            type="file"
+            id="pdf-upload"
+            accept="application/pdf"
+            class="hidden"
+          />
+          <label
+            for="pdf-upload"
+            class="cursor-pointer bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded text-sm font-semibold transition flex items-center gap-2"
+          >
+            <svg
+              class="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+              ></path>
+            </svg>
+            Load PDF
+          </label>
+        </div>
+
+        <div
+          class="flex items-center bg-gray-700 rounded px-2 py-1 gap-2"
+          id="pdf-nav-controls"
+          style="display: none"
         >
-        <input
-          type="number"
-          id="loop-count"
-          value="4"
-          min="2"
-          max="10"
-          class="w-12 bg-gray-800 text-center text-sm border border-gray-700 rounded"
-        />
+          <button
+            id="prev-page"
+            class="hover:text-blue-300 p-1 disabled:opacity-50"
+            title="Previous Page"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M15 19l-7-7 7-7"
+              ></path>
+            </svg>
+          </button>
+          <span class="text-sm font-mono"
+            >Page <span id="page-num">0</span> /
+            <span id="page-count">0</span></span
+          >
+          <button
+            id="next-page"
+            class="hover:text-blue-300 p-1 disabled:opacity-50"
+            title="Next Page"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 5l7 7-7 7"
+              ></path>
+            </svg>
+          </button>
+        </div>
+
+        <div
+          class="flex items-center bg-gray-700 rounded px-2 py-1 gap-2"
+          id="pdf-zoom-controls"
+          style="display: none"
+        >
+          <button
+            id="zoom-out"
+            class="hover:text-blue-300 p-1"
+            title="Zoom Out"
+          >
+            -
+          </button>
+          <span id="zoom-level" class="text-xs font-mono w-12 text-center"
+            >100%</span
+          >
+          <button id="zoom-in" class="hover:text-blue-300 p-1" title="Zoom In">
+            +
+          </button>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-4">
+        <span
+          id="restore-badge"
+          class="hidden bg-amber-100 text-amber-800 text-xs font-medium px-2.5 py-0.5 rounded border border-amber-400"
+        >
+          Restored: <span id="restored-filename" class="font-bold"></span>
+        </span>
+
         <button
-          id="run-btn"
-          class="bg-purple-600 hover:bg-purple-500 px-3 py-1 text-sm rounded"
+          id="export-md"
+          class="bg-green-600 hover:bg-green-500 px-4 py-2 rounded text-sm font-semibold transition flex items-center gap-2"
+          title="Download Transcription"
         >
-          Run
+          <svg
+            class="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+            ></path>
+          </svg>
+          Export
+        </button>
+
+        <button
+          id="fullscreen-toggle"
+          class="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded text-sm font-semibold transition flex items-center gap-2"
+          title="Toggle Fullscreen Mode"
+        >
+          <svg
+            class="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 8V4m0 0h4M4 4l5 5m11-5v4m0 0h-4m4 0l-5-5M4 16v4m0 0h4M4 20l5-5m11 5v-4m0 0h-4m4 0l-5 5"
+            ></path>
+          </svg>
+          Full
         </button>
       </div>
     </header>
 
-    <main class="flex-1 flex overflow-hidden">
-      <div class="w-1/2 flex flex-col bg-gray-800 relative overflow-hidden">
-        <div class="overflow-hidden flex-1 relative">
-          <div id="wrapper" class="bg-white text-black absolute inset-0">
-            <canvas id="view-canvas" class="absolute inset-0"></canvas>
-            <div id="overlay-html-layer" class="absolute inset-0"></div>
-          </div>
-        </div>
+    <!-- Main Workspace -->
+    <main class="flex-1 flex flex-col overflow-hidden relative">
+      <!-- Tab Bar -->
+      <div
+        id="main-tab-bar"
+        class="flex bg-gray-50 border-b border-gray-200 shadow-inner shrink-0"
+      >
+        <button id="tab-overlay" class="tab-button active">
+          SVG Compositor
+        </button>
+        <button
+          id="tab-prompts"
+          class="tab-button text-red-600 hover:text-red-800"
+        >
+          Prompts
+        </button>
+        <button
+          id="tab-debug"
+          class="tab-button text-purple-600 hover:text-purple-800"
+        >
+          Debug (Images)
+        </button>
       </div>
 
-      <div class="w-1/2 flex flex-col bg-gray-800">
-        <div class="flex border-b border-gray-800 bg-gray-800">
-          <button id="tab-html" class="tab active" onclick="setTab('html')">
-            HTML
-          </button>
-          <button id="tab-log" class="tab" onclick="setTab('log')">
-            Diagnostic Log
-          </button>
+      <div
+        id="empty-state"
+        class="absolute inset-0 flex flex-col items-center justify-center bg-gray-100 z-50 text-gray-500"
+      >
+        <svg
+          class="w-24 h-24 mb-4 text-gray-300"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.5"
+            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+          ></path>
+        </svg>
+        <h2 class="text-2xl font-bold mb-2">No Document Loaded</h2>
+        <p class="mb-6">Upload a PDF to begin digitizing.</p>
+      </div>
+
+      <div id="workspace" class="flex-1 overflow-hidden relative bg-white">
+        <!-- 1. Source (PDF) Container: KEPT as it contains the canvas -->
+        <div
+          id="source-container"
+          class="absolute inset-0 flex flex-col hidden"
+        >
+          <div id="pdf-render-container" class="w-full h-full">
+            <canvas id="the-canvas"></canvas>
+          </div>
+          <div
+            id="pdf-loader"
+            class="absolute inset-0 bg-gray-800 bg-opacity-75 flex flex-col items-center justify-center hidden"
+          >
+            <div class="loader mb-2"></div>
+            <span class="text-white text-sm font-semibold"
+              >Rendering Page...</span
+            >
+          </div>
         </div>
 
-        <div class="flex-1 w-full relative">
-          <textarea
-            id="debug-textarea"
-            class="editor absolute inset-0 p-4 bg-gray-900 text-green-400 text-xs outline-none border-none resize-none"
-          ></textarea>
-
+        <!-- 2. Overlay Split View Container -->
+        <div id="overlay-container" class="absolute inset-0 flex hidden">
+          <!-- Left: Editor -->
           <div
-            id="debug-log-view"
-            class="absolute inset-0 p-4 bg-gray-900 text-white text-xs overflow-auto hidden"
+            class="w-1/3 h-full flex flex-col border-r border-gray-300 z-20 bg-white shadow-xl"
+          >
+            <div
+              class="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 border-b flex justify-between"
+            >
+              <span id="editor-title">COMPOSITE SVG OUTPUT</span>
+              <div class="flex items-center gap-4">
+                <span id="ai-status" class="text-blue-600 hidden"
+                  >AI Processing...</span
+                >
+                <span
+                  id="show-ai-log"
+                  class="text-gray-500 hover:text-gray-900 cursor-pointer font-semibold hidden"
+                  onclick="toggleAiLog()"
+                >
+                  [AI Log]
+                </span
+                >
+              </div>
+            </div>
+            <!-- NOTE: This textarea now holds the generated SVG for the entire page -->
+            <textarea
+              id="overlay-html-input"
+              class="editor-textarea flex-1 w-full h-full p-4 border-none outline-none text-gray-800 bg-gray-50 text-xs"
+              placeholder="<!-- Composite SVG content will appear here after patching -->"
+            ></textarea>
+
+            <!-- Action Bar for Patch Management and Export -->
+            <div
+              id="edit-action-bar"
+              class="w-full shrink-0 flex flex-wrap border-t border-gray-200 bg-gray-50 p-2 overflow-x-auto"
+            >
+                <div class="flex flex-wrap gap-2">
+                    <button
+                        id="btn-export-svg"
+                        class="action-btn btn-export text-green-600 hover:text-green-700"
+                        onclick="exportCompositeSVG()"
+                        title="Generate and display the full composite SVG."
+                    >
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
+                        </svg>
+                        <span>Export SVG</span>
+                    </button>
+                    
+                    <button
+                        id="btn-reset-patches"
+                        class="action-btn text-red-600 hover:text-red-700"
+                        onclick="resetPatches()"
+                        title="Clear all applied SVG patches from the page."
+                    >
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                        <span>Reset Patches</span>
+                    </button>
+                </div>
+
+                <div class="w-px h-8 bg-gray-200 my-auto hidden sm:block"></div>
+
+                <div class="flex flex-wrap gap-2">
+                  <span id="patch-count-display" class="text-sm font-semibold text-gray-700 p-2">0 Patches</span>
+                </div>
+            </div>
+          </div>
+
+          <!-- Right: Preview (Superimposed) -->
+          <div class="w-2/3 h-full flex flex-col relative bg-gray-500">
+            <!-- Overlay Toolbar -->
+            <div
+              class="bg-gray-200 p-2 flex gap-4 border-b border-gray-400 shrink-0 z-30 justify-center text-sm text-gray-700 shadow-sm"
+            >
+              <label
+                class="flex items-center gap-2 cursor-pointer font-semibold hover:text-black"
+              >
+                <input
+                  type="checkbox"
+                  id="chk-show-source"
+                  checked
+                  class="rounded text-blue-600 focus:ring-blue-500"
+                />
+                Show Source PDF
+              </label>
+              <div class="w-px h-4 bg-gray-400 my-auto"></div>
+              <label
+                class="flex items-center gap-2 cursor-pointer font-semibold hover:text-black"
+              >
+                <input
+                  type="checkbox"
+                  id="chk-show-overlay"
+                  checked
+                  class="rounded text-blue-600 focus:ring-blue-500"
+                />
+                Show SVG Overlay
+              </label>
+              <div class="w-px h-4 bg-gray-400 my-auto"></div>
+               <span id="active-patch-display" class="font-bold text-orange-600">No Patch Selected</span>
+            </div>
+
+            <!-- Scroller -->
+            <div
+              id="overlay-scroller"
+              class="flex-1 overflow-auto flex justify-center p-8 select-none relative"
+            >
+              <!-- Wrapper matches Canvas Size -->
+              <div
+                id="overlay-wrapper"
+                class="relative shadow-2xl origin-top bg-white"
+              >
+                <!-- Mount point for Canvas (Source Image/PDF) -->
+                <div
+                  id="overlay-canvas-mount"
+                  class="transition-opacity duration-200"
+                ></div>
+
+                <!-- SVG Layer (Rendered Content - Patches & Highlights) -->
+                <div
+                  id="svg-layer-container"
+                  class="absolute inset-0 overflow-hidden pointer-events-none z-10 transition-opacity duration-200"
+                >
+                    <!-- SVG element with ID workbook-svg-element injected by script -->
+                </div>
+
+                <!-- Selection Layer (Interactive) -->
+                <div
+                  id="selection-layer"
+                  class="absolute inset-0 z-20 cursor-crosshair"
+                ></div>
+
+                <!-- Visual Selection Box -->
+                <div id="selection-box"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Other hidden containers kept for compatibility -->
+        <div
+          id="editor-container-md"
+          class="absolute inset-0 flex flex-col hidden"
+        >
+          <textarea
+            id="markdown-input"
+            class="editor-textarea flex-1 w-full h-full p-4 border-none outline-none text-gray-800 bg-gray-50 text-sm"
+            placeholder="# Transcription Area"
+          ></textarea>
+        </div>
+        <div
+          id="preview-container"
+          class="absolute inset-0 overflow-y-auto p-8 hidden bg-white"
+        >
+          <div
+            id="preview-output"
+            class="preview-content font-serif text-gray-900 max-w-none"
           ></div>
+        </div>
+        <div
+          id="editor-container-prompts"
+          class="absolute inset-0 flex flex-col hidden"
+        >
+          <textarea
+            id="prompt-input"
+            class="editor-textarea flex-1 w-full h-full p-4 border-none outline-none text-xs"
+            placeholder="Loading AI prompts..."
+          ></textarea>
+        </div>
+        <!-- 6. Debug Images Container (NEW TAB CONTENT) -->
+        <div
+          id="editor-container-debug"
+          class="absolute inset-0 hidden flex flex-col p-4 bg-gray-800 overflow-y-auto"
+        >
+          <!-- Image Comparison Row (Source vs. Current) -->
+          <div
+            id="debug-vision-content-tab"
+            class="flex-shrink-0 flex justify-space-evenly gap-4"
+          >
+            <div class="debug-pane-tab">
+              <span
+                id="debug-source-label"
+                class="text-sm font-bold text-yellow-300 mb-2"
+              >
+                TARGET (Source Scan)
+              </span>
+              <img id="debug-source-img" alt="Target Image Snippet" />
+            </div>
+            <div class="debug-pane-tab">
+              <span
+                id="debug-render-label"
+                class="text-sm font-bold text-blue-300 mb-2"
+              >
+                CURRENT RENDER (SVG Patch)
+              </span>
+              <img id="debug-render-img" alt="Current SVG Render" />
+            </div>
+          </div>
+
+          <!-- NEW: History Strip -->
+          <div
+            id="debug-history-strip"
+            class="flex-shrink-0 mt-4 p-2 bg-gray-900 rounded-lg shadow-inner overflow-x-auto whitespace-nowrap"
+          >
+            <div class="flex justify-between items-center mb-2">
+                <span class="text-xs font-semibold text-gray-400 align-middle"
+                    >Past Attempts (Max 4):</span
+                >
+                <button 
+                    id="btn-toggle-playback" 
+                    class="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 text-xs rounded font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    onclick="toggleHistoryPlayback()"
+                    disabled
+                >
+                    <span id="playback-text">Play History</span>
+                </button>
+            </div>
+            <div
+              id="history-images-container"
+              class="inline-flex gap-3 h-24"
+            ></div>
+          </div>
+
+          <!-- Patch Data Area -->
+          <div class="flex-1 flex flex-col pt-4 overflow-hidden">
+            <span class="text-xs font-bold text-gray-400 mb-1 pl-4"
+              >Current Patch SVG Code</span
+            >
+            <textarea
+              id="debug-html-content"
+              class="editor-textarea flex-1 w-full p-4 outline-none text-gray-200 bg-gray-900 text-xs border border-gray-700 resize-none"
+              readonly
+            ></textarea>
+          </div>
         </div>
       </div>
     </main>
 
-    <canvas id="target-canvas-ai" style="display: none"></canvas>
-    <canvas id="render-canvas-ai" style="display: none"></canvas>
-    <canvas id="overlap-canvas" style="display: none"></canvas>
+    <!-- Action Bar (For new selections) -->
+    <div
+      id="new-selection-action-bar"
+      class="bg-gray-800 text-white rounded-lg shadow-2xl flex items-center p-1.5 gap-2 border border-gray-700"
+    >
+      <button 
+        id="btn-digitize" 
+        class="action-btn text-blue-400 hover:text-blue-300 bg-blue-900/50 hover:bg-blue-900/70" 
+        title="Digitize Text (AI)"
+        onclick="initiatePatchGeneration('text')"
+      >
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+        </svg>
+        <span>Digitize</span>
+      </button>
+      <button 
+        id="btn-copy-image" 
+        class="action-btn text-amber-400 hover:text-amber-300 bg-amber-900/50 hover:bg-amber-900/70" 
+        title="Extract Image"
+        onclick="insertImageFromSelection()"
+      >
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+        </svg>
+        <span>Image</span>
+      </button>
+      <button 
+        id="btn-create-div" 
+        class="action-btn text-gray-400 hover:text-gray-300 bg-gray-900/50 hover:bg-gray-900/70" 
+        title="Empty Box"
+        onclick="initiatePatchGeneration('empty')"
+      >
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"></path>
+        </svg>
+        <span>Empty</span>
+      </button>
+
+      <div class="w-px h-8 bg-gray-600 mx-0.5"></div>
+
+      <button
+        id="btn-close-action"
+        class="action-btn text-gray-400 hover:text-red-400"
+        title="Close"
+        onclick="closeSelection()"
+      >
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M6 18L18 6M6 6l12 12"
+          ></path>
+        </svg>
+        <span>Cancel</span>
+      </button>
+    </div>
+
+    <!-- Context Menu (hidden) - Retained for original click logic removal -->
+    <div
+      id="context-menu"
+      style="
+        position: fixed;
+        z-index: 9999;
+        display: none;
+      "
+    ></div>
 
     <script type="module">
-      const apiKey = "";
-      const SAMPLE_URL = "https://lsparrish.github.io/sciconvert/sample.png";
-      const TEST_ID = "div-test-block";
+      const apiKey = ""; // Runtime key
+      const STORAGE_KEY = "scitext_transcriptions";
+      const STORAGE_KEY_LAST_PAGE = "scitext_last_page_num";
+      const STORAGE_KEY_FILENAME = "scitext_last_filename";
+      const STORAGE_KEY_PROMPTS = "scitext_ai_prompts";
+      const STORAGE_KEY_PATCHES = "scitext_page_patches"; // NEW storage key for SVG data
 
-      const DEFAULT_AI_SCALE = 0.5;
-      const FINAL_AI_SCALE = 2.0;
+      const DEFAULT_IMAGE_URL =
+        "https://lsparrish.github.io/sciconvert/sample.png";
+      const MAX_RETRIES = 4;
+      const AI_IMAGE_SCALE = 2.0;
 
-      const PROBABILITY_FIELD = "dampenFutureChanges"; // New field name
+      let transcriptionData = {}; // Stores prompts, general data (excluding patches now)
+      let aiQueryLog = [];
+      let appliedPatches = []; // NEW: Stores { id, rect, svgContent, bpDims }
+      let currentPatchId = 0;
 
-      // --- FOCUSED PROMPT TEMPLATES ---
-
-      // Template for POSITION Correction (Odd Runs: 1, 3, 5...)
-      const POSITION_TEMPLATE = `# ROLE: FOCUSED POSITION ALIGNMENT
-You are a Visual Alignment Engine focused on matching the **X and Y coordinates (position)** of text elements.
-
-# OBJECTIVE
-Analyze the visuals (Target/Red Border vs. Current Render/Blue Border). Move the dark Render text to the positions on the Target.
-
-To aid comprehension, render has a faint image of Target, with blue pixels where overlap is detected. 
-Maximize blue pixels cooresponding to the black text in the Target by correctly moving the dark text of the Render.
-Minimize blue pixels which do not correspond.
-
-{{positionCommands}}
-
-# ANALYSIS STEPS / INTERNAL MONOLOGUE
-1. Delta Check: precise difference in X/Y coordinates compared to Target.
-2. History Check: Did the previous move overshoot? If yes, reverse movement by a small amount.
-3. Closeness: Change amount should be smaller if already close in position, larger if still a long ways.
-4. Probability: To dampen future changes, pick a number closer to 0.41-0.59. If the changeAmount you choose is small, bump it up. If large, bump it down.
-
-# OUTPUT RULES
-- Return **ONLY** a raw JSON object. No markdown, no commentary.
-- Precision: Coefficients must use 2 decimal decimals (e.g., 0.50).
-- Efficiency: Only include elements that require position changes.
-
-# INPUT DATA
-{{constraint}}
-{{structure}}
-
-# RESPONSE FORMAT
-{
-  "element-id": [
-    { "action": "moveUp", "changeAmount": 0.50, "${PROBABILITY_FIELD}": 0.10 } // dampenFutureChanges is (0.00 to 1.00)
-  ]
-}`;
-
-      // Template for SIZE Correction (Even Runs: 2, 4, 6...)
-      const SIZE_TEMPLATE = `# ROLE: FOCUSED SIZE ALIGNMENT
-You are a Visual Alignment Engine strictly focused on matching the **size (fontSize)** of text elements.
-
-# OBJECTIVE
-Analyze the visuals (Target/Red Border vs. Current Render/Blue Border). Your SOLE goal is to issue JSON commands to match the width and height of the currently rendered text to the target text by adjusting its scale (**fontSize**).
-
-To aid comprehension, render has a faint image of Target, with blue pixels where overlap is detected.
-Maximize blue pixels corresponding to the black text in the Target by correctly matching the size of the dark text of the Render.
-Minimize blue pixels which do not correspond.
-
-{{sizeCommands}}
-
-# ANALYSIS STEPS / INTERNAL MONOLOGUE
-1. Delta Check: precise difference in current font size compared to Target size.
-2. History Check: Did the previous size change overshoot? If yes, reverse movement by a small amount.
-3. Closeness: Change amount should be smaller if already close in size, larger if still a long ways.
-4. Probability: To dampen future changes, pick a number closer to 0.41-0.59. If the changeAmount you choose is small, bump it up. If large, bump it down.
-
-# OUTPUT RULES
-- Return **ONLY** a raw JSON object. No markdown, no commentary.
-- Precision: Coefficients must use 2 decimal decimals (e.g., 0.50).
-- Efficiency: Only include elements that require size changes.
-
-# INPUT DATA
-{{constraint}}
-{{structure}}
-
-# RESPONSE FORMAT
-{
-  "element-id": [
-    { "action": "grow", "changeAmount": 0.25, "${PROBABILITY_FIELD}": 0.10 }
-  ]
-}`;
-
-      let currentRunScale = DEFAULT_AI_SCALE;
-      let img;
-
-      // Initial Content
-      const INITIAL_HTML = `<div id="${TEST_ID}" style="position: absolute; left: 4.92%; top: 2.34%; width: 88.80%; height: 26.53%; background: rgba(255,255,255,0.7); padding: 0px; margin: 0px; "> 
-<p>Journal of the British Interplanetary Society, Vol. 36, pp. 115-128, 1983.</p>
-
-<p>ORBITAL RING SYSTEMS AND JACOB'S LADDERS - II</p>
-
-<p>PAUL BIRCH*</p>
-<p>45, Brownville Road, Heaton Moor, Stockport, England.</p>
-
-<p>A method of transferring payloads into space without using rockets has been presented in Part I, in which massive
-rings encircle the globe in a low orbit supporting stationary 'sky-hooks,' from which cables hang down to any point on
-the Earth's surface. Vehicles can climb up these 'ladders' into orbit, or can accelerate along the rings. The structure and
-deployment of such Orbital Ring Systems is examined and their varied uses considered; several scenarios are considered
-and shown to be economically feasible and beneficial.</p></div>`;
-
-      // State
+      // --- State ---
       const state = {
-        // history: { score: string, commands: object, resultImage: base64String, structure: { elements, maxExtent }, probabilityScore: number }
-        history: [],
-        aiLog: [],
-        currTab: "html",
-        targetAI: document.getElementById("target-canvas-ai"),
-        renderAI: document.getElementById("render-canvas-ai"),
-        overlapCanvas: document.getElementById("overlap-canvas"),
-        viewCanvas: document.getElementById("view-canvas"),
-        viewCtx: null,
-        MAX_VERTICAL_EM: 10.0,
+        pdfDoc: null,
+        pageNum: 1,
+        pageRendering: false,
+        pageNumPending: null,
+        scale: 1.2,
+        canvas: document.getElementById("the-canvas"),
+        ctx: document.getElementById("the-canvas").getContext("2d"),
+        activeTab: "overlay",
+        isAuthReady: false,
+        saveTimeout: null,
 
-        // --- NEW STATE TRACKERS ---
-        currentMode: "POSITION", // Starts with POSITION
-        iterationCounter: 0, // Counts total iterations executed
-        skipNextPosition: false, // Flag to skip the next POSITION run
-        skipNextSize: false, // Flag to skip the next SIZE run
-        // --------------------------
+        // Selection State (for new patch drawing)
+        isSelecting: false,
+        selectionStart: { x: 0, y: 0 },
+        selectionEnd: { x: 0, y: 0 },
+        selectionRect: null, // New selection coordinates (percentage)
+
+        // Interaction Target (for existing patch clicking)
+        targetPatchId: null, // ID of the currently selected/edited patch
+
+        isLoopRunning: false,
+        isLogActive: false,
+        
+        // AI Prompts (Editable content stored here)
+        prompts: {
+          DIGITIZE_TEXT:
+            "Transcribe the text in this image. Return ONLY the raw text, preserving line breaks. Do not include markdown blocks or commentary. If it is a mathematical formula, return the KaTeX equivalent enclosed in dollar signs ($...$ or $$...$$).",
+          // ... (REPLICA_STYLE, FONT_STYLE, TEXT_ONLY - mostly unused in SVG flow but kept for prompts tab)
+          SVG_GENERATE: `You are a precision graphic designer. 
+Task: Generate a high-detail Semantic SVG snippet for a cropped region based on the image provided.
+Requirements:
+- Output **ONLY** valid SVG code. No markdown or commentary.
+- The root element must be <svg>.
+- ViewBox should be implicitly defined by the generated content's bounds, or explicitly set to match the dimensions of the input image crop.
+- Focus on text legibility and geometric precision. Use <text> tags.
+- CRITICAL: Ensure all <text> elements explicitly define font-size and use fill="black" or another dark color for visibility against a white background.
+- If the content is an image/figure, use `<image>` tags pointing to the provided base64 data, or use simple SVG shapes (`<rect>`, `<path>`) to replicate it.
+- If the instruction is 'text', focus on transcription and typography.
+- If the instruction is 'image', focus on replicating the figure.
+- If the instruction is 'empty', return an empty SVG structure.
+
+INSTRUCTION: {{patch_type}}
+`,
+        },
       };
 
+      // --- DOM Elements ---
       const els = {
-        wrapper: document.getElementById("wrapper"),
-        layer: document.getElementById("overlay-html-layer"),
-        output: document.getElementById("debug-textarea"),
-        logView: document.getElementById("debug-log-view"),
-        status: document.getElementById("ai-status"),
-        runBtn: document.getElementById("run-btn"),
-        loopInput: document.getElementById("loop-count"),
-        modeDisplay: document.getElementById("current-mode-display"),
+        // ... (General UI elements retained)
+        upload: document.getElementById("pdf-upload"),
+        emptyState: document.getElementById("empty-state"),
+        pdfLoader: document.getElementById("pdf-loader"),
+        navControls: document.getElementById("pdf-nav-controls"),
+        zoomControls: document.getElementById("pdf-zoom-controls"),
+        prevBtn: document.getElementById("prev-page"),
+        nextBtn: document.getElementById("next-page"),
+        pageNumSpan: document.getElementById("page-num"),
+        pageCountSpan: document.getElementById("page-count"),
+        zoomInBtn: document.getElementById("zoom-in"),
+        zoomOutBtn: document("zoom-out"),
+        zoomLevelSpan: document.getElementById("zoom-level"),
+        
+        // Canvas/Overlay/Wrapper
+        sourceContainer: document.getElementById("source-container"),
+        overlayContainer: document.getElementById("overlay-container"),
+        overlayCanvasMount: document.getElementById("overlay-canvas-mount"),
+        overlayWrapper: document.getElementById("overlay-wrapper"),
+        selectionLayer: document.getElementById("selection-layer"),
+        selectionBox: document.getElementById("selection-box"),
+        theCanvas: document.getElementById("the-canvas"),
+        svgLayerContainer: document.getElementById("svg-layer-container"), // NEW SVG container
+
+        // Editor / Output
+        overlayHtmlInput: document.getElementById("overlay-html-input"), // Now holds composite SVG
+        editorTitle: document.getElementById("editor-title"),
+        aiStatus: document.getElementById("ai-status"),
+        showAiLog: document.getElementById("show-ai-log"),
+        
+        // Action Bars
+        actionBar: document.getElementById("new-selection-action-bar"),
+        editActionBar: document.getElementById("edit-action-bar"),
+        patchCountDisplay: document.getElementById("patch-count-display"), // NEW
+        activePatchDisplay: document.getElementById("active-patch-display"), // NEW
+
+        // Debug View
+        debugSourceImg: document.getElementById("debug-source-img"),
+        debugRenderImg: document.getElementById("debug-render-img"),
+        debugHtmlContent: document.getElementById("debug-html-content"), // Now holds patch SVG code
+
+        // Prompts
+        tabPrompts: document.getElementById("tab-prompts"),
+        promptInput: document.getElementById("prompt-input"),
+        
+        // Buttons
+        btnExportSvg: document.getElementById("btn-export-svg"),
+        btnResetPatches: document.getElementById("btn-reset-patches"),
+        fullscreenBtn: document.getElementById("fullscreen-toggle"),
       };
 
-      // --- UI Logic ---
-      window.setTab = (t) => {
-        state.currTab = t;
-
-        const isHtmlTab = t === "html";
-        els.output.classList.toggle("hidden", !isHtmlTab);
-        els.logView.classList.toggle("hidden", isHtmlTab);
-
-        document.querySelectorAll(".tab").forEach((el) => {
-          el.classList.remove("active");
-          if (el.id.includes(t)) {
-            el.classList.add("active");
-          }
-        });
-
-        if (t === "html") {
-          els.output.value = els.layer.innerHTML
-            .replace(/<\/div>/g, "</div>\n")
-            .replace(/<br>/g, "<br>\n");
-        } else if (t === "log") {
-          renderDiagnosticLog();
-        }
-      };
-
-      function renderDiagnosticLog() {
-        let logContent = state.aiLog
-          .map((entry, i) => {
-            const status = entry.success
-              ? "SUCCESS"
-              : entry.skipped
-                ? "SKIPPED"
-                : "ERROR";
-            const statusColor = entry.success
-              ? "#9be658"
-              : entry.skipped
-                ? "#fcd34d"
-                : "#ef4444";
-
-            const rawResponse = entry.response
-              ? JSON.stringify(entry.response, null, 2)
-              : entry.response;
-
-            const images = entry.request?.images;
-            const score = entry.request?.score || "N/A";
-            const mode = entry.request?.mode || "N/A";
-            const modeClass = mode.toLowerCase();
-            const probScore = entry.request?.probabilityScore
-              ? ` | Prob. Sum: ${entry.request.probabilityScore.toFixed(2)}`
-              : "";
-
-            const targetImgHtml = images?.target
-              ? `<img src="data:image/png;base64,${images.target}" class="image-thumbnail-payload border-red-400" alt="Target Image Thumbnail" />`
-              : `<div style="width: 100px; height: 60px; background: #374151; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 0.7rem;">[No Target]</div>`;
-
-            const renderImgHtml = images?.render
-              ? `<img src="data:image/png;base64,${images.render}" class="image-thumbnail-payload border-blue-400" alt="Render Image Thumbnail" />`
-              : `<div style="width: 100px; height: 60px; background: #374151; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 0.7rem;">[No Render]</div>`;
-
-            // --- FULL STRUCTURAL DATA ---
-            const structureData = entry.request?.structure
-              ? JSON.stringify(entry.request.structure, null, 2)
-              : '// N/A';
-
-            // --- FULL PROMPT TEXT ---
-            const promptText = entry.request?.promptText || '// N/A';
-
-            const commandDisplay = entry.skipped
-              ? `<p class="text-xs text-yellow-400 mt-1 mb-1">Skipped. Probability Sum (${entry.request.probabilityScore.toFixed(2)}) > 1.00.</p>`
-              : `<p class="text-xs text-yellow-400 mt-1 mb-1">Raw Commands Executed:</p><pre class="log-pre" style="color: #fca311;">${rawResponse}</pre>`;
-
-            return `<div class="log-history-entry">
-                        <h4 style="font-weight: bold; color: ${statusColor};">
-                          --- Iteration ${entry.iter} (${entry.timestamp}) - ${status} 
-                          <span class="font-mono ${modeClass}">(${mode} MODE)${probScore}</span> ---
-                        </h4>
-                        <div style="margin-top: 0.5rem; display: flex; gap: 1rem; align-items: flex-start;">
-                            <div style="text-align: center; font-family: monospace;">Target:<br>${targetImgHtml}</div>
-                            <div style="text-align: center; font-family: monospace;">Render:<br>${renderImgHtml}</div>
-                            <div class="flex-1">
-                                <p style="color: #60a5fa; margin-top: 0.5rem; font-family: monospace; font-size: 0.8rem;">Pre-Execution Delta Score: ${score}</p>
-                                ${commandDisplay}
-                            </div>
-                        </div>
-
-                        <details class="log-details">
-                            <summary class="log-summary">View Structural Data (Input)</summary>
-                            <pre class="log-pre" style="color: #60a5fa;">${structureData}</pre>
-                        </details>
-
-                        <details class="log-details">
-                            <summary class="log-summary">View Full Prompt Text Sent to AI</summary>
-                            <pre class="log-pre" style="color: #9be658;">${promptText}</pre>
-                        </details>
-                    </div>`;
-          })
-          .join("");
-        els.logView.innerHTML =
-          logContent ||
-          "<div style='font-family: monospace; color: #666;'>// No AI responses yet. Click 'Run' to start.</div>";
+      // --- UTILS ---
+      function generateUniqueId() {
+          currentPatchId += 1;
+          return `p${state.pageNum}-${currentPatchId}`;
+      }
+      function compressSVG(svgString) { return svgString.replace(/\s+/g, ' ').replace(/>\s*</g, '><').trim(); }
+      function rgbToHex(r, g, b) { return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase(); }
+      function isNearBackground(r, g, b, a) {
+          if (a < 10) return true; 
+          const distSq = (r - 255)**2 + (g - 255)**2 + (b - 255)**2;
+          return distSq < 1000;
+      }
+      function dataURLToGenerativePart(dataURL) {
+          const parts = dataURL.split(';base64,');
+          return { inlineData: { data: parts[1], mimeType: parts[0].split(':')[1] } };
+      }
+      function sanitizeSvgText(text) {
+          // Removes markdown fences and trims whitespace
+          return text.replace(/```svg/g, "").replace(/```/g, "").trim();
       }
 
-      els.output.addEventListener("input", () => {
-        if (state.currTab === "html") {
-          els.layer.innerHTML = els.output.value;
-        }
-      });
+      // --- PERSISTENCE ---
+      // IndexedDB functions (openDB, savePDFToDB, getPDFFromDB) remain the same.
 
-      // --- Core Logic ---
+      function loadPatchesForCurrentPage() {
+          const key = `${STORAGE_KEY_PATCHES}_${state.pageNum}`;
+          const stored = localStorage.getItem(key);
+          appliedPatches = stored ? JSON.parse(stored) : [];
+          // Find max ID to prevent collision
+          currentPatchId = appliedPatches.reduce((max, p) => {
+              const idNum = parseInt(p.id.split('-').pop());
+              return Math.max(max, isNaN(idNum) ? 0 : idNum);
+          }, 0);
+          renderPatchesToSVG();
+          updatePatchDisplay();
+      }
+      
+      function savePatchesForCurrentPage() {
+          const key = `${STORAGE_KEY_PATCHES}_${state.pageNum}`;
+          localStorage.setItem(key, JSON.stringify(appliedPatches));
+      }
 
-      function getStructure(divId) {
-        const div = document.getElementById(divId);
-        if (!div) return { elements: [], maxExtent: "0.00" };
+      // --- SVG PATCHING CORE ---
 
-        Array.from(div.children).forEach((el, i) => {
-          if (!el.id) el.id = `blk-${Date.now()}-${i}`;
-        });
-
-        let maxExtent = 0;
-
-        const elements = Array.from(div.children)
-          .filter((el) => el.innerText.trim().length > 0)
-          .map((el) => {
-            const computedStyle = window.getComputedStyle(el);
-            // Default to 1.0em if not explicitly set, matching INITIAL_HTML
-            const currentTop = parseFloat(el.style.top) || 0;
-            const currentSize = parseFloat(el.style.fontSize) || 1.0;
-
-            // This calculation is correct if top/size are in EM units relative to the container
-            const elementBottom = currentTop + currentSize;
-            if (elementBottom > maxExtent) {
-              maxExtent = elementBottom;
-            }
-
-            return {
-              id: el.id,
-              tag: el.tagName.toLowerCase(),
-              text: el.innerText.substring(0, 30),
-              currentStyles: {
-                top: el.style.top || "0em",
-                left: el.style.left || "0em",
-                fontSize: el.style.fontSize || "1.0em", // Ensures a value is always reported
-                fontFamily: el.style.fontFamily || computedStyle.fontFamily,
-                fontWeight: el.style.fontWeight || computedStyle.fontWeight,
-              },
-            };
+      /**
+       * RLE for generating a simplified blueprint of the crop area for the AI.
+       * (Adapted from replica_svg.html)
+       */
+      function convertToSVG_OptimizedRLE(inputCanvas, inputContext) {
+          const ctx = inputContext; const width = inputCanvas.width; const height = inputCanvas.height;
+          const imageData = ctx.getImageData(0, 0, width, height).data;
+          const covered = new Array(width * height).fill(false);
+          const rectData = []; 
+          for (let y = 0; y < height; y++) {
+              for (let x = 0; x < width; x++) {
+                  const i = (y * width + x); if (covered[i]) continue;
+                  const dataIndex = i * 4;
+                  const r = imageData[dataIndex]; const g = imageData[dataIndex+1]; const b = imageData[dataIndex+2]; const a = imageData[dataIndex+3];
+                  if (isNearBackground(r, g, b, a)) { covered[i] = true; continue; }
+                  const color = rgbToHex(r, g, b);
+                  let runLength = 1; let nextX = x + 1;
+                  while (nextX < width) {
+                      const nextI = y * width + nextX; if (covered[nextI]) break;
+                      const idx = nextI * 4;
+                      if (imageData[idx]===r && imageData[idx+1]===g && imageData[idx+2]===b && imageData[idx+3]===a) { runLength++; nextX++; } else break;
+                  }
+                  let rectHeight = 1; let nextY = y + 1;
+                  while (nextY < height) {
+                      let rowMatches = true;
+                      for (let dx = 0; dx < runLength; dx++) {
+                          const pIdx = (nextY * width + x + dx); if (covered[pIdx]) { rowMatches = false; break; }
+                          const dIdx = pIdx * 4;
+                          if (imageData[dIdx]!==r || imageData[dIdx+1]!==g || imageData[dIdx+2]!==b || imageData[dIdx+3]!==a) { rowMatches = false; break; }
+                      }
+                      if (rowMatches) { rectHeight++; nextY++; } else break;
+                  }
+                  const fillOpacity = (a / 255); 
+                  rectData.push({ x, y, width: runLength, height: rectHeight, fill: color, opacity: fillOpacity });
+                  for (let dy = 0; dy < rectHeight; dy++) {
+                      for (let dx = 0; dx < runLength; dx++) { covered[(y + dy) * width + x + dx] = true; }
+                  }
+              } 
+          } 
+          return { rectData, width, height };
+      }
+      
+      function generateSVGPathsFromRLE(rectData) {
+          let segments = [];
+          rectData.forEach(rect => {
+              const rectPath = `M${rect.x} ${rect.y}L${rect.x+rect.width} ${rect.y}L${rect.x+rect.width} ${rect.y+rect.height}L${rect.x} ${rect.y+rect.height}Z`;
+              let pathAttributes = `d="${rectPath}" fill="${rect.fill}"`;
+              if (rect.opacity !== 1) pathAttributes += ` fill-opacity="${rect.opacity.toFixed(2)}"`;
+              segments.push(`<path ${pathAttributes} shape-rendering="crispEdges" />`);
           });
+          return segments.join('');
+      }
 
-        return { elements, maxExtent: maxExtent.toFixed(2) };
+
+      function initSVGCanvas() {
+          const cw = els.theCanvas.width;
+          const ch = els.theCanvas.height;
+
+          // 1. Create the main SVG element (Workbook)
+          const rootSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          rootSvg.setAttribute('id', 'workbook-svg-element');
+          rootSvg.setAttribute('width', cw);
+          rootSvg.setAttribute('height', ch);
+          rootSvg.setAttribute('viewBox', `0 0 ${cw} ${ch}`);
+          rootSvg.setAttribute('shape-rendering', 'geometricPrecision');
+          rootSvg.style.backgroundColor = 'transparent';
+          rootSvg.style.pointerEvents = 'auto'; // SVG handles patch clicks
+
+          // 2. Add layers for Patches and Highlights
+          rootSvg.innerHTML = `
+              <g id="patches-layer"></g>
+              <g id="highlights-layer"></g>
+          `;
+
+          // 3. Clear and mount
+          els.svgLayerContainer.innerHTML = '';
+          els.svgLayerContainer.appendChild(rootSvg);
+          
+          // 4. Attach click handler to the SVG root for patch selection
+          rootSvg.addEventListener('click', handleSvgClick);
+      }
+      
+      /**
+       * Creates the SVG element for the applied patch (nested SVG)
+       */
+      function createNestedPatch(svgString, rect, bpDims, id) {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(`<svg>${svgString}</svg>`, "image/svg+xml");
+          const generatedSvg = doc.querySelector('svg');
+          
+          let viewBox = `0 0 ${bpDims.w} ${bpDims.h}`;
+          if (generatedSvg) {
+              // Try to preserve generated viewBox if it exists and is meaningful
+              const vb = generatedSvg.getAttribute('viewBox');
+              if (vb) viewBox = vb;
+          }
+
+          const nested = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          nested.setAttribute('x', rect.left / 100 * els.theCanvas.width);
+          nested.setAttribute('y', rect.top / 100 * els.theCanvas.height);
+          nested.setAttribute('width', rect.width / 100 * els.theCanvas.width);
+          nested.setAttribute('height', rect.height / 100 * els.theCanvas.height);
+          nested.setAttribute('id', `svg-patch-${id}`);
+          nested.setAttribute('viewBox', viewBox);
+          nested.setAttribute('preserveAspectRatio', 'none');
+          nested.setAttribute('shape-rendering', 'geometricPrecision');
+          nested.style.fill = 'black'; 
+          nested.style.color = 'black'; 
+          nested.style.pointerEvents = 'none'; // Nested SVG should not block clicks
+
+          if (generatedSvg) {
+              while (generatedSvg.firstChild) nested.appendChild(generatedSvg.firstChild);
+          }
+          return nested;
       }
 
       /**
-       * Applies commands, strictly filtering them based on the current execution mode,
-       * and extracts the total probability score.
-       * @param {object} updates - The parsed JSON commands from the AI.
-       * @param {string} mode - The current execution mode ("POSITION" or "SIZE").
-       * @returns {{appliedCommands: object, probabilityScore: number}}
+       * Creates the invisible, clickable highlight rectangle for patch selection.
        */
-      function applyCommands(updates, mode) {
-        const allowedMoveActions =
-          mode === "POSITION"
-            ? ["moveUp", "moveDown", "moveLeft", "moveRight", "moveTogether", "moveApart"]
-            : ["grow", "shrink"];
-
-        const PROBABILITY_FIELD = "dampenFutureChanges";
-        const elementMap = Array.from(document.getElementById(TEST_ID).children)
-                             .reduce((map, el) => { map[el.id] = el; return map; }, {});
-        const elementIds = Object.keys(elementMap);
-
-        let applied = {};
-        let totalProbability = 0;
-
-        for (const [id, cmds] of Object.entries(updates)) {
-          const el = elementMap[id];
-          if (!el || !Array.isArray(cmds)) continue;
-
-          el.style.position = "relative";
-          let top = parseFloat(el.style.top) || 0;
-          let left = parseFloat(el.style.left) || 0;
-          let size = parseFloat(el.style.fontSize) || 1.0;
-
-          let elementApplied = [];
-          let elementHasMoveAction = false;
-
-          cmds.forEach((c) => {
-            const v = parseFloat(c.changeAmount) || 0;
-            const action = c.action;
-            
-            // 1. Extract Probability from the command object
-            if (c[PROBABILITY_FIELD] !== undefined) {
-              const pValue = parseFloat(c[PROBABILITY_FIELD]) || 0;
-              totalProbability += Math.min(1.0, Math.max(0.0, pValue));
-            }
-
-            // 2. Apply Move/Size/Group Action
-            if (allowedMoveActions.includes(action)) {
-              if (action === "moveUp") top -= v;
-              else if (action === "moveDown") top += v;
-              else if (action === "moveLeft") left -= v;
-              else if (action === "moveRight") left += v;
-              else if (action === "grow") size += v;
-              else if (action === "shrink") size = Math.max(0.1, size - v);
-              else if (action === "moveTogether" || action === "moveApart") {
-                // Apply vertical change to subsequent elements
-                const isMoveApart = action === "moveApart";
-                const direction = isMoveApart ? 1 : -1;
-                const startingIndex = elementIds.indexOf(id);
-
-                if (startingIndex !== -1) {
-                    for (let i = startingIndex + 1; i < elementIds.length; i++) {
-                        const targetId = elementIds[i];
-                        const targetEl = elementMap[targetId];
-                        if (targetEl) {
-                            let targetTop = parseFloat(targetEl.style.top) || 0;
-                            targetTop += v * direction;
-                            targetEl.style.top = targetTop.toFixed(2) + "em";
-                        }
-                    }
-                }
-              }
-
-              elementApplied.push(c);
-              elementHasMoveAction = true;
-            }
-            // Ignore any action that is not a recognized move/size command
-          });
-
-          // Only apply styles if a change (move/size) actually happened to the originating element
-          if (elementHasMoveAction) {
-            el.style.top = top.toFixed(2) + "em";
-            el.style.left = left.toFixed(2) + "em";
-            el.style.fontSize = size.toFixed(2) + "em";
-          }
-
-          if (elementApplied.length > 0) {
-            applied[id] = elementApplied;
-          }
-        }
-        // Since we are now summing all probabilities across all elements, we return that single total sum.
-        return { appliedCommands: applied, probabilityScore: totalProbability };
+      function createHighlightRect(rect, id) {
+          const highlightRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          highlightRect.setAttribute('x', rect.left / 100 * els.theCanvas.width);
+          highlightRect.setAttribute('y', rect.top / 100 * els.theCanvas.height);
+          highlightRect.setAttribute('width', rect.width / 100 * els.theCanvas.width);
+          highlightRect.setAttribute('height', rect.height / 100 * els.theCanvas.height);
+          highlightRect.setAttribute('data-patch-id', id);
+          highlightRect.setAttribute('id', `highlight-${id}`);
+          highlightRect.classList.add('patch-highlight');
+          return highlightRect;
       }
 
-      function createOverlapCanvas(targetCan, htmlCan) {
-        const w = targetCan.width;
-        const h = targetCan.height;
-        const overlapCan = state.overlapCanvas;
-        overlapCan.width = w;
-        overlapCan.height = h;
-        const overlapCtx = overlapCan.getContext("2d");
 
-        overlapCtx.clearRect(0, 0, w, h);
+      function updatePatchDisplay() {
+          const patchesLayer = document.getElementById('patches-layer');
+          const highlightsLayer = document.getElementById('highlights-layer');
 
-        const targetData = targetCan.getContext("2d").getImageData(0, 0, w, h);
-        const htmlData = htmlCan.getContext("2d").getImageData(0, 0, w, h);
-        const overlapData = overlapCtx.createImageData(w, h);
-
-        const COLOR_THRESHOLD = 120;
-        const ALPHA_THRESHOLD = 100;
-        const BLUE = [0, 0, 255, 255]; // Pure blue for overlap
-
-        for (let i = 0; i < targetData.data.length; i += 4) {
-          const avgTargetColor =
-            (targetData.data[i] +
-              targetData.data[i + 1] +
-              targetData.data[i + 2]) /
-            3;
-          // Check if Target has dark text
-          const isTargetText = avgTargetColor < COLOR_THRESHOLD;
-
-          // Check if HTML Render has dark text and is visible (alpha > threshold)
-          const avgHtmlColor =
-            (htmlData.data[i] + htmlData.data[i + 1] + htmlData.data[i + 2]) /
-            3;
-          const isHtmlText =
-            htmlData.data[i + 3] > ALPHA_THRESHOLD &&
-            avgHtmlColor < COLOR_THRESHOLD;
-
-          if (isTargetText && isHtmlText) {
-            // Both have text: Draw Blue for overlap
-            overlapData.data[i] = BLUE[0];
-            overlapData.data[i + 1] = BLUE[1];
-            overlapData.data[i + 2] = BLUE[2];
-            overlapData.data[i + 3] = BLUE[3];
+          if (!patchesLayer || !highlightsLayer) {
+              // This happens if the canvas hasn't fully loaded and initSVGCanvas hasn't run yet
+              return; 
           }
-        }
+          
+          patchesLayer.innerHTML = '';
+          highlightsLayer.innerHTML = '';
 
-        overlapCtx.putImageData(overlapData, 0, 0);
-        return overlapCan;
-      }
-
-      function createCombinedRender(targetCan, htmlCan) {
-        const rendCan = state.renderAI;
-        rendCan.width = targetCan.width;
-        rendCan.height = targetCan.height;
-        const rendCtx = rendCan.getContext("2d");
-
-        rendCtx.drawImage(targetCan, 0, 0);
-        rendCtx.drawImage(htmlCan, 0, 0);
-        const overlapCan = createOverlapCanvas(targetCan, htmlCan);
-        rendCtx.drawImage(overlapCan, 0, 0);
-
-        return rendCan;
-      }
-
-      async function fetchWithBackoff(parts) {
-        for (let attempt = 0; attempt < 5; attempt++) {
-          try {
-            const resp = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ contents: [{ role: "user", parts }] }),
-              },
-            );
-
-            if (!resp.ok && resp.status === 429) {
-              const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
-              await new Promise((res) => setTimeout(res, delay));
-              continue;
-            }
-            if (!resp.ok)
-              throw new Error(
-                `API error: ${resp.status} - ${await resp.text()}`,
+          appliedPatches.forEach(patch => {
+              // Re-render Patch
+              patchesLayer.appendChild(
+                  createNestedPatch(patch.svgContent, patch.rect, patch.bpDims, patch.id)
               );
-
-            const json = await resp.json();
-            return json.candidates?.[0]?.content?.parts?.[0]?.text;
-          } catch (e) {
-            if (attempt === 4) throw e;
-            await new Promise((res) =>
-              setTimeout(res, Math.pow(2, attempt) * 1000),
-            );
-          }
-        }
-        throw new Error("API call failed after multiple retries.");
-      }
-
-      function cropAndScale(rect, scale, source) {
-        const c = document.createElement("canvas");
-        c.width = rect.w * scale;
-        c.height = rect.h * scale;
-        const ctx = c.getContext("2d");
-        ctx.fillStyle = "#fff";
-        ctx.fillRect(0, 0, c.width, c.height);
-        ctx.drawImage(
-          source,
-          rect.x,
-          rect.y,
-          rect.w,
-          rect.h,
-          0,
-          0,
-          c.width,
-          c.height,
-        );
-        return c;
-      }
-
-      function addBorder(canvas, color) {
-        const c = document.createElement("canvas");
-        c.width = canvas.width;
-        c.height = canvas.height;
-        const ctx = c.getContext("2d");
-        ctx.drawImage(canvas, 0, 0);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(0, 0, c.width, c.height);
-        return c;
-      }
-
-      function getRect(divId) {
-        const div = document.getElementById(divId);
-        if (!div) return null;
-        const cw = state.viewCanvas.width,
-          ch = state.viewCanvas.height;
-        return {
-          x: (parseFloat(div.style.left) / 100) * cw,
-          y: (parseFloat(div.style.top) / 100) * ch,
-          w: (parseFloat(div.style.width) / 100) * cw,
-          h: (parseFloat(div.style.height) / 100) * ch,
-        };
-      }
-
-      function drawCombinedRenderToView() {
-        const rect = getRect(TEST_ID);
-        if (!rect || !state.viewCtx || !img) return;
-        const rendCan = state.renderAI;
-        state.viewCtx.drawImage(
-          img,
-          0,
-          0,
-          state.viewCanvas.width,
-          state.viewCanvas.height,
-        );
-        state.viewCtx.drawImage(
-          rendCan,
-          0,
-          0,
-          rendCan.width,
-          rendCan.height,
-          rect.x,
-          rect.y,
-          rect.w,
-          rect.h,
-        );
-      }
-
-      async function getDiff(b64A, b64B) {
-        return new Promise((r) => {
-          const i1 = new Image(),
-            i2 = new Image();
-          let c = 0;
-          const onload = () => {
-            if (++c === 2) diff();
-          };
-          i1.onload = onload;
-          i2.onload = onload;
-          i1.src = "data:image/png;base64," + b64A;
-          i2.src = "data:image/png;base64," + b64B;
-          function diff() {
-            const cv = document.createElement("canvas");
-            cv.width = i1.width;
-            cv.height = i1.height;
-            const cx = cv.getContext("2d");
-            cx.drawImage(i1, 0, 0);
-            const d1 = cx.getImageData(0, 0, cv.width, cv.height).data;
-            cx.clearRect(0, 0, cv.width, cv.height);
-            cx.drawImage(i2, 0, 0);
-            const d2 = cx.getImageData(0, 0, cv.width, cv.height).data;
-            let sum = 0;
-            for (let k = 0; k < d1.length; k += 4)
-              sum +=
-                Math.abs(d1[k] - d2[k]) +
-                Math.abs(d1[k + 1] - d2[k + 1]) +
-                Math.abs(d1[k + 2] - d2[k + 2]);
-            r(sum / (i1.width * i1.height * 765));
-          }
-        });
-      }
-
-      function preparePayloadAndPrompt(
-        targetCanvas,
-        renderCanvas,
-        iterLabel,
-        currentMode,
-        currentTemplate,
-      ) {
-        const divEl = document.getElementById(TEST_ID);
-        if (!divEl) {
-          return { parts: [{ text: "// Error: Content not found" }] };
-        }
-
-        // 1. Get Current Structure and Max Extent (Pre-Delta)
-        const { elements: currentElements, maxExtent } = getStructure(TEST_ID);
-        // --- DELTA CALCULATION & COMMAND INJECTION ---
-        const previousHistoryForDelta = state.history[1];
-        const commandsFromPreviousRun = state.history[0]
-          ? state.history[0].commands
-          : {};
-        let augmentedElements = currentElements;
-        const PROBABILITY_FIELD = "dampenFutureChanges";
-
-        if (
-          previousHistoryForDelta &&
-          previousHistoryForDelta.structure &&
-          previousHistoryForDelta.structure.elements
-        ) {
-          const previousElements = previousHistoryForDelta.structure.elements;
-
-          augmentedElements = currentElements.map((currentEl) => {
-            const prevEl = previousElements.find(
-              (el) => el.id === currentEl.id,
-            );
-
-            const deltaStyles = {};
-
-            if (prevEl) {
-              const currentTop = parseFloat(currentEl.currentStyles.top);
-              const prevTop = parseFloat(prevEl.currentStyles.top);
-              deltaStyles.top = (currentTop - prevTop).toFixed(2) + "em";
-
-              const currentLeft = parseFloat(currentEl.currentStyles.left);
-              const prevLeft = parseFloat(prevEl.currentStyles.left);
-              deltaStyles.left = (currentLeft - prevLeft).toFixed(2) + "em";
-
-              const currentSize = parseFloat(currentEl.currentStyles.fontSize);
-              const prevSize = parseFloat(prevEl.currentStyles.fontSize);
-              deltaStyles.fontSize = (currentSize - prevSize).toFixed(2) + "em";
-            }
-
-            // We include all commands here for detailed logging later, but we need to
-            // strip the probability field from the commands we send back as 'history'
-            const commandsAppliedToThisElement =
-              commandsFromPreviousRun[currentEl.id] || [];
-              
-            const sanitizedCommands = commandsAppliedToThisElement.map(cmd => {
-                const newCmd = {...cmd};
-                delete newCmd[PROBABILITY_FIELD];
-                return newCmd;
-            });
-
-            return {
-              ...currentEl,
-              deltaStyles: prevEl
-                ? deltaStyles
-                : { top: "0.00em", left: "0.00em", fontSize: "0.00em" },
-              // IMPORTANT: Use the sanitized commands without probability for structure history sent to the AI
-              commandsAppliedInLastStep: sanitizedCommands, 
-            };
+              // Re-render Highlight
+              highlightsLayer.appendChild(
+                  createHighlightRect(patch.rect, patch.id)
+              );
           });
-        }
-        // 2. Build Constraint Warning and Dynamic Command Lists
-        const maxLimit = state.MAX_VERTICAL_EM.toFixed(2);
-        const overLimit = parseFloat(maxExtent) >= parseFloat(maxLimit);
-        const remaining = (
-          parseFloat(maxLimit) - parseFloat(maxExtent)
-        ).toFixed(2);
+          
+          // Update Patch Count Display
+          els.patchCountDisplay.textContent = `${appliedPatches.length} Patches`;
 
-        // --- Dynamic Command List Generation ---
-        let positionCommandsString;
-        let sizeCommandsString;
-        
-        // --- POSITION COMMANDS INCLUDE GROUP ACTIONS ---
-        const ALL_POSITION_COMMANDS = `
-# AVAILABLE COMMANDS (STRICTLY LIMITED TO POSITION)
-1. Single Move: "moveUp", "moveDown", "moveLeft", "moveRight" (Coefficient: 0.10 to 5.00, or up to 20.00 for vertical distance correction).
-2. Group Vertical Adjustment (moves subsequent elements): "moveTogether" (reduces vertical space), "moveApart" (increases vertical space). (Coefficient: 0.10 to 5.00).
-   - NOTE: Each command should optionally include a "${PROBABILITY_FIELD}" (0.00 to 1.00) field.
-`;
-        const RESTRICTED_POSITION_COMMANDS = `
-# AVAILABLE COMMANDS (STRICTLY LIMITED TO POSITION)
-1. Single Move: "moveUp", "moveLeft", "moveRight" (Coefficient: 0.10 to 5.00, or up to 20.00 for vertical distance correction).
-   // Note: "moveDown" is disabled due to vertical constraint (${maxExtent}em >= ${maxLimit}em).
-2. Group Vertical Adjustment (moves subsequent elements): "moveTogether" (reduces vertical space only). (Coefficient: 0.10 to 5.00).
-   // Note: "moveApart" is disabled due to vertical constraint.
-   - NOTE: Each command should optionally include a "${PROBABILITY_FIELD}" (0.00 to 1.00) field.
-`;
-        // --- SIZE COMMANDS (UNCHANGED) ---
-        const ALL_SIZE_COMMANDS = `
-# AVAILABLE COMMANDS (STRICTLY LIMITED TO SIZE)
-1. Size: "grow", "shrink" (Coefficient: 0.10 to 5.00).
-   - NOTE: 'grow' and 'shrink' adjust the 'fontSize' attribute.
-   - NOTE: Each size command should optionally include a "${PROBABILITY_FIELD}" (0.00 to 1.00) field.
-`;
-        const RESTRICTED_SIZE_COMMANDS = `
-# AVAILABLE COMMANDS (STRICTLY LIMITED TO SIZE)
-1. Size: "shrink" (Coefficient: 0.10 to 5.00).
-   // Note: "grow" is disabled due to vertical constraint (${maxExtent}em >= ${maxLimit}em).
-   - NOTE: 'shrink' adjusts the 'fontSize' attribute.
-   - NOTE: Each size command should optionally include a "${PROBABILITY_FIELD}" (0.00 to 1.00) field.
-`;
-
-        if (overLimit) {
-          positionCommandsString = RESTRICTED_POSITION_COMMANDS;
-          sizeCommandsString = RESTRICTED_SIZE_COMMANDS;
-        } else {
-          positionCommandsString = ALL_POSITION_COMMANDS;
-          sizeCommandsString = ALL_SIZE_COMMANDS;
-        }
-        // --- End Dynamic Command List Generation ---
-
-        // Simplify constraint text
-        let constraintText = `\n\n*** VERTICAL CONSTRAINT STATUS ***\n`;
-        constraintText += `MAX: ${maxLimit}em. CURRENT: ${maxExtent}em. REMAINING: ${remaining}em.\n`;
-        if (overLimit) {
-          constraintText += `STATUS: LIMIT REACHED. Toolset restricted to UP/LEFT/RIGHT/SHRINK/MOVETOGETHER.\n`;
-        }
-        constraintText += `**********************************\n\n`;
-
-        // Replace the placeholders in the chosen template
-        let finalPromptText = currentTemplate.replace(
-          "{{structure}}",
-          JSON.stringify(augmentedElements, null, 2),
-        );
-        finalPromptText = finalPromptText.replace(
-          "{{constraint}}",
-          constraintText,
-        );
-
-        // Apply dynamic command lists
-        finalPromptText = finalPromptText.replace(
-          "{{positionCommands}}",
-          positionCommandsString,
-        );
-        finalPromptText = finalPromptText.replace(
-          "{{sizeCommands}}",
-          sizeCommandsString,
-        );
-
-        // --- Prepare Payload Parts (Interleaved) ---
-        const parts = [];
-
-        // 3. History (if any)
-        const chronologicalHistory = state.history.slice(0, 3).reverse();
-        if (chronologicalHistory.length > 0) {
-          parts.push({
-            text: "### HISTORY OF RECENT ACTIONS (Oldest to Newest):\n",
-          });
-          chronologicalHistory.forEach((h, i) => {
-            const currentRun = parseInt(iterLabel.match(/\d+/)?.[0] || "1", 10);
-            const stepNum = currentRun - (state.history.length - i);
-
-            const probSum = h.probabilityScore
-              ? ` | Prob. Sum: ${h.probabilityScore.toFixed(2)}`
-              : "";
-
-            // --- SANITIZE COMMANDS FOR HISTORY ---
-            const sanitizedCommands = {};
-            for (const elementId in h.commands) {
-                if (Array.isArray(h.commands[elementId])) {
-                    sanitizedCommands[elementId] = h.commands[elementId].map(command => {
-                        const newCmd = {...command};
-                        delete newCmd[PROBABILITY_FIELD];
-                        return newCmd;
-                    });
-                }
-            }
-            // --- END SANITIZATION ---
-
-            // IMPORTANT: Use the sanitized commands for history sent to the model
-            const stepText = `\n--- Step ${Math.max(0, stepNum)}${probSum} ---\nDelta Score (Pre-Command): ${h.score}\nCommands Executed: ${JSON.stringify(sanitizedCommands)}\nRESULTING FRAME (below):`;
-
-            parts.push({ text: stepText });
-            parts.push({
-              inlineData: { mimeType: "image/png", data: h.resultImage },
-            });
-          });
-          parts.push({ text: "\n----------------\n" });
-        } else {
-          parts.push({
-            text: "(No history available yet. This is the first step.)\n",
-          });
-        }
-
-        // 4. Current Context
-        const borderedTarget = addBorder(targetCanvas, "#f00");
-        const borderedRender = addBorder(renderCanvas, "#3b82f6");
-        const targetBase64 = borderedTarget.toDataURL().split(",")[1];
-        const renderBase64 = borderedRender.toDataURL().split(",")[1];
-
-        // The prompt text goes first
-        parts.push({
-          text:
-            finalPromptText +
-            "\n\n--- VISUAL INPUTS ---\n1. TARGET (Red Border):\n",
-        });
-        parts.push({
-          inlineData: { mimeType: "image/png", data: targetBase64 },
-        });
-
-        parts.push({ text: "\n2. CURRENT RENDER (Blue Border):\n" });
-        parts.push({
-          inlineData: { mimeType: "image/png", data: renderBase64 },
-        });
-
-        // --- Full Payload Object for Logging ---
-        const payloadObj = {
-          iter: iterLabel || "Initial",
-          mode: currentMode,
-          score: "Calculated Pre-Execution",
-          constraint: { maxLimit, currentExtent: maxExtent },
-          promptText: finalPromptText,
-          structure: augmentedElements,
-          images: {
-            target: targetBase64,
-            render: renderBase64,
-          },
-          history: chronologicalHistory.map((h, i) => {
-            const currentRun = parseInt(iterLabel.match(/\d+/)?.[0] || "1", 10);
-            const step = currentRun - (state.history.length - i);
-            return {
-              step: Math.max(0, step),
-              score: h.score,
-              commands: h.commands,
-              probabilityScore: h.probabilityScore || 0,
-            };
-          }),
-        };
-
-        return { parts, payloadObj };
-      }
-
-      async function updateAIImagesAndPayload(
-        originalImage,
-        isInitialRun,
-        iterLabel,
-        scale,
-      ) {
-        const divEl = document.getElementById(TEST_ID);
-        if (!divEl) return;
-        const rect = getRect(TEST_ID);
-
-        if (isInitialRun) {
-          const srcCan = cropAndScale(rect, DEFAULT_AI_SCALE, originalImage);
-          state.targetAI.width = srcCan.width;
-          state.targetAI.height = srcCan.height;
-          state.targetAI.getContext("2d").drawImage(srcCan, 0, 0);
-        }
-
-        const htmlLayerCan = await html2canvas(divEl, {
-          scale: scale,
-          backgroundColor: null,
-          width: rect.w,
-          height: rect.h,
-        });
-
-        let scaledTargetCan = state.targetAI;
-        if (scale !== DEFAULT_AI_SCALE) {
-          scaledTargetCan = cropAndScale(rect, scale, originalImage);
-        }
-
-        const renderCan = createCombinedRender(scaledTargetCan, htmlLayerCan);
-
-        // This call is just to prepare the payload object in memory, we don't use its 'parts'
-        const { payloadObj } = preparePayloadAndPrompt(
-          scaledTargetCan,
-          renderCan,
-          iterLabel,
-          state.currentMode,
-          state.currentMode === "POSITION" ? POSITION_TEMPLATE : SIZE_TEMPLATE,
-        );
-
-        if (isInitialRun) {
-          const resultB64 = renderCan.toDataURL().split(",")[1];
-          const { elements: initialElements, maxExtent: initialExtent } =
-            getStructure(TEST_ID);
-
-          if (
-            state.history.length === 0 ||
-            state.history[state.history.length - 1].commands !== null
-          ) {
-            state.history.unshift({
-              score: "0.00%",
-              commands: {},
-              resultImage: resultB64,
-              structure: {
-                elements: initialElements,
-                maxExtent: initialExtent,
-              },
-              probabilityScore: 0,
-            });
-          }
-        }
-      }
-
-      async function runIteration(i, max) {
-        state.iterationCounter++;
-        state.currentMode =
-          state.iterationCounter % 2 === 1 ? "POSITION" : "SIZE";
-        const currentTemplate =
-          state.currentMode === "POSITION" ? POSITION_TEMPLATE : SIZE_TEMPLATE;
-
-        // --- PROBABILITY CHECK FOR SKIPPING & DECAY LOGIC ---
-        let skip = false;
-        let skipFlag = state.currentMode === "POSITION" ? state.skipNextPosition : state.skipNextSize;
-
-        if (skipFlag) {
-          skip = true;
-          // Reset own skip flag
-          if (state.currentMode === "POSITION") {
-            state.skipNextPosition = false;
+          // Update Active Patch Display
+          if (state.targetPatchId) {
+              els.activePatchDisplay.textContent = `Editing: ${state.targetPatchId}`;
           } else {
-            state.skipNextSize = false;
+              els.activePatchDisplay.textContent = 'No Patch Selected';
           }
 
-          if (state.history.length > 0) {
-            // Decay the probability score of the MOST RECENT run (which belongs to the mode that successfully caused the skip)
-            const decayIndex = 0; 
-            const originalScore = state.history[decayIndex].probabilityScore;
+          // Generate the final SVG output for the left editor area
+          window.exportCompositeSVG(true); 
+          savePatchesForCurrentPage();
+      }
+      
+      /**
+       * Applies a newly generated patch or regenerates an existing one.
+       */
+      function applyPatch(svgContent, rect, bpDims, patchIdToEdit = null) {
+          
+          const newPatch = {
+              id: patchIdToEdit || generateUniqueId(),
+              rect: rect,
+              svgContent: svgContent,
+              bpDims: bpDims // Blueprint dimensions for viewBox
+          };
 
-            if (originalScore > 0) {
-              const decayedScore = originalScore / 2;
-              state.history[decayIndex].probabilityScore = decayedScore;
-              console.log(
-                `Skipped ${state.currentMode}. Decayed previous mode's probability from ${originalScore.toFixed(2)} to ${decayedScore.toFixed(2)}.`,
-              );
-            }
+          const existingIndex = appliedPatches.findIndex(p => p.id === newPatch.id);
+          if (existingIndex > -1) {
+              appliedPatches[existingIndex] = newPatch; 
+          } else {
+              appliedPatches.push(newPatch); 
           }
+
+          // Re-render everything
+          updatePatchDisplay();
+          
+          // Select the new/updated patch and trigger debug view
+          state.targetPatchId = newPatch.id;
+          
+          // NOTE: We don't explicitly call showDebugView here, as it's cleaner 
+          // to let the user navigate there manually after creation/regeneration.
+      }
+      
+      /**
+       * Core function to query Gemini for SVG code.
+       * @param {string} patchType - 'text', 'image', or 'empty'.
+       * @param {object} rect - The normalized percentage rectangle.
+       * @param {string} patchIdToEdit - Existing ID or null.
+       */
+      async function triggerZoomGeneration(patchType, rect, patchIdToEdit = null) {
+          if (!els.theCanvas.width) {
+              els.aiStatus.textContent = "Error: Load document first.";
+              els.aiStatus.classList.remove("hidden");
+              setTimeout(() => els.aiStatus.classList.add("hidden"), 3000);
+              return;
+          }
+          
+          // 1. Get image snippet from PDF canvas
+          const origX = Math.floor(rect.left / 100 * els.theCanvas.width);
+          const origY = Math.floor(rect.top / 100 * els.theCanvas.height);
+          const origW = Math.floor(rect.width / 100 * els.theCanvas.width);
+          const origH = Math.floor(rect.height / 100 * els.theCanvas.height);
+          
+          if (origW <= 0 || origH <= 0) {
+              els.aiStatus.textContent = "Error: Invalid selection size.";
+              els.aiStatus.classList.remove("hidden");
+              setTimeout(() => els.aiStatus.classList.add("hidden"), 3000);
+              return;
+          }
+          
+          // 2. Crop Image (high resolution)
+          const zoomCropCanvas = document.createElement('canvas'); 
+          zoomCropCanvas.width = origW; zoomCropCanvas.height = origH;
+          zoomCropCanvas.getContext('2d').drawImage(state.canvas, origX, origY, origW, origH, 0, 0, origW, origH);
+          const cropBase64 = zoomCropCanvas.toDataURL('image/png');
+
+          // 3. Generate RLE Blueprint for AI guidance
+          const BLUEPRINT_MAX_DIM = 200; 
+          let bpWidth = origW, bpHeight = origH;
+          if (origW > BLUEPRINT_MAX_DIM || origH > BLUEPRINT_MAX_DIM) {
+              const aspectRatio = origW / origH;
+              if (aspectRatio > 1) { // Landscape
+                  bpWidth = BLUEPRINT_MAX_DIM;
+                  bpHeight = Math.round(BLUEPRINT_MAX_DIM / aspectRatio);
+              } else { // Portrait or Square
+                  bpHeight = BLUEPRINT_MAX_DIM;
+                  bpWidth = Math.round(BLUEPRINT_MAX_DIM * aspectRatio);
+              }
+          }
+          
+          const zoomBpCanvas = document.createElement('canvas');
+          zoomBpCanvas.width = bpWidth; zoomBpCanvas.height = bpHeight;
+          zoomBpCanvas.getContext('2d', { willReadFrequently: true }).drawImage(zoomCropCanvas, 0, 0, bpWidth, bpHeight);
+          
+          const zoomBpResult = convertToSVG_OptimizedRLE(zoomBpCanvas, zoomBpCanvas.getContext('2d'));
+          const zoomBlueprintStr = generateSVGPathsFromRLE(zoomBpResult.rectData);
+          
+          // Blueprint dimensions (used for viewBox in nested SVG)
+          const bpDims = { w: bpWidth, h: bpHeight };
+          
+          const blueprintSvg = `<svg viewBox="0 0 ${bpDims.w} ${bpDims.h}">${zoomBlueprintStr}</svg>`;
+
+
+          // 4. Prepare Prompt
+          let prompt = state.prompts.SVG_GENERATE;
+          prompt = prompt.replace("{{patch_type}}", `Generate SVG for a **${patchType}** patch. RLE Blueprint: ${blueprintSvg}`);
+          
+          const parts = [{ text: prompt }, dataURLToGenerativePart(cropBase64)];
+          
+          if (patchType === 'empty') {
+              applyPatch('', rect, bpDims, patchIdToEdit);
+              els.aiStatus.textContent = `Empty patch created.`;
+              els.aiStatus.classList.remove("hidden");
+              setTimeout(() => els.aiStatus.classList.add("hidden"), 2000);
+              closeSelection();
+              return;
+          }
+
+
+          // 5. Query AI
+          els.aiStatus.textContent = `AI Generating ${patchType} Patch...`;
+          els.aiStatus.classList.remove("hidden");
+          els.actionBar.classList.add("disabled-bar");
+
+          try {
+              const resultText = await queryGemini(prompt, parts);
+              if (!resultText) throw new Error("Empty response from AI.");
+
+              const cleanSVG = sanitizeSvgText(resultText);
+              
+              if (cleanSVG.length < 5) throw new Error("AI returned insufficient SVG content.");
+
+              applyPatch(cleanSVG, rect, bpDims, patchIdToEdit);
+              
+              els.aiStatus.textContent = `Patch successfully ${patchIdToEdit ? 'regenerated' : 'created'}!`;
+              closeSelection();
+
+          } catch (e) {
+              console.error("AI Generation Failed:", e);
+              els.aiStatus.textContent = `Error: ${e.message}`;
+          } finally {
+              els.actionBar.classList.remove("disabled-bar");
+              setTimeout(() => els.aiStatus.classList.add("hidden"), 3000);
+          }
+      }
+
+      // --- PUBLIC HANDLERS (New SVG focus) ---
+      
+      /**
+       * Triggered by new-selection-action-bar buttons.
+       */
+      window.initiatePatchGeneration = function(type) {
+          if (!state.selectionRect) return;
+          // Note: Type 'text' will be used for both text and figures in the initial implementation.
+          triggerZoomGeneration(type, state.selectionRect);
+      }
+      
+      /**
+       * Exports/displays the full composite SVG to the left editor textarea.
+       * @param {boolean} silent - If true, skip status updates and downloading.
+       */
+      window.exportCompositeSVG = function(silent = false) {
+          if (appliedPatches.length === 0) {
+              els.overlayHtmlInput.value = "<!-- No SVG patches applied yet. Select an area and Digitize. -->";
+              if (!silent) {
+                  els.aiStatus.textContent = "No patches to export.";
+                  els.aiStatus.classList.remove("hidden");
+                  setTimeout(() => els.aiStatus.classList.add("hidden"), 2000);
+              }
+              return;
+          }
+
+          const canvasWidth = els.theCanvas.width;
+          const canvasHeight = els.theCanvas.height;
+          let compositeSVGContent = '';
+          
+          // 1. Add white background
+          compositeSVGContent += `<rect x="0" y="0" width="${canvasWidth}" height="${canvasHeight}" fill="white"/>`;
+
+          // 2. Assemble nested SVGs from patches
+          appliedPatches.forEach(patch => {
+              // Convert normalized percentage rect to absolute pixels (which the nested SVG 'x', 'y', 'width', 'height' attributes prefer)
+              const x = patch.rect.left / 100 * canvasWidth;
+              const y = patch.rect.top / 100 * canvasHeight;
+              const w = patch.rect.width / 100 * canvasWidth;
+              const h = patch.rect.height / 100 * canvasHeight;
+              
+              // Use the patch's determined BP dimensions for viewBox
+              const viewBox = `0 0 ${patch.bpDims.w} ${patch.bpDims.h}`;
+
+              const nestedSvg = `
+                  <svg 
+                      x="${x.toFixed(2)}" 
+                      y="${y.toFixed(2)}" 
+                      width="${w.toFixed(2)}" 
+                      height="${h.toFixed(2)}" 
+                      viewBox="${viewBox}" 
+                      preserveAspectRatio="none"
+                      shape-rendering="geometricPrecision"
+                  >
+                      ${patch.svgContent}
+                  </svg>
+              `;
+              compositeSVGContent += nestedSvg;
+          });
+          
+          // 3. Wrap the content in the final SVG container. 
+          const finalSVG = `<svg 
+              xmlns="http://www.w3.org/2000/svg" 
+              width="${canvasWidth}" 
+              height="${canvasHeight}" 
+              viewBox="0 0 ${canvasWidth} ${canvasHeight}"
+              version="1.1" 
+              shape-rendering="geometricPrecision"
+          >
+              <!-- Composite SVG Patches -->
+              ${compositeSVGContent}
+          </svg>`;
+          
+          // 4. Display or Download
+          els.overlayHtmlInput.value = finalSVG;
+          
+          if (!silent) {
+              const blob = new Blob([finalSVG], { type: 'image/svg+xml' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `scitext_page_${state.pageNum}.svg`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+              
+              els.aiStatus.textContent = "SVG Exported!";
+              els.aiStatus.classList.remove("hidden");
+              setTimeout(() => els.aiStatus.classList.add("hidden"), 2000);
+          }
+      }
+      
+      /**
+       * Clears all patches for the current page.
+       */
+      window.resetPatches = function() {
+          appliedPatches = [];
+          currentPatchId = 0;
+          updatePatchDisplay();
+          els.aiStatus.textContent = "All patches cleared.";
+          els.aiStatus.classList.remove("hidden");
+          setTimeout(() => els.aiStatus.classList.add("hidden"), 2000);
+      }
+      
+      /**
+       * Extracts a raw image and inserts it as a fixed-position <img> tag 
+       * in the SVG text area (for export as a static image placeholder).
+       * This is a compromise since the final SVG needs the base64 image data.
+       */
+      window.insertImageFromSelection = function() {
+          if (!state.selectionRect) return;
+
+          const base64 = extractImageSnippet({
+              x: state.selectionRect.pixelX,
+              y: state.selectionRect.pixelY,
+              width: state.selectionRect.pixelW,
+              height: state.selectionRect.pixelH
+          }, AI_IMAGE_SCALE); // Use high scale for image quality
+
+          const rect = state.selectionRect;
+          const bpDims = { 
+              w: rect.pixelW * AI_IMAGE_SCALE, 
+              h: rect.pixelH * AI_IMAGE_SCALE 
+          };
+          
+          const svgContent = `<image width="${bpDims.w}" height="${bpDims.h}" xlink:href="data:image/png;base64,${base64}" />`;
+
+          applyPatch(svgContent, rect, bpDims);
+          
+          els.aiStatus.textContent = `Image patch created.`;
+          els.aiStatus.classList.remove("hidden");
+          setTimeout(() => els.aiStatus.classList.add("hidden"), 2000);
+          closeSelection();
+      }
+      
+      // --- EVENT HANDLERS ---
+
+      // SVG Click Handler for selecting an existing patch
+      function handleSvgClick(e) {
+          const patchHighlight = e.target.closest('.patch-highlight');
+          if (patchHighlight) {
+              const patchId = patchHighlight.getAttribute('data-patch-id');
+              if (patchId) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  state.targetPatchId = patchId;
+                  // Immediately activate edit state visually
+                  activatePatchEditMode(patchId);
+              }
+          }
+      }
+      
+      function activatePatchEditMode(patchId) {
+          state.targetPatchId = patchId;
+          
+          // 1. Highlight the box
+          const patch = appliedPatches.find(p => p.id === patchId);
+          if (!patch) return;
+          
+          const rect = patch.rect;
+          const cw = els.theCanvas.width;
+          const ch = els.theCanvas.height;
+          const l = (rect.left / 100) * cw;
+          const t = (rect.top / 100) * ch;
+          const w = (rect.width / 100) * cw;
+          const h = (rect.height / 100) * ch;
+          
+          els.selectionBox.style.left = l + "px";
+          els.selectionBox.style.top = t + "px";
+          els.selectionBox.style.width = w + "px";
+          els.selectionBox.style.height = h + "px";
+          els.selectionBox.style.display = "block";
+          els.selectionBox.classList.add("edit-mode");
+          
+          // 2. Enable action bar (Re-Digitize/Delete)
+          els.editActionBar.classList.remove("disabled-bar"); 
+          
+          // 3. Update status
+          updatePatchDisplay();
+      }
+
+      window.deletePatch = function() {
+          if (!state.targetPatchId) return;
+          appliedPatches = appliedPatches.filter(p => p.id !== state.targetPatchId);
+          closeSelection();
+          updatePatchDisplay();
+      }
+
+      // --- OVERRIDES AND INITIALIZATION ---
+
+      function updateOverlayWrapperSize() {
+        if (els.theCanvas) {
+          els.overlayWrapper.style.width = els.theCanvas.width + "px";
+          els.overlayWrapper.style.height = els.theCanvas.height + "px";
+          
+          // IMPORTANT: Re-initialize the SVG canvas when size changes
+          initSVGCanvas();
+          // And re-render patches based on new canvas dimensions
+          renderPatchesToSVG(); 
+        }
+      }
+      
+      function renderPatchesToSVG() {
+          // Clears SVG and re-renders all applied patches, handling resizing implicitly
+          initSVGCanvas(); 
+          updatePatchDisplay(); 
+      }
+      
+      // Update Selection Layer mouse handler logic
+      els.selectionLayer.addEventListener("mouseup", (e) => {
+        if (!state.isSelecting) return;
+        state.isSelecting = false;
+
+        const currentPos = getPointerPos(e);
+        const width = Math.abs(currentPos.x - state.selectionStart.x);
+        const height = Math.abs(currentPos.y - state.selectionStart.y);
+
+        // Check if click was on an existing patch (handled by SVG event listener)
+        if (e.target.closest('.patch-highlight')) {
+             return;
         }
 
-        els.modeDisplay.textContent = skip
-          ? `${state.currentMode} (SKIP)`
-          : state.currentMode;
-        els.modeDisplay.className = skip
-          ? "text-yellow-500"
-          : `mode-${state.currentMode.toLowerCase()}`;
-
-        const iter = `Run ${i}/${max}`;
-
-        // If we skip, we still need the pre-run log data.
-        if (skip) {
-          await updateAIImagesAndPayload(img, false, iter, DEFAULT_AI_SCALE);
-          const { payloadObj } = preparePayloadAndPrompt(
-            state.targetAI,
-            state.renderAI,
-            iter,
-            state.currentMode,
-            currentTemplate,
-          );
-
-          let logEntry = {
-            iter,
-            success: false,
-            skipped: true,
-            request: {
-              ...payloadObj,
-              probabilityScore: state.history[0]?.probabilityScore || 0,
-            },
-            response: "Skipped by probability filter",
-            timestamp: new Date().toLocaleTimeString(),
-          };
-          state.aiLog.unshift(logEntry);
-          if (state.currTab === "log") renderDiagnosticLog();
+        // 1. CHECK FOR INVALID DRAG (Too small)
+        if (width < 10 || height < 10) {
+          els.selectionBox.style.display = "none";
+          els.editActionBar.classList.add("disabled-bar"); 
           return;
         }
 
-        const divEl = document.getElementById(TEST_ID);
-        if (!divEl) return;
+        // 2. NEW SELECTION LOGIC (Drag occurred)
+        const canvasW = els.theCanvas.width;
+        const canvasH = els.theCanvas.height;
+        const x = Math.min(state.selectionStart.x, currentPos.x);
+        const y = Math.min(state.selectionStart.y, currentPos.y);
 
-        currentRunScale = i === max ? FINAL_AI_SCALE : DEFAULT_AI_SCALE;
-
-        els.status.textContent = `${iter} Capturing for ${state.currentMode}... (Scale: ${currentRunScale})`;
-        els.status.style.display = "inline";
-
-        await updateAIImagesAndPayload(img, false, iter, currentRunScale);
-        const srcCan = state.targetAI;
-        const rendCan = state.renderAI;
-
-        const srcB64 = srcCan.toDataURL().split(",")[1];
-        const rendB64 = rendCan.toDataURL().split(",")[1];
-        const deltaScore = await getDiff(srcB64, rendB64);
-        const scoreString = (deltaScore * 100).toFixed(2) + "%";
-
-        const { parts, payloadObj } = preparePayloadAndPrompt(
-          srcCan,
-          rendCan,
-          iter,
-          state.currentMode,
-          currentTemplate,
-        );
-        payloadObj.score = scoreString;
-
-        if (state.currTab === "log") renderDiagnosticLog();
-
-        els.status.textContent = `${iter} Thinking in ${state.currentMode} Mode... (Score: ${scoreString})`;
-        let logEntry = {
-          iter,
-          success: false,
-          skipped: false,
-          request: payloadObj,
-          response: "Error/No response",
-          timestamp: new Date().toLocaleTimeString(),
+        state.selectionRect = {
+          left: (x / canvasW) * 100,
+          top: (y / canvasH) * 100,
+          width: (width / canvasW) * 100,
+          height: (height / canvasH) * 100,
+          pixelX: x,
+          pixelY: y,
+          pixelW: width,
+          pixelH: height,
         };
 
-        try {
-          const resultJsonStr = await fetchWithBackoff(parts);
-          if (!resultJsonStr) throw new Error("Empty response from AI.");
+        // --- Show Action Bar for NEW selection ---
+        const rect = els.selectionLayer.getBoundingClientRect();
+        const absX = rect.left + x;
+        const absY = rect.top + y + height;
 
-          const jsonMatch = resultJsonStr.match(/\{[\s\S]*\}/);
-          const updates = JSON.parse(jsonMatch ? jsonMatch[0] : "{}");
+        const barWidth = 180;
+        let barLeft = absX + width / 2 - barWidth / 2;
+        let barTop = absY + 10;
 
-          logEntry.response = updates;
-          logEntry.success = true;
-
-          const { appliedCommands, probabilityScore } = applyCommands(
-            updates,
-            state.currentMode,
-          );
-
-          logEntry.request.probabilityScore = probabilityScore;
-
-          // Set skip flag for the *next* time the *current* mode runs, if it was highly confident (probability sum > 1.0).
-          if (probabilityScore > 1.0) {
-            if (state.currentMode === "POSITION") state.skipNextPosition = true;
-            else if (state.currentMode === "SIZE")
-              state.skipNextSize = true;
-            console.log(
-              `Probability score (${probabilityScore.toFixed(2)}) > 1.0. Setting skip flag for next ${state.currentMode} run.`,
-            );
-          }
-
-          await updateAIImagesAndPayload(
-            img,
-            false,
-            `${iter} (Post-Apply)`,
-            DEFAULT_AI_SCALE,
-          );
-          const resultB64 = state.renderAI.toDataURL().split(",")[1];
-
-          const {
-            elements: postCommandElements,
-            maxExtent: postCommandExtent,
-          } = getStructure(TEST_ID);
-
-          state.history.unshift({
-            score: scoreString,
-            commands: appliedCommands,
-            resultImage: resultB64,
-            structure: {
-              elements: postCommandElements,
-              maxExtent: postCommandExtent,
-            },
-            probabilityScore: probabilityScore,
-          });
-
-          console.log(
-            `Applied ${Object.keys(appliedCommands).length} updates in ${state.currentMode} mode. Score: ${scoreString} | Probability Sum: ${probabilityScore.toFixed(2)}`,
-          );
-
-          await updateAIImagesAndPayload(
-            img,
-            false,
-            `Pre-Run ${i + 1}/${max}`,
-            currentRunScale,
-          );
-          drawCombinedRenderToView();
-
-          els.output.value = els.layer.innerHTML
-            .replace(/<\/div>/g, "</div>\n")
-            .replace(/<br>/g, "<br>\n");
-          if (state.currTab === "html") window.setTab("html");
-        } catch (e) {
-          logEntry.response = `Error: ${e.message}`;
-          console.error(e);
-        } finally {
-          state.aiLog.unshift(logEntry);
-          if (state.currTab === "log") renderDiagnosticLog();
-
-          await updateAIImagesAndPayload(
-            img,
-            false,
-            `Pre-Run ${i + 1}/${max}`,
-            currentRunScale,
-          );
-          drawCombinedRenderToView();
+        if (barLeft < 10) barLeft = 10;
+        if (barLeft + barWidth > window.innerWidth)
+          barLeft = window.innerWidth - barWidth - 10;
+        if (barTop + 50 > window.innerHeight) {
+          barTop = rect.top + y - 60;
         }
+
+        els.actionBar.style.left = barLeft + "px";
+        els.actionBar.style.top = barTop + "px";
+        els.actionBar.style.display = "flex";
+      });
+      
+      // Replace unused/obsolete functions with no-ops or necessary calls
+      window.updateStyle = () => { /* No-op in SVG mode */ };
+      window.deleteDiv = window.deletePatch; // Map old function to new one
+      window.clearStyles = () => { /* No-op in SVG mode */ }; 
+      window.runAiReplica = () => { /* No-op */ }; 
+      window.runAiReplicaLoop = () => { /* No-op */ };
+      window.runAiFont = () => { /* No-op */ }; 
+      window.runAiText = () => { /* No-op */ };
+      window.updateOverlayPreview = renderPatchesToSVG; 
+
+      function loadContentForCurrentPage(forcePreviewUpdate = false) {
+          // Load patches instead of transcription data
+          loadPatchesForCurrentPage();
+          if (forcePreviewUpdate) {
+              renderPatchesToSVG();
+          }
+      }
+      
+      function saveContent() {
+        if (!state.isAuthReady) return;
+        if (state.isLogActive) return;
+
+        clearTimeout(state.saveTimeout);
+        state.saveTimeout = setTimeout(() => {
+          savePatchesForCurrentPage();
+          localStorage.setItem(STORAGE_KEY_LAST_PAGE, state.pageNum);
+        }, 1000);
       }
 
-      els.runBtn.onclick = async () => {
-        els.runBtn.disabled = true;
-        state.history = [];
-        state.aiLog = [];
-        state.iterationCounter = 0; // Reset counter
-        state.skipNextPosition = false; // Reset skip flags
-        state.skipNextSize = false; // Reset skip flags
-
-        els.layer.innerHTML = INITIAL_HTML;
-        els.output.value = INITIAL_HTML.replace(/<\/div>/g, "</div>\n").replace(
-          /<br>/g,
-          "</p>\n<p>",
-        );
-        await updateAIImagesAndPayload(
-          img,
-          true,
-          "Initial Baseline Reset",
-          DEFAULT_AI_SCALE,
-        );
-
-        const max = parseInt(els.loopInput.value);
-        for (let i = 1; i <= max; i++) await runIteration(i, max);
-        els.layer.innerHTML = els.output.value;
-        drawCombinedRenderToView();
-        els.status.style.display = "none";
-        els.runBtn.disabled = false;
-        window.setTab("html");
-        els.modeDisplay.textContent = "DONE";
-        els.modeDisplay.className = "text-green-400";
-      };
-
-      // Initialization
-      els.output.value = INITIAL_HTML.replace(/<\/div>/g, "</div>\n").replace(
-        /<br>/g,
-        "</p>\n<p>",
-      );
-      els.layer.innerHTML = INITIAL_HTML;
-      window.setTab("html");
-      els.modeDisplay.textContent = "READY";
-
-      img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = async () => {
-        state.viewCanvas.width = img.width;
-        state.viewCanvas.height = img.height;
-        els.wrapper.style.width = state.viewCanvas.width + "px";
-        els.wrapper.style.height = state.viewCanvas.height + "px";
-        state.viewCtx = state.viewCanvas.getContext("2d");
-        state.viewCtx.drawImage(
-          img,
-          0,
-          0,
-          state.viewCanvas.width,
-          state.viewCanvas.height,
-        );
-        await updateAIImagesAndPayload(img, true, "Initial", DEFAULT_AI_SCALE);
-
-        drawCombinedRenderToView();
-      };
-      img.src = SAMPLE_URL;
+      initPersistence();
+      switchMainView("overlay");
     </script>
   </body>
 </html>
