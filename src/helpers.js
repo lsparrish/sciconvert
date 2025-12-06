@@ -1,8 +1,7 @@
-// helpers.js
+// scitext-helpers.js
 // Robust utility functions and the Core Application API for SciText Digitizer.
 // Should only include functions unlikely to change.
-// lives at https://lsparrish.github.io/sciconvert/src/helpers.js
-// Note: Use the full url.
+// lives at https://lsparrish.github.io/sciconvert/src/scitext-helpers.js
 
 const SciTextHelpers = (function () {
     
