@@ -1,6 +1,6 @@
 // Main application logic for SciText Digitizer.
 // Extracted from inline script in main.html to separate concerns.
-// Uses SciTextHelpers (loaded from https://lsparrish.github.io/sciconvert/src/scitext-helpers.js) for core utilities.
+// Uses SciTextHelpers (loaded from https://lsparrish.github.io/sciconvert/src/helpers.js) for core utilities.
 // lives at https://lsparrish.github.io/sciconvert/src/main.js
 // Note: Use the full url.
 
@@ -31,7 +31,7 @@ const state = {
     canvas: document.createElement('canvas'),
 };
 
-const els = {}; // Populated in init to ensure DOM is ready
+const els = {};
 
 // --- UTILS & CORE HELPERS ---
 
@@ -144,7 +144,7 @@ function loadDefaultImage() {
         els.emptyState.innerHTML = '<div class="bg-white p-8 rounded-2xl shadow-xl text-center border border-gray-200"><h2 class="text-xl font-bold mb-2 text-red-700">Load Error</h2><p class="text-sm text-gray-500">Could not load default image. Please try uploading a file.</p></div>';
         els.loader.classList.add('hidden');
     };
-    img.src = CONFIG.defaultPdfUrl;
+    img.src = `${CONFIG.defaultPdfUrl}?v=${Date.now()}`;
 }
 
 /**
@@ -181,7 +181,6 @@ function setupEventListeners() {
     
     document.getElementById('btn-export').onclick = exportSVG;
     document.getElementById('btn-clear-all').onclick = () => { 
-        // Replaced window.confirm with a custom solution (simple console log for now)
         console.log('Resetting all regions. User confirmation assumed.'); 
         state.regions = []; 
         renderRegions(); 
@@ -308,7 +307,7 @@ function handleMouseDown(e) {
         
         const r = getRegion(state.activeRegionId);
         if (r) {
-            r.scale = r.scale || {x: 1, y: 1}; r.offset = r.offset || {x: 0, y: 0};
+            r.scale = { x: 1, y: 1 }; r.offset = { x: 0, y: 0 };
             state.initialRect = { ...r.rect }; 
             state.initialScale = { ...r.scale };
             updateUIProperties(r);
@@ -426,6 +425,7 @@ function handleKeyDown(e) {
         if (state.splitMode) {
             state.splitMode = false;
             state.splitTargetId = null;
+            state.splitSelection.clear();
             els.btnSplit.textContent = "Split";
             els.btnSplit.classList.remove('ring-2', 'ring-offset-1', 'ring-indigo-500');
             renderRegions();
@@ -951,14 +951,14 @@ export async function createRegion(type, id) {
         const MAX_BP = 300;
         let bpW = pxW, bpH = pxH;
         if (pxW > MAX_BP || pxH > MAX_BP) {
-            const ratio = Math.min(MAX_BP/pxW, MAX_BP/ph);
-            bpW = Math.floor(pxW*ratio); bpH = Math.floor(ph*ratio);
+            const ratio = Math.min(MAX_BP/pxW, MAX_BP/pxH);
+            bpW = Math.floor(pxW*ratio); bpH = Math.floor(pxH*ratio);
         }
         bpC.width = bpW; bpC.height = bpH;
         bpC.getContext('2d').drawImage(tmp, 0, 0, bpW, bpH);
         
         // Use the global helper function for RLE
-        // Note: SciTextHelpers is loaded globally via a separate script tag in main.html
+        // Note: SciTextHelpers must be imported/available globally. Assuming it's available via HTML script.
         const rlePath = SciTextHelpers.runLengthEncode(bpC.getContext('2d').getImageData(0,0,bpW,bpH));
         
         r.blueprint = `<svg viewBox="0 0 ${bpW} ${bpH}"><path d="${rlePath}" fill="#00ff00"/></svg>`;
@@ -976,7 +976,7 @@ export async function createRegion(type, id) {
         
         r.bpDims = {w: bpW, h: bpH}; // Set intrinsic size to blueprint pixel size
         r.status = undefined; 
-        r.scale = { x: 1, y: 1 }; r.offset = { x: 0, y: 0 };
+        r.scale = {x: 1, y: 1}; r.offset = {x: 0, y: 0};
         
         saveState(); selectRegion(r.id);
     } catch(e) { console.error(e); }
@@ -1005,6 +1005,7 @@ async function digitizeRegion() {
     const bpC = document.createElement('canvas');
     bpC.width = pw; bpC.height = ph; 
     bpC.getContext('2d').drawImage(state.canvas, r.rect.x * cw, r.rect.y * ch, pw, ph, 0, 0, pw, ph);
+    // Note: SciTextHelpers must be imported/available globally.
     const rle = SciTextHelpers.runLengthEncode(bpC.getContext('2d').getImageData(0,0,pw,ph));
 
     const prompt = `You are a precision SVG Typesetter.
@@ -1109,6 +1110,7 @@ function optimizeActiveRegion() {
 function groupSelectedRegions() {
     const selected = state.regions.filter(r => state.selectedIds.has(r.id));
     if (selected.length < 2) {
+        // Replaced alert()
         console.error("Please select at least 2 regions to group.");
         return;
     }
