@@ -186,11 +186,12 @@
               <textarea id="code-editor" class="editor-textarea flex-1 p-4 text-gray-700 bg-white border-none outline-none text-xs" spellcheck="false" placeholder="Select a patch..."></textarea>
               
               <div class="p-3 border-t border-gray-200 bg-gray-50 flex flex-wrap gap-2 items-center justify-between">
-                  <div class="flex gap-2">
-                    <button id="btn-export" class="bg-white text-green-700 border border-green-300 hover:bg-green-50 px-3 py-1.5 rounded text-xs font-bold shadow-sm transition">Export</button>
+                  <div id="debug-actions-left" class="flex gap-2">
+                    <button id="btn-export" class="bg-white text-green-700 border border-green-300 hover:bg-green-50 px-3 py-1.5 rounded text-xs font-bold shadow-sm transition">Compose SVG</button>
                     <button id="btn-clear-all" class="text-red-500 hover:text-red-700 px-2 py-1.5 rounded text-xs font-medium transition">Reset</button>
                   </div>
-                  <div id="context-actions" class="flex gap-2 disabled-bar transition-opacity duration-200">
+                  <div id="context-actions" class="flex gap-2 transition-opacity duration-200">
+                       <button id="btn-digitize" class="bg-purple-600 text-white border border-transparent hover:bg-purple-500 px-3 py-1.5 rounded text-xs font-bold shadow-sm transition">AI Text</button>
                        <button id="btn-optimize" class="bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 px-3 py-1.5 rounded text-xs font-bold shadow-sm transition">Opt</button>
                        <button id="btn-regen" class="bg-blue-600 text-white border border-transparent hover:bg-blue-500 px-3 py-1.5 rounded text-xs font-bold shadow-sm transition">Regen</button>
                        <button id="btn-delete" class="bg-white text-gray-700 border border-gray-300 hover:bg-gray-100 px-3 py-1.5 rounded text-xs font-semibold shadow-sm transition">Del</button>
@@ -219,10 +220,14 @@
       </div>
       
       <div id="debug-container" class="flex-1 hidden flex-col bg-gray-900 p-6 overflow-auto text-white">
-           <div class="flex justify-center gap-6 mb-6 h-80">
+           <div class="flex justify-center gap-4 mb-6 h-80">
                <div class="border border-gray-700 bg-black p-3 rounded-lg flex flex-col items-center w-1/3 shadow-lg">
                    <span class="text-xs font-bold text-yellow-500 mb-2 uppercase tracking-wide">Source Crop</span>
                    <img id="debug-img-source" class="h-full object-contain bg-[#1a1a1a] rounded border border-gray-800">
+               </div>
+               <div class="border border-gray-700 bg-black p-3 rounded-lg flex flex-col items-center w-1/3 shadow-lg">
+                   <span class="text-xs font-bold text-purple-400 mb-2 uppercase tracking-wide">Blueprint (RLE)</span>
+                   <div id="debug-blueprint" class="h-full w-full flex items-center justify-center bg-white text-black rounded border border-gray-800"></div>
                </div>
                <div class="border border-gray-700 bg-black p-3 rounded-lg flex flex-col items-center w-1/3 shadow-lg">
                    <span class="text-xs font-bold text-blue-400 mb-2 uppercase tracking-wide">SVG Result</span>
@@ -248,7 +253,8 @@
     <canvas id="processing-canvas" style="display:none;"></canvas>
 
     <script type="module">
-        const CONFIG = { apiKey: "", defaultPdfUrl: "https://lsparrish.github.io/sciconvert/sample.png", aiScale: 2.0 };
+        const CONFIG = { defaultPdfUrl: "https://lsparrish.github.io/sciconvert/sample.png", aiScale: 2.0 };
+        const apiKey = "";
         const state = {
             pdfDoc: null,
             scaleMultiplier: 1.0,
@@ -301,7 +307,9 @@
             debugContainer: document.getElementById('debug-container'),
             debugImg: document.getElementById('debug-img-source'),
             debugSvg: document.getElementById('debug-svg-preview'),
-            debugLog: document.getElementById('debug-log')
+            debugBlueprint: document.getElementById('debug-blueprint'),
+            debugLog: document.getElementById('debug-log'),
+            btnDigitize: document.getElementById('btn-digitize')
         };
 
         // --- INIT & SETUP ---
@@ -337,8 +345,9 @@
             };
             img.onerror = () => {
                 console.error("Failed to load default image");
+                // Removed alert();
+                els.emptyState.innerHTML = '<div class="bg-white p-8 rounded-2xl shadow-xl text-center border border-gray-200"><h2 class="text-xl font-bold mb-2 text-red-700">Load Error</h2><p class="text-sm text-gray-500">Could not load default image. Please try uploading a file.</p></div>';
                 els.loader.classList.add('hidden');
-                alert("Could not load default image. Please upload a file.");
             };
             img.src = CONFIG.defaultPdfUrl;
         }
@@ -377,11 +386,45 @@
             document.getElementById('btn-clear-all').onclick = () => { if(confirm('Clear all?')) { state.patches = []; renderPatches(); saveState(); }};
             document.getElementById('btn-delete').onclick = () => { if(state.activePatchId) { state.patches = state.patches.filter(p => p.id !== state.activePatchId); deselect(); renderPatches(); saveState(); }};
             document.getElementById('btn-regen').onclick = () => { if(state.activePatchId) createPatch('text', state.activePatchId); };
+            if(els.btnDigitize) els.btnDigitize.onclick = digitizePatch;
             document.getElementById('btn-optimize').onclick = optimizeActivePatch;
             
             document.getElementById('tab-overlay').onclick = () => switchTab('overlay');
             document.getElementById('tab-debug').onclick = () => switchTab('debug');
             document.getElementById('fullscreen-toggle').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+        }
+
+        // --- HISTORY SYSTEM ---
+        function saveState(isInitial = false) {
+            if (state.historyIndex < state.history.length - 1) state.history = state.history.slice(0, state.historyIndex + 1);
+            state.history.push(JSON.parse(JSON.stringify(state.patches)));
+            state.historyIndex++;
+            if (state.history.length > 50) { state.history.shift(); state.historyIndex--; }
+            updateHistoryUI();
+        }
+        function undo() { if (state.historyIndex > 0) { state.historyIndex--; restoreState(); } }
+        function redo() { if (state.historyIndex < state.history.length - 1) { state.historyIndex++; restoreState(); } }
+        function restoreState() { state.patches = JSON.parse(JSON.stringify(state.history[state.historyIndex])); deselect(); renderPatches(); updateHistoryUI(); }
+        function updateHistoryUI() {
+            els.btnUndo.disabled = state.historyIndex <= 0;
+            els.btnUndo.classList.toggle('opacity-30', state.historyIndex <= 0);
+            els.btnRedo.disabled = state.historyIndex >= state.history.length - 1;
+            els.btnRedo.classList.toggle('opacity-30', state.historyIndex >= state.history.length - 1);
+        }
+
+        // --- ZOOM & RENDER ---
+        function setZoom(m) { state.scaleMultiplier = Math.max(0.25, Math.min(5.0, m)); applyZoom(); }
+        function applyZoom() {
+            const nw = state.baseWidth * state.scaleMultiplier;
+            const nh = (state.canvas.height / state.canvas.width) * nw;
+            els.wrapper.style.width = `${nw}px`; els.wrapper.style.height = `${nh}px`;
+            els.txtZoomLevel.textContent = `${Math.round(state.scaleMultiplier * 100)}%`;
+        }
+        function renderPage() { els.pdfLayer.innerHTML = ''; els.pdfLayer.appendChild(state.canvas); state.canvas.style.width='100%'; state.canvas.style.height='100%'; applyZoom(); initSvgLayer(); }
+        function initSvgLayer() {
+            const w = state.canvas.width; const h = state.canvas.height;
+            els.svgLayer.innerHTML = `<svg id="main-svg" width="${w}" height="${h}" style="width:100%; height:100%;" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg"><g id="patches"></g><g id="highlights"></g></svg>`;
+            renderPatches();
         }
 
         // --- MOUSE HANDLERS ---
@@ -538,112 +581,161 @@
             if (handled) { e.preventDefault(); renderPatches(); updatePropertyInputs(); }
         }
 
-        // --- HISTORY & UTILS ---
-        function saveState() {
-            if (state.historyIndex < state.history.length - 1) state.history = state.history.slice(0, state.historyIndex + 1);
-            state.history.push(JSON.parse(JSON.stringify(state.patches)));
-            state.historyIndex++;
-            if (state.history.length > 50) { state.history.shift(); state.historyIndex--; }
-            updateHistoryUI();
+        // --- DATA UPDATE LOGIC ---
+        function updatePatchFromInput() {
+            const p = state.patches.find(x => x.id === state.activePatchId);
+            if(!p) return;
+            const cw = state.canvas.width; const ch = state.canvas.height;
+            
+            if (state.editMode === 'area') {
+                p.rect.x = parseFloat(els.propX.value) / cw;
+                p.rect.y = parseFloat(els.propY.value) / ch;
+                p.rect.w = parseFloat(els.propW.value) / cw;
+                p.rect.h = parseFloat(els.propH.value) / ch;
+            } else {
+                p.offset.x = parseFloat(els.propX.value) || 0;
+                p.offset.y = parseFloat(els.propY.value) || 0;
+                const targetW = parseFloat(els.propW.value);
+                const targetH = parseFloat(els.propH.value);
+                // Calculate scale based on desired effective size vs blueprint size
+                if (p.bpDims.w > 0) p.scale.x = targetW / p.bpDims.w;
+                if (p.bpDims.h > 0) p.scale.y = targetH / p.bpDims.h;
+            }
+            updatePatchVisuals(p, cw, ch);
         }
-        function undo() { if (state.historyIndex > 0) { state.historyIndex--; restoreState(); } }
-        function redo() { if (state.historyIndex < state.history.length - 1) { state.historyIndex++; restoreState(); } }
-        function restoreState() { state.patches = JSON.parse(JSON.stringify(state.history[state.historyIndex])); deselect(); renderPatches(); updateHistoryUI(); }
-        function updateHistoryUI() {
-            els.btnUndo.disabled = state.historyIndex <= 0;
-            els.btnUndo.classList.toggle('opacity-30', state.historyIndex <= 0);
-            els.btnRedo.disabled = state.historyIndex >= state.history.length - 1;
-            els.btnRedo.classList.toggle('opacity-30', state.historyIndex >= state.history.length - 1);
-        }
-        function setZoom(m) { state.scaleMultiplier = Math.max(0.25, Math.min(5.0, m)); applyZoom(); }
-        function applyZoom() {
-            const nw = state.baseWidth * state.scaleMultiplier;
-            const nh = (state.canvas.height / state.canvas.width) * nw;
-            els.wrapper.style.width = `${nw}px`; els.wrapper.style.height = `${nh}px`;
-            els.txtZoomLevel.textContent = `${Math.round(state.scaleMultiplier * 100)}%`;
-        }
-        function renderPage() { els.pdfLayer.innerHTML = ''; els.pdfLayer.appendChild(state.canvas); state.canvas.style.width='100%'; state.canvas.style.height='100%'; applyZoom(); initSvgLayer(); }
-        function initSvgLayer() {
-            const w = state.canvas.width; const h = state.canvas.height;
-            els.svgLayer.innerHTML = `<svg id="main-svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg"><g id="patches"></g><g id="highlights"></g></svg>`;
-            renderPatches();
+        
+        function updatePatchFromEditor() {
+            const p = state.patches.find(x => x.id === state.activePatchId);
+            if (p) {
+                p.svgContent = els.editor.value;
+                updatePatchVisuals(p, state.canvas.width, state.canvas.height);
+            }
         }
 
-        // --- AI & CORE LOGIC ---
-        async function createPatch(type, id) {
-            const tid = id || state.activePatchId; if(!tid) return;
-            const p = state.patches.find(x => x.id === tid); if(!p) return;
-            els.aiStatus.classList.remove('hidden'); els.selectionBar.style.display = 'none';
+        function updatePatchVisuals(p, cw, ch) {
+            const frame = document.getElementById(`frame-${p.id}`);
+            const nested = document.getElementById(`svg-patch-${p.id}`);
             
-            const cw = state.canvas.width; const ch = state.canvas.height;
-            const pw = Math.floor(p.rect.w * cw); const ph = Math.floor(p.rect.h * ch);
-            const tmp = document.createElement('canvas'); tmp.width = pw * 2; tmp.height = ph * 2;
-            tmp.getContext('2d').drawImage(state.canvas, p.rect.x * cw, p.rect.y * ch, pw, ph, 0, 0, pw*2, ph*2);
+            if(frame) {
+                frame.style.left = (p.rect.x * cw) + 'px'; frame.style.top = (p.rect.y * ch) + 'px';
+                frame.style.width = (p.rect.w * cw) + 'px'; frame.style.height = (p.rect.h * ch) + 'px';
+            }
+            if(nested) {
+                const pxW = p.rect.w * cw; const pxH = p.rect.h * ch;
+                nested.setAttribute('x', p.rect.x * cw); nested.setAttribute('y', p.rect.y * ch);
+                nested.setAttribute('width', pxW); nested.setAttribute('height', pxH);
+                // NOTE: ViewBox matches pixel size of the outer SVG container element
+                nested.setAttribute('viewBox', `0 0 ${pxW} ${pxH}`); 
+                
+                const grp = document.getElementById(`group-${p.id}`);
+                if (grp) {
+                    // Correct transform: Scale then Translate to ensure clean origin shifting
+                    grp.setAttribute('transform', `scale(${p.scale.x}, ${p.scale.y}) translate(${p.offset.x}, ${p.offset.y})`);
+                    grp.innerHTML = p.svgContent;
+                }
+            }
+        }
+
+        // --- GEOMETRY UTILS ---
+        function fitContentToArea() {
+            const p = state.patches.find(x => x.id === state.activePatchId);
+            if (!p) return;
+            
+            const group = document.getElementById(`group-${p.id}`);
+            if (!group) return;
             
             try {
-                // Local RLE Generation (Primary)
-                const bpC = document.createElement('canvas'); 
-                const MAX_BP = 300;
-                let bpW = pw, bpH = ph;
-                if (pw > MAX_BP || ph > MAX_BP) {
-                    const ratio = Math.min(MAX_BP/pw, MAX_BP/ph);
-                    bpW = Math.floor(pw*ratio); bpH = Math.floor(ph*ratio);
-                }
-                bpC.width = bpW; bpC.height = bpH;
-                bpC.getContext('2d').drawImage(tmp, 0, 0, bpW, bpH);
+                // 1. Get Intrinsic Bounds (untransformed BBox)
+                // Temporarily remove transform to get intrinsic bounds
+                const originalTransform = group.getAttribute('transform');
+                group.removeAttribute('transform'); 
+                const contentBBox = group.getBBox();
                 
-                const rlePath = runLengthEncode(bpC.getContext('2d').getImageData(0,0,bpW,bpH));
+                // Restore transform immediately
+                group.setAttribute('transform', originalTransform || "");
                 
-                // Scale RLE back to 1x Patch coordinates
-                const scaleX = pw / bpW;
-                const scaleY = ph / bpH;
-                
-                // SVG Content
-                p.svgContent = `<g transform="scale(${scaleX.toFixed(4)}, ${scaleY.toFixed(4)})"><path d="${rlePath}" fill="black" /></g>`;
-                p.bpDims = {w: pw, h: ph};
-                p.status = undefined; 
-                p.scale = {x: 1, y: 1}; p.offset = {x: 0, y: 0};
-                
-                saveState(); selectPatch(p.id);
-            } catch(e) { console.error(e); }
-            els.aiStatus.classList.add('hidden');
-        }
+                const contentW = contentBBox.width;
+                const contentH = contentBBox.height;
+                const contentX = contentBBox.x;
+                const contentY = contentBBox.y;
 
-        function runLengthEncode(imgData) {
-            let path = "";
-            const { width, height, data } = imgData;
-            for (let y = 0; y < height; y += 2) {
-                let startX = -1;
-                for (let x = 0; x < width; x++) {
-                    const idx = (y * width + x) * 4;
-                    const isDark = data[idx+3] > 128 && data[idx] < 128;
-                    if (isDark) {
-                        if (startX === -1) startX = x;
-                    } else {
-                        if (startX !== -1) {
-                            path += `M${startX} ${y}h${x - startX}v2h-${x - startX}z`;
-                            startX = -1;
-                        }
-                    }
+                if (contentW <= 0 || contentH <= 0) {
+                    console.warn("Content has zero dimensions. Cannot fit content.");
+                    return;
                 }
-                if (startX !== -1) path += `M${startX} ${y}h${width - startX}v2h-${width - startX}z`;
+
+                const cw = state.canvas.width; 
+                const ch = state.canvas.height;
+                const areaW = p.rect.w * cw; 
+                const areaH = p.rect.h * ch;
+
+                // 2. Calculate Scale
+                p.scale.x = areaW / contentW;
+                p.scale.y = areaH / contentH;
+                
+                // 3. Calculate Offset: Shift content origin to 0,0 before scaling
+                p.offset.x = -contentX;
+                p.offset.y = -contentY;
+                
+                // Update bpDims
+                p.bpDims.w = contentW;
+                p.bpDims.h = contentH;
+
+            } catch(e) {
+                console.error("Error calculating content BBox for Fill Content:", e);
+                return;
             }
-            return path;
+
+            // Update
+            updatePatchVisuals(p, state.canvas.width, state.canvas.height);
+            renderPatches(); 
+            updatePropertyInputs(); 
+            saveState();
         }
 
-        function optimizeActivePatch() {
-            if (!state.activePatchId) return;
+        function fitAreaToContent() {
             const p = state.patches.find(x => x.id === state.activePatchId);
-            if (p && p.svgContent) {
-                 // Mock optimization for brevity since regex-based merging is complex on raw paths
-                 // Ideally this calls a robust path merger or text merger if AI was used.
-                 console.log("Optimized.");
+            if (!p) return;
+            const nestedSvg = document.getElementById(`svg-patch-${p.id}`);
+            const group = document.getElementById(`group-${p.id}`);
+            if (!nestedSvg || !group) return;
+
+            const cw = state.canvas.width; 
+            const ch = state.canvas.height;
+
+            try {
+                // 1. Get absolute screen coordinates of content
+                const contentRect = group.getBoundingClientRect();
+                const wrapperRect = els.interactionLayer.getBoundingClientRect();
+                
+                // 2. Convert to Canvas Coordinates
+                const ratio = cw / wrapperRect.width;
+                const absX = (contentRect.left - wrapperRect.left) * ratio;
+                const absY = (contentRect.top - wrapperRect.top) * ratio;
+                const absW = contentRect.width * ratio;
+                const absH = contentRect.height * ratio;
+
+                // 3. Update Patch Rect to match visual bounds perfectly
+                p.rect = { 
+                    x: absX / cw, 
+                    y: absY / ch, 
+                    w: absW / cw, 
+                    h: absH / ch 
+                };
+
+                // 4. Update visuals to move container to new location
+                updatePatchVisuals(p, cw, ch);
+                
+                // 5. Reset internal content to align with new container (0,0)
+                fitContentToArea(); 
+                
+            } catch(e) {
+                console.error("Error calculating visual BBox for Fit Area:", e);
+                return;
             }
         }
 
-        function compressSVG(svgString) { return svgString.replace(/\s+/g, ' ').replace(/>\s*</g, '><').trim(); }
-
-        // --- RENDERING & UI UPDATES ---
+        // --- CORE FUNCTIONS ---
         function renderPatches() {
             const gPatches = els.svgLayer.querySelector('#patches');
             const gHighlights = els.svgLayer.querySelector('#highlights');
@@ -658,22 +750,27 @@
                 if (!p.bpDims) p.bpDims = { w: p.rect.w*cw, h: p.rect.h*ch };
 
                 const px = p.rect.x * cw; const py = p.rect.y * ch;
-                const pw = p.rect.w * cw; const ph = p.rect.h * ch;
+                const pw = p.rect.w * cw; const ph = p.rect.h * ch; 
                 
                 if (p.status === 'draft') {
                     const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
                     rect.setAttribute("x", px); rect.setAttribute("y", py);
-                    rect.setAttribute("width", pw); rect.setAttribute("height", ph);
+                    rect.setAttribute("width", pw);
+                    rect.setAttribute("height", ph); 
                     rect.setAttribute("class", "patch-draft");
                     gPatches.appendChild(rect);
                 } else {
                     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
                     svg.setAttribute("x", px); svg.setAttribute("y", py);
-                    svg.setAttribute("width", pw); svg.setAttribute("height", ph);
-                    svg.setAttribute("viewBox", `0 0 ${pw} ${ph}`);
+                    svg.setAttribute("width", pw);
+                    svg.setAttribute("height", ph); 
+                    // Using pw and ph (pixel widths/heights) for viewBox
+                    svg.setAttribute("viewBox", `0 0 ${pw} ${ph}`); 
                     svg.setAttribute("preserveAspectRatio", "none");
                     svg.setAttribute("id", `svg-patch-${p.id}`);
-                    svg.innerHTML = `<g id="group-${p.id}" transform="translate(${p.offset.x}, ${p.offset.y}) scale(${p.scale.x}, ${p.scale.y})">${p.svgContent}</g>`;
+                    
+                    // Correct transform: Scale then Translate to ensure clean origin shifting
+                    svg.innerHTML = `<g id="group-${p.id}" transform="scale(${p.scale.x}, ${p.scale.y}) translate(${p.offset.x}, ${p.offset.y})">${p.svgContent}</g>`;
                     gPatches.appendChild(svg);
                 }
                 
@@ -681,7 +778,8 @@
                 else {
                     const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
                     rect.setAttribute("x", px); rect.setAttribute("y", py);
-                    rect.setAttribute("width", pw); rect.setAttribute("height", ph);
+                    rect.setAttribute("width", pw);
+                    rect.setAttribute("height", ph); 
                     rect.setAttribute("class", "patch-highlight");
                     rect.setAttribute("data-id", p.id);
                     gHighlights.appendChild(rect);
@@ -689,6 +787,9 @@
             });
             updateUI();
         }
+
+        // The rest of the functions remain the same as the user-provided code, 
+        // with the exception of updatePatchVisuals which relies on the updated transform.
 
         function renderActiveSelectionControls(patch) {
             if (document.querySelector(`.selection-frame[data-id="${patch.id}"]`)) return;
@@ -806,94 +907,289 @@
             saveState(true);
         }
 
-        // --- GEOMETRY UTILS ---
-        function fitContentToArea() {
-            const p = state.patches.find(x => x.id === state.activePatchId);
-            if (!p) return;
+        // --- AI & RLE ---
+        async function createPatch(type, id) {
+            const tid = id || state.activePatchId; if(!tid) return;
+            const p = state.patches.find(x => x.id === tid); if(!p) return;
+            els.aiStatus.classList.remove('hidden'); els.selectionBar.style.display = 'none';
+            
             const cw = state.canvas.width; const ch = state.canvas.height;
-            const areaW = p.rect.w * cw; const areaH = p.rect.h * ch;
-            if (!p.bpDims || !p.bpDims.w) p.bpDims = { w: areaW, h: areaH };
-            p.offset = { x: 0, y: 0 };
-            if (p.bpDims.w > 0) p.scale.x = areaW / p.bpDims.w;
-            if (p.bpDims.h > 0) p.scale.y = areaH / p.bpDims.h;
-            renderPatches(); updatePropertyInputs(); saveState();
-        }
+            const pw = Math.floor(p.rect.w * cw); const ph = Math.floor(p.rect.h * ch);
+            const tmp = document.createElement('canvas'); tmp.width = pw * 2; tmp.height = ph * 2;
+            tmp.getContext('2d').drawImage(state.canvas, p.rect.x * cw, p.rect.y * ch, pw, ph, 0, 0, pw*2, ph*2);
+            
+            // Store source crop
+            p.srcCrop = tmp.toDataURL();
 
-        function fitAreaToContent() {
-            const p = state.patches.find(x => x.id === state.activePatchId);
-            if (!p) return;
-            const group = document.getElementById(`group-${p.id}`);
-            if (!group) return;
-            const rect = group.getBoundingClientRect();
-            if (rect.width === 0) return;
-            
-            const wrapperRect = els.interactionLayer.getBoundingClientRect();
-            const cw = state.canvas.width; const ch = state.canvas.height;
-            const ratio = cw / wrapperRect.width; 
-            
-            const visX = (rect.left - wrapperRect.left) * ratio;
-            const visY = (rect.top - wrapperRect.top) * ratio;
-            const visW = rect.width * ratio;
-            const visH = rect.height * ratio;
-            
-            p.rect = { x: visX/cw, y: visY/ch, w: visW/cw, h: visH/ch };
-            p.offset = { x: 0, y: 0 }; 
-            renderPatches(); updatePropertyInputs(); saveState();
-        }
-
-        function updatePatchFromInput() {
-            const p = state.patches.find(x => x.id === state.activePatchId);
-            if(!p) return;
-            const cw = state.canvas.width; const ch = state.canvas.height;
-            
-            if (state.editMode === 'area') {
-                p.rect.x = parseFloat(els.propX.value) / cw;
-                p.rect.y = parseFloat(els.propY.value) / ch;
-                p.rect.w = parseFloat(els.propW.value) / cw;
-                p.rect.h = parseFloat(els.propH.value) / ch;
-            } else {
-                p.offset.x = parseFloat(els.propX.value) || 0;
-                p.offset.y = parseFloat(els.propY.value) || 0;
-                const targetW = parseFloat(els.propW.value);
-                const targetH = parseFloat(els.propH.value);
-                if (p.bpDims.w > 0) p.scale.x = targetW / p.bpDims.w;
-                if (p.bpDims.h > 0) p.scale.y = targetH / p.bpDims.h;
-            }
-            updatePatchVisuals(p, cw, ch);
-        }
-        
-        function updatePatchFromEditor() {
-            const p = state.patches.find(x => x.id === state.activePatchId);
-            if (p) {
-                p.svgContent = els.editor.value;
-                updatePatchVisuals(p, state.canvas.width, state.canvas.height);
-            }
-        }
-
-        function updatePatchVisuals(p, cw, ch) {
-            const frame = document.getElementById(`frame-${p.id}`);
-            const nested = document.getElementById(`svg-patch-${p.id}`);
-            
-            if(frame) {
-                frame.style.left = (p.rect.x * cw) + 'px'; frame.style.top = (p.rect.y * ch) + 'px';
-                frame.style.width = (p.rect.w * cw) + 'px'; frame.style.height = (p.rect.h * ch) + 'px';
-            }
-            if(nested) {
-                const pxW = p.rect.w * cw; const pxH = p.rect.h * ch;
-                nested.setAttribute('x', p.rect.x * cw); nested.setAttribute('y', p.rect.y * ch);
-                nested.setAttribute('width', pxW); nested.setAttribute('height', pxH);
-                nested.setAttribute('viewBox', `0 0 ${pxW} ${pxH}`);
+            try {
+                const bpC = document.createElement('canvas'); 
+                const MAX_BP = 300;
+                let bpW = pw, bpH = ph;
+                if (pw > MAX_BP || ph > MAX_BP) {
+                    const ratio = Math.min(MAX_BP/pw, MAX_BP/ph);
+                    bpW = Math.floor(pw*ratio); bpH = Math.floor(ph*ratio);
+                }
+                bpC.width = bpW; bpC.height = bpH;
+                bpC.getContext('2d').drawImage(tmp, 0, 0, bpW, bpH);
                 
-                const grp = document.getElementById(`group-${p.id}`);
-                if (grp) {
-                    grp.setAttribute('transform', `translate(${p.offset.x}, ${p.offset.y}) scale(${p.scale.x}, ${p.scale.y})`);
-                    grp.innerHTML = p.svgContent;
+                const rlePath = runLengthEncode(bpC.getContext('2d').getImageData(0,0,bpW,bpH));
+                
+                // Store pure Blueprint SVG
+                p.blueprint = `<svg viewBox="0 0 ${bpW} ${bpH}"><path d="${rlePath}" fill="#00ff00"/></svg>`;
+                
+                // Scale for 1x ViewBox mapping
+                const scaleX = pw / bpW;
+                const scaleY = ph / bpH;
+                
+                // Default SVG Content (The Result)
+                p.svgContent = `<g transform="scale(${scaleX.toFixed(4)}, ${scaleY.toFixed(4)})"><path d="${rlePath}" fill="black" /></g>`;
+                
+                p.bpDims = {w: pw, h: ph}; 
+                p.status = undefined; 
+                p.scale = {x: 1, y: 1}; p.offset = {x: 0, y: 0};
+                
+                saveState(); selectPatch(p.id);
+            } catch(e) { console.error(e); /*alert('Error creating patch');*/ } // Removed alert
+            els.aiStatus.classList.add('hidden');
+        }
+
+        async function digitizePatch() {
+            const p = state.patches.find(x => x.id === state.activePatchId);
+            if (!p) return;
+            
+            // The API Key is expected to be injected by the Canvas environment.
+            // We proceed with the fetch call directly.
+
+            els.aiStatus.classList.remove('hidden');
+            els.aiStatus.textContent = 'Digitizing...';
+
+            const cw = state.canvas.width; const ch = state.canvas.height;
+            const pw = Math.floor(p.rect.w * cw); const ph = Math.floor(p.rect.h * ch);
+            
+            // Create crop for AI (2x for better OCR)
+            const tmp = document.createElement('canvas'); tmp.width = pw * 2; tmp.height = ph * 2;
+            tmp.getContext('2d').drawImage(state.canvas, p.rect.x * cw, p.rect.y * ch, pw, ph, 0, 0, pw*2, ph*2);
+            const base64 = tmp.toDataURL('image/png').split(',')[1];
+            
+            // Create 1x Blueprint for Coordinate Grounding
+            const bpC = document.createElement('canvas');
+            bpC.width = pw; bpC.height = ph; // 1x scale
+            bpC.getContext('2d').drawImage(state.canvas, p.rect.x * cw, p.rect.y * ch, pw, ph, 0, 0, pw, ph);
+            const rle = runLengthEncode(bpC.getContext('2d').getImageData(0,0,pw,ph));
+
+            const prompt = `You are a precision SVG Typesetter.
+            
+INPUTS:
+1. IMAGE: A 2x scale scan of text. Read this text.
+2. BLUEPRINT: A 1x scale vector path marking the exact black pixels of the text.
+
+TASK:
+Generate semantic SVG <text> elements that match the text in the IMAGE, but positioned precisely over the BLUEPRINT.
+- Use the BLUEPRINT as the ground truth for positioning (x, y) and font-size.
+- The Output ViewBox is 0 0 ${pw} ${ph}.
+- Do not return the blueprint path itself, only the new text elements.
+- Use fill="black".
+- Output strictly valid SVG elements (e.g. <text x="..." y="...">Content</text>).
+
+BLUEPRINT PATH (Partial):
+${rle.substring(0, 500)}...`; 
+            
+            const payload = { 
+                contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: base64 } }] }] 
+            };
+            // API URL intentionally left without 'key=${apiKey}' to allow Canvas environment injection
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent`;
+
+            const MAX_RETRIES = 5;
+            let attempt = 0;
+            let resp;
+            let success = false;
+
+            while (attempt < MAX_RETRIES && !success) {
+                try {
+                    resp = await fetch(apiUrl, {
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (resp.status === 429 || resp.status >= 500) {
+                        if (attempt < MAX_RETRIES - 1) {
+                            const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+                            // console.log removed per instruction to not log retries
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            attempt++;
+                            continue;
+                        }
+                    }
+
+                    if (!resp.ok) {
+                        throw new Error(`API Error: ${resp.status} - ${resp.statusText}`);
+                    }
+
+                    success = true;
+                    
+                } catch (e) {
+                    console.error(`Attempt ${attempt + 1} failed:`, e);
+                    attempt++;
+                    if (attempt === MAX_RETRIES) {
+                        // Re-throw the error to be caught by the outer catch block
+                        throw e; 
+                    }
                 }
             }
+
+            if (!success || !resp) {
+                console.error("Max retries reached. Digitization failed.");
+                els.aiStatus.classList.remove('hidden');
+                els.aiStatus.textContent = 'Error: Max Retries';
+                setTimeout(() => { els.aiStatus.classList.add('hidden'); els.aiStatus.textContent = 'Processing...'; }, 3000);
+                return;
+            }
+            
+            // --- Success Path ---
+            try {
+                const json = await resp.json();
+                const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+                
+                if (!text) {
+                     const errorDetail = json.candidates?.[0]?.finishReason || "No content returned.";
+                     throw new Error(`No SVG generated. Reason: ${errorDetail}`);
+                }
+
+                let cleanSvg = text.replace(/```svg/g, '').replace(/```/g, '').trim();
+                
+                // Apply Result
+                p.svgContent = cleanSvg;
+                p.bpDims = { w: pw, h: ph };
+                p.scale = { x: 1, y: 1 }; 
+                p.offset = { x: 0, y: 0 };
+                
+                saveState();
+                selectPatch(p.id); // Refresh UI
+
+            } catch(e) {
+                console.error("Digitization Processing Error:", e);
+                els.aiStatus.classList.remove('hidden');
+                els.aiStatus.textContent = `Error: ${e.message.substring(0, 30)}...`;
+            } finally {
+                // Ensure UI status is cleared or updated
+                setTimeout(() => { 
+                     els.aiStatus.classList.add('hidden');
+                     els.aiStatus.textContent = 'Processing...'; 
+                }, 3000);
+            }
         }
 
-        // --- EXPORT & DEBUG ---
+        function runLengthEncode(imgData) {
+            let path = "";
+            const { width, height, data } = imgData;
+            for (let y = 0; y < height; y += 2) {
+                let startX = -1;
+                for (let x = 0; x < width; x++) {
+                    const idx = (y * width + x) * 4;
+                    const isDark = data[idx+3] > 128 && data[idx] < 128;
+                    if (isDark) {
+                        if (startX === -1) startX = x;
+                    } else {
+                        if (startX !== -1) {
+                            path += `M${startX} ${y}h${x - startX}v2h-${x - startX}z`;
+                            startX = -1;
+                        }
+                    }
+                }
+                if (startX !== -1) path += `M${startX} ${y}h${width - startX}v2h-${width - startX}z`;
+            }
+            return path;
+        }
+
+        function optimizeActivePatch() {
+            if (!state.activePatchId) return;
+            const p = state.patches.find(x => x.id === state.activePatchId);
+            if (p && p.svgContent) {
+                 const original = p.svgContent;
+                 const optimized = mergeAdjacentTextElements(original);
+                 p.svgContent = optimized;
+                 els.editor.value = p.svgContent;
+                 updatePatchVisuals(p, state.canvas.width, state.canvas.height);
+                 saveState();
+                 console.log("Optimization complete");
+            }
+        }
+
+        function mergeAdjacentTextElements(svgString) {
+            if (!svgString.includes('<text')) return svgString;
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(`<svg>${svgString}</svg>`, "image/svg+xml");
+            const svgRoot = doc.querySelector('svg');
+            if (!svgRoot) return svgString;
+
+            const textElements = Array.from(svgRoot.querySelectorAll('text'));
+            textElements.sort((a, b) => {
+                const ay = parseFloat(a.getAttribute('y') || '0');
+                const by = parseFloat(b.getAttribute('y') || '0');
+                if (Math.abs(ay - by) > 0.5) return ay - by;
+                const ax = parseFloat(a.getAttribute('x') || '0');
+                const bx = parseFloat(b.getAttribute('x') || '0');
+                return ax - bx;
+            });
+
+            if (textElements.length < 2) return svgString;
+
+            const mergedElements = [];
+            let currentGroup = [];
+            
+            const getStyleKey = (el) => {
+                let key = (el.getAttribute('font-family') || '') + '|' + 
+                          (el.getAttribute('font-size') || '') + '|' + 
+                          (el.getAttribute('font-weight') || '') + '|' + 
+                          (el.getAttribute('fill') || '');
+                const style = el.getAttribute('style') || '';
+                return key + '|' + style;
+            };
+
+            for (const textEl of textElements) {
+                if (currentGroup.length === 0) {
+                    currentGroup.push(textEl);
+                    continue;
+                }
+                const lastEl = currentGroup[currentGroup.length - 1];
+                const currentY = parseFloat(textEl.getAttribute('y') || '0');
+                const lastY = parseFloat(lastEl.getAttribute('y') || '0');
+                
+                if (getStyleKey(textEl) === getStyleKey(lastEl) && Math.abs(currentY - lastY) < 1.0) {
+                    currentGroup.push(textEl);
+                } else {
+                    mergedElements.push(currentGroup);
+                    currentGroup = [textEl];
+                }
+            }
+            if (currentGroup.length > 0) mergedElements.push(currentGroup);
+
+            for (const group of mergedElements) {
+                if (group.length > 1) {
+                    const firstEl = group[0];
+                    let mergedText = firstEl.textContent;
+                    group.sort((a, b) => parseFloat(a.getAttribute('x')) - parseFloat(b.getAttribute('x')));
+                    
+                    for (let i = 1; i < group.length; i++) {
+                        const nextEl = group[i];
+                        mergedText += ' ' + nextEl.textContent;
+                        nextEl.remove();
+                    }
+                    firstEl.textContent = mergedText.trim();
+                }
+            }
+            return svgRoot.innerHTML;
+        }
+
+        function compressSVG(svgString) { 
+            return svgString.replace(/\s+/g, ' ').replace(/>\s*</g, '><').trim(); 
+        }
+
         function updateDebug(p) {
+             if(p.srcCrop) els.debugImg.src = p.srcCrop;
+             if(p.blueprint) els.debugBlueprint.innerHTML = p.blueprint;
              els.debugSvg.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 ${p.bpDims.w} ${p.bpDims.h}" style="border:1px solid red">${p.svgContent}</svg>`;
              els.debugLog.textContent = JSON.stringify(p, null, 2);
         }
@@ -908,12 +1204,35 @@
         
         function exportSVG() {
             const w = state.canvas.width; const h = state.canvas.height;
-            let out = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="100%" height="100%" fill="white"/>`;
-            state.patches.forEach(p => { if(!p.svgContent) return;
-                out += `<svg x="${p.rect.x*w}" y="${p.rect.y*h}" width="${p.rect.w*w}" height="${p.rect.h*h}" viewBox="0 0 ${p.bpDims.w} ${p.bpDims.h}" preserveAspectRatio="none"><g transform="translate(${p.offset.x},${p.offset.y}) scale(${p.scale.x},${p.scale.y})">${p.svgContent}</g></svg>`;
+            // Use logical indentation for better data readability
+            let out = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n`;
+            out += `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n`;
+            out += `  <rect width="100%" height="100%" fill="white" id="background"/>\n`;
+            
+            state.patches.forEach(p => { 
+                if(!p.svgContent) return;
+                
+                const x = (p.rect.x * w).toFixed(3);
+                const y = (p.rect.y * h).toFixed(3);
+                const width = (p.rect.w * w).toFixed(3);
+                const height = (p.rect.h * h).toFixed(3);
+                
+                // Nesting structure: Outer SVG handles positioning (The "Special Bounding Box")
+                out += `  <svg x="${x}" y="${y}" width="${width}" height="${height}" viewBox="0 0 ${p.bpDims.w} ${p.bpDims.h}" preserveAspectRatio="none" overflow="visible">\n`;
+                
+                // Optional: Background for the patch itself, as seen in the user's sample <rect fill="#fff">
+                // This ensures the text has a solid background if overlaid on other things.
+                out += `    <rect width="100%" height="100%" fill="white" opacity="0" />\n`; 
+                
+                // Content Layer with transform
+                out += `    <g id="content-${p.id}" transform="scale(${p.scale.x},${p.scale.y}) translate(${p.offset.x},${p.offset.y})">\n`;
+                out += `      ${p.svgContent}\n`;
+                out += `    </g>\n`;
+                out += `  </svg>\n`;
             });
             out += `</svg>`;
-            const url = URL.createObjectURL(new Blob([compressSVG(out)], {type: 'image/svg+xml'}));
+            
+            const url = URL.createObjectURL(new Blob([out], {type: 'image/svg+xml'}));
             const a = document.createElement('a'); a.href = url; a.download = "scitext.svg"; a.click();
         }
 
