@@ -1,25 +1,46 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SciText Digitizer (SVG)</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
-    <script>
-      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
-    </script>
-  </head>
-  <body>
-    <script src="https://lsparrish.github.io/sciconvert/src/helpers.js"></script>
-    <script type="module">
-        import * as appModule from 'https://lsparrish.github.io/sciconvert/src/main.js';
-        window.app = appModule;
-        document.addEventListener('DOMContentLoaded', appModule.bootstrap);
-    </script>
-    <script>
-        // Add new changes here. You cannot modify the other three files.
-    </script>
-    <!-- Hidden Canvas for high-resolution processing. This is referenced by ID in main.js. -->
-    <canvas id="processing-canvas" style="display:none;"></canvas>
-  </body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SciText Digitizer (SVG)</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+  </script>
+</head>
+<body>
+  <script src="https://lsparrish.github.io/sciconvert/src/helpers.js"></script>
+  <script type="module">
+    import * as app from 'https://lsparrish.github.io/sciconvert/src/main.js';
+    window.app = app;
+    document.addEventListener('DOMContentLoaded', app.bootstrap);
+
+    app.insertElementBefore(`
+      <div id="draft-actions" style="display:flex;">
+        <button data-type="text" class="btn">AI Text</button>
+        <button data-type="image" class="btn">Image</button>
+        <button data-type="empty" class="btn">Empty</button>
+        <button id="cancel-draft" class="btn">Cancel</button>
+      </div>
+    `, '#context-actions', el => {
+      el.onclick = e => {
+        const type = e.target.dataset.type;
+        if (type && app.state_?.activeRegionId) app.createRegion(type, app.state_.activeRegionId);
+      };
+      el.querySelector('#cancel-draft').onclick = () => {
+        const id = app.state_?.activeRegionId;
+        if (id) app.state_.regions.splice(app.state_.regions.findIndex(r => r.id === id), 1);
+        app.deselect?.(); app.saveState?.();
+      };
+      app.observeState(() => {
+        const region = app.state_?.activeRegionId && app.getRegion(app.state_.activeRegionId);
+        const isDraft = region?.status === 'draft';
+        el.style.display = isDraft ? 'flex' : 'none';
+        document.getElementById('context-actions').style.display = isDraft ? 'none' : 'flex';
+      });
+    });
+  </script>
+  <canvas id="processing-canvas" style="display:none;"></canvas>
+</body>
 </html>

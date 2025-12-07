@@ -59,8 +59,7 @@ export function getRegion(id) {
     return state.regions.find(x => x.id === id);
 }
 
-// --- NEW BOOTSTRAP FUNCTION ---
-export async function bootstrap() {
+async function originalBootstrap() {
     if (document.readyState === 'loading') {
         await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
     }
@@ -1451,4 +1450,37 @@ function exportSVG() {
     const out = SciTextHelpers.composeSVG(state.regions, state.canvas.width, state.canvas.height);
     const url = URL.createObjectURL(new Blob([out], {type: 'image/svg+xml'}));
     const a = document.createElement('a'); a.href = url; a.download = "scitext.svg"; a.click();
+}
+
+
+// allow development in main
+
+const uiExtensions = [];
+
+export function insertElementBefore(html, targetSelector, initCallback) {
+  uiExtensions.push({ html, targetSelector, initCallback });
+}
+
+function applyUIExtensions() {
+  uiExtensions.forEach(ext => {
+    if (ext.applied) return;
+    const target = document.querySelector(ext.targetSelector);
+    if (target) {
+      target.insertAdjacentHTML('beforebegin', ext.html);
+      ext.initCallback(target.previousElementSibling);
+      ext.applied = true;
+    }
+  });
+  if (uiExtensions.some(e => !e.applied)) requestAnimationFrame(applyUIExtensions);
+}
+
+export function observeState(callback) {
+  callback();
+  const originalSave = saveState;
+  saveState = (...args) => { originalSave?.(...args); callback(); };
+}
+
+export async function bootstrap() {
+  await originalBootstrap();
+  applyUIExtensions();
 }
