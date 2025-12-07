@@ -10,10 +10,28 @@
   </script>
 </head>
 <body>
+  <canvas id="processing-canvas" style="display:none;"></canvas>
+
   <!-- LOAD SINGLE APPLICATION BUNDLE -->
-  <!-- This file contains helpers, core logic, and default UI extensions -->
-  <!-- Use the full github path. -->
-  <script src="https://lsparrish.github.io/sciconvert/src/app.js"></script>
+<script type="module">
+  let app;
+
+  import('./src/app.js')
+    .catch(err => {
+      console.log('Local failed:', err);
+      return import('https://lsparrish.github.io/sciconvert/src/app.js');
+    })
+    .then(module => {
+      app = module.default || module;
+      window.app = app;
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => app.bootstrap?.());
+      } else {
+        app.bootstrap?.();
+      }
+    })
+    .catch(err => console.error('Both imports failed:', err));
+</script>
 
   <!-- UI INITIALIZATION -->
   <script>
@@ -21,9 +39,6 @@
     // To add custom UI extensions without modifying app.js, use the window.app.insertElementBefore API.
     // Example:
     // window.app.insertElementBefore('<button>My Button</button>', '#some-selector', (el) => { ... });
-    
-    document.addEventListener('DOMContentLoaded', window.app.bootstrap);
   </script>
-  <canvas id="processing-canvas" style="display:none;"></canvas>
 </body>
 </html>

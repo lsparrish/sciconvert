@@ -7,6 +7,7 @@
  * 4. Embedded Template: HTML structure and CSS styles separated for clarity.
  */
 
+// lives at https://lsparrish.github.io/sciconvert/src/main.js
 (function(global) {
     // =========================================================================
     // 0. EMBEDDED RESOURCES (Styles & Structure)
@@ -1322,7 +1323,7 @@
         });
     }
 
-    app.bootstrap = extern function() {
+    app.bootstrap = function() {
         loadTemplate();
         applyUIExtensions();
     };
