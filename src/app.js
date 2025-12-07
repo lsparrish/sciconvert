@@ -1365,7 +1365,7 @@
         });
     }
 
-}
+})
 (window);
 if (window.app?.bootstrap) {
   window.app.bootstrap();
