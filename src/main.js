@@ -28,8 +28,11 @@ const state = {
     dragStart: { x: 0, y: 0 }, 
     initialRect: null, 
     initialScale: null, 
-    canvas: document.createElement('canvas'),
+    canvas: null,
 };
+
+// Export the state object for external reading/mutation (with caution)
+export const state_ = state; 
 
 const els = {};
 
@@ -40,7 +43,7 @@ const els = {};
  * @param {MouseEvent} e 
  * @returns {{x: number, y: number}}
  */
-function getLocalPos(e) {
+export function getLocalPos(e) {
     const r = els.interactionLayer.getBoundingClientRect();
     const sx = state.canvas.width / r.width;
     const sy = state.canvas.height / r.height;
@@ -52,21 +55,50 @@ function getLocalPos(e) {
  * @param {string} id 
  * @returns {object | undefined}
  */
-function getRegion(id) {
+export function getRegion(id) {
     return state.regions.find(x => x.id === id);
+}
+
+// --- NEW BOOTSTRAP FUNCTION ---
+export async function bootstrap() {
+    if (document.readyState === 'loading') {
+        await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
+    }
+    
+    try {
+        const response = await fetch('https://lsparrish.github.io/sciconvert/src/template.html');
+        const htmlText = await response.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlText, 'text/html');
+        
+        const styleElement = doc.querySelector('style');
+        const structureDiv = doc.querySelector('#template-structure');
+        
+        if (styleElement && structureDiv) {
+            document.head.appendChild(styleElement.cloneNode(true));
+            const body = document.querySelector('body');
+            while (structureDiv.firstChild) {
+                body.appendChild(structureDiv.firstChild);
+            }
+        } else {
+            console.error("Template parsing error: Structure or styles missing.");
+            document.body.innerHTML = '<h1>Error loading application template.</h1>';
+            return;
+        }
+        
+        init(); 
+    } catch (error) {
+        console.error("Failed to load or parse template.html:", error);
+        document.body.innerHTML = '<h1>Critical Error: Failed to fetch application template.</h1>';
+    }
 }
 
 // --- INIT & SETUP (EXPORTED) ---
 
-/**
- * Initializes DOM element references and starts the application.
- * Must be exported for the main.html script to call it.
- */
 export function init() {
-    // Canvas element is hidden in HTML, but we need it initialized for drawing operations
     state.canvas = document.getElementById('processing-canvas');
 
-    // Populate element references after template has loaded into the DOM
+    // Populate element references
     els.upload = document.getElementById('pdf-upload');
     els.btnZoomIn = document.getElementById('zoom-in');
     els.btnZoomOut = document.getElementById('zoom-out');
@@ -231,7 +263,7 @@ function setMode(m) {
  * Saves the current state of regions to the history stack.
  * @param {boolean} isInitial 
  */
-function saveState(isInitial = false) {
+export function saveState(isInitial = false) {
     if (state.historyIndex < state.history.length - 1) state.history = state.history.slice(0, state.historyIndex + 1);
     state.history.push(JSON.parse(JSON.stringify(state.regions)));
     state.historyIndex++;
@@ -333,7 +365,7 @@ function handleMouseDown(e) {
     if (!e.shiftKey) deselect();
     els.selectionBox.style.display = 'block';
     els.selectionBox.style.width = '0'; els.selectionBox.style.height = '0';
-    els.selectionBar.style.display = 'none';
+    els.selectionBar.classList.add('hidden');
 }
 
 function handleMouseMove(e) {
@@ -709,7 +741,7 @@ function fitAreaToContent() {
 }
 
 // --- CORE FUNCTIONS (Rendering, Selection, Creation) ---
-function renderRegions() {
+export function renderRegions() {
     const gRegions = els.svgLayer.querySelector('#regions');
     const gHighlights = els.svgLayer.querySelector('#highlights');
     gRegions.innerHTML = ''; gHighlights.innerHTML = '';
@@ -820,7 +852,7 @@ function renderSplitOverlays(region) {
          
          const rect = child.getBoundingClientRect();
          const layerRect = els.interactionLayer.getBoundingClientRect();
-         // Position calculation needs to be in screen pixels for the div overlay
+     // ... (omitted for brevity)
          const x = (rect.left - layerRect.left);
          const y = (rect.top - layerRect.top);
          const w = rect.width;
@@ -844,7 +876,7 @@ function renderSplitOverlays(region) {
      });
 }
 
-function selectRegion(id, multi = false) {
+export function selectRegion(id, multi = false) {
     if (state.splitMode) return;
 
     if (multi) {
@@ -869,11 +901,11 @@ function selectRegion(id, multi = false) {
     if(r) {
         renderLayerList(r);
         updateUIProperties(r);
-        if (r.status === 'draft') showCreationBar(r); else els.selectionBar.style.display = 'none';
-    } else els.selectionBar.style.display = 'none';
+        if (r.status === 'draft') showCreationBar(r); else els.selectionBar.classList.add('hidden');
+    } else els.selectionBar.classList.add('hidden');
 }
 
-function deselect() {
+export function deselect() {
     if (state.splitMode) {
         state.splitMode = false;
         state.splitTargetId = null;
@@ -885,7 +917,7 @@ function deselect() {
     state.activeRegionId = null;
     state.selectedIds.clear();
     renderRegions();
-    els.selectionBar.style.display = 'none';
+    els.selectionBar.classList.add('hidden');
     els.selectionBox.style.display = 'none';
     els.layerList.innerHTML = '<div class="text-center text-gray-400 text-[10px] mt-4">Select a region to view layers</div>';
     els.contextActions.classList.add('disabled-bar');
@@ -922,7 +954,7 @@ function showCreationBar(r) {
      const sy = rect.top + (r.rect.y * ch * ratio) + (r.rect.h * ch * ratio) + 10;
      els.selectionBar.style.left = Math.min(window.innerWidth - 250, Math.max(10, sx)) + 'px';
      els.selectionBar.style.top = sy + 'px';
-     els.selectionBar.style.display = 'flex';
+     els.selectionBar.classList.remove('hidden');
 }
 
 function updatePropertyInputs() {
@@ -980,7 +1012,7 @@ async function handleFileUpload(e) {
 export async function createRegion(type, id) {
     const tid = id || state.activeRegionId; if(!tid) return;
     const r = getRegion(tid); if(!r) return;
-    els.aiStatus.classList.remove('hidden'); els.selectionBar.style.display = 'none';
+    els.aiStatus.classList.remove('hidden'); els.selectionBar.classList.add('hidden');
     
     const cw = state.canvas.width; const ch = state.canvas.height;
     const pxW = Math.floor(r.rect.w * cw); const pxH = Math.floor(r.rect.h * ch);
@@ -1420,4 +1452,3 @@ function exportSVG() {
     const url = URL.createObjectURL(new Blob([out], {type: 'image/svg+xml'}));
     const a = document.createElement('a'); a.href = url; a.download = "scitext.svg"; a.click();
 }
-export const state_ = state;
