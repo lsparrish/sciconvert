@@ -1327,46 +1327,9 @@
         loadTemplate();
         applyUIExtensions();
     };
-
-    // =========================================================================
-    // 3. BAKED-IN EXTENSIONS (Recent work can go here. Will be moved out when mature.)
-    // =========================================================================
-    function registerDefaultExtensions() {
-        // Draft Actions Bar
-        app.insertElementBefore(`
-            <div id="draft-actions" class="header-group" style="gap:0.5rem; background-color:rgba(255, 255, 255, 0.9); padding:0.5rem; border-radius:0.5rem; box-shadow:0 2px 4px rgba(0,0,0,0.1);">
-                <button data-type="text" class="action-bar-btn" style="background-color:#2563eb;">AI Text</button>
-                <button data-type="image" class="action-bar-btn" style="background-color:#d97706;">Image</button>
-                <button data-type="empty" class="action-bar-btn" style="background-color:#4b5563;">Empty</button>
-                <div style="width:1px; height:1.5rem; background-color:#d1d5db;"></div>
-                <button id="cancel-draft" class="action-bar-btn" style="color:#ef4444; background-color:transparent; font-weight:500; border:1px solid #d1d5db;">Cancel</button>
-            </div>
-        `, '#context-actions', el => {
-            el.onclick = e => {
-                const type = e.target.dataset.type;
-                const regionId = state.activeRegionId;
-                if (type && regionId) app.createRegion(type, regionId);
-            };
-            el.querySelector('#cancel-draft').onclick = () => {
-                const id = state.activeRegionId;
-                if (id) {
-                    const idx = state.regions.findIndex(r => r.id === id);
-                    if (idx !== -1 && state.regions[idx].status === 'draft') state.regions.splice(idx, 1);
-                }
-                deselect(); saveState();
-            };
-            app.observeState(() => {
-                const r = getRegion(state.activeRegionId);
-                const isDraft = r?.status === 'draft';
-                el.style.display = isDraft ? 'flex' : 'none';
-                const ctx = document.getElementById('context-actions');
-                if (ctx) ctx.style.display = (state.activeRegionId && !isDraft) ? 'flex' : 'none';
-            });
-        });
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => window.app.bootstrap());
+    } else {
+        window.app.bootstrap();
     }
-
-})
-(window);
-if (window.app?.bootstrap) {
-  window.app.bootstrap();
-}
+);

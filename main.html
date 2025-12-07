@@ -1,15 +1,50 @@
-<script type="module">
-  import('./src/app.js')
-    .catch(() => import('https://lsparrish.github.io/sciconvert/src/app.js'));
-</script>
 
-<script>
-  // Test extension - inserts into header (visible early)
-  if (window.app) {
-    window.app.insertElementBefore(
-      '<button id="test-btn" style="background:#ef4444; color:white; padding:0.5rem 1rem; border:none; border-radius:0.375rem; margin-left:1rem;">Test Button</button>',
-      '.header-title',
-      el => el.onclick = () => alert('Test extension works!')
-    );
-  }
+<!doctype html>
+<script type="module">
+  await import('./src/app.js')
+    .catch(() => import('https://lsparrish.github.io/sciconvert/src/app.js'));
+  window.app.bootstrap();
+
+  // Developer Note:
+  // To add custom UI extensions without modifying app.js, use the window.app.insertElementBefore API.
+  // Must be after window.app.bootstrap.
+  // Example:
+  // window.app.insertElementBefore('<button>My Button</button>', '#some-selector', (el) => { ... });
+
+  // Test button
+  window.app.insertElementBefore(
+    '<button id="test-btn" style="background:#ef4444;color:white;padding:0.5rem 1rem;border:none;border-radius:0.375rem;margin-left:1rem;">Test Button</button>',
+    '.header-title',
+    el => el.onclick = () => alert('Test works!')
+  );
+
+  // Draft actions
+  window.app.insertElementBefore(
+    `<div id="draft-actions" class="header-group" style="gap:0.5rem;background-color:rgba(255,255,255,0.9);padding:0.5rem;border-radius:0.5rem;box-shadow:0 2px 4px rgba(0,0,0,0.1);">
+      <button data-type="text" class="action-bar-btn" style="background-color:#2563eb;">AI Text</button>
+      <button data-type="image" class="action-bar-btn" style="background-color:#d97706;">Image</button>
+      <button data-type="empty" class="action-bar-btn" style="background-color:#4b5563;">Empty</button>
+      <div style="width:1px;height:1.5rem;background-color:#d1d5db;"></div>
+      <button id="cancel-draft" class="action-bar-btn" style="color:#ef4444;background:transparent;font-weight:500;border:1px solid #d1d5db;">Cancel</button>
+    </div>`,
+    '#context-actions',
+    el => {
+      el.onclick = e => {
+        const type = e.target.dataset.type;
+        if (type && window.app.state?.activeRegionId) {
+          window.app.createRegion(type, window.app.state.activeRegionId);
+        }
+      };
+      el.querySelector('#cancel-draft').onclick = () => {
+        const id = window.app.state?.activeRegionId;
+        if (id) {
+          const regions = window.app.state.regions;
+          const idx = regions.findIndex(r => r.id === id);
+          if (idx !== -1 && regions[idx].status === 'draft') regions.splice(idx, 1);
+          window.app.deselect();
+          window.app.saveState();
+        }
+      };
+    }
+  );
 </script>
