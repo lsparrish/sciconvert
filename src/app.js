@@ -417,6 +417,8 @@ window.app = (function () {
           <button id="zoom-in" class="zoom-button">+</button>
         </div>
         <div class="header-group" style="gap:0.25rem; margin-left:0.5rem;">
+            <button id="btn-cycle-prev" class="zoom-button" title="Previous Region ([ or Left Arrow)" style="color:#60a5fa; padding:0.5rem;"> <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:1.25rem; height:1.25rem;"> <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" /> </svg>
+            </button> <button id="btn-cycle-next" class="zoom-button" title="Next Region (] or Right Arrow)" style="color:#60a5fa; padding:0.5rem;"> <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:1.25rem; height:1.25rem;"> <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /> </svg> </button>
             <button id="btn-undo" class="zoom-button" title="Undo" style="color:#9ca3af; padding:0.25rem;"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:1.25rem; height:1.25rem;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg></button>
             <button id="btn-redo" class="zoom-button" title="Redo" style="color:#9ca3af; padding:0.25rem;"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:1.25rem; height:1.25rem;"><path stroke-linecap="round" stroke-linejoin="round" d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 000 12h3" /></svg></button>
         </div>
@@ -685,6 +687,9 @@ window.app = (function () {
     els.txtZoomLevel = document.getElementById("zoom-level");
     els.btnUndo = document.getElementById("btn-undo");
     els.btnRedo = document.getElementById("btn-redo");
+    // els.btnDeselect is removed
+    els.btnCyclePrev = document.getElementById("btn-cycle-prev");
+    els.btnCycleNext = document.getElementById("btn-cycle-next");
     els.workspace = document.getElementById("workspace-container");
     els.emptyState = document.getElementById("empty-state");
     els.loader = document.getElementById("pdf-loader");
@@ -1477,6 +1482,9 @@ window.app = (function () {
       els.contextActions.classList.remove("disabled-bar");
     else
       els.contextActions.classList.add("disabled-bar");
+    const isDisabled = state.regions.length < 2;
+    els.btnCyclePrev.disabled = isDisabled;
+    els.btnCycleNext.disabled = isDisabled;
   }
   
   // NOTE: showCreationBar logic is now merged into showDraftActionsBar. Retaining empty shell for old references.
@@ -1531,17 +1539,78 @@ window.app = (function () {
           }
       }
   }
+  /**
+   * Sorts regions by visual position (Y then X) and cycles to the next/previous one.
+   */
+  function cycleRegion(direction) {
+      const regions = state.regions || [];
+      if (regions.length === 0) return;
+      
+      // Sort regions by visual position (Y then X)
+      const sortedRegions = [...regions].sort((a, b) => {
+          if (a.rect.y !== b.rect.y) return a.rect.y - b.rect.y;
+          return a.rect.x - b.rect.x;
+      });
+
+      let regionIds = sortedRegions.map(r => r.id);
+      let currentIndex = regionIds.findIndex(id => id === state.activeRegionId);
+      let nextIndex = -1;
+
+      if (currentIndex === -1) {
+          // If nothing is selected, start at the first region (index 0)
+          nextIndex = 0;
+      } else if (direction === 'next') {
+          // Cycle forward with wrap-around
+          nextIndex = (currentIndex + 1) % regions.length;
+      } else if (direction === 'prev') {
+          // Cycle backward with wrap-around
+          nextIndex = (currentIndex - 1 + regions.length) % regions.length;
+      }
+
+      if (nextIndex !== -1 && regionIds[nextIndex] !== state.activeRegionId) {
+          app.selectRegion(regionIds[nextIndex]);
+      }
+  }
+  app.cycleRegion = cycleRegion; // Expose if needed
 
   function setupEventListeners() {
     els.interactionLayer.addEventListener("mousedown", handleMouseDown);
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
-    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener('keydown', e => {
+      // Guard against input fields
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+      
+      // Escape key clears selection
+      if (e.key === "Escape") {
+          e.preventDefault(); 
+          deselect(); 
+          return;
+      }
+
+      // Undo/Redo
+      if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+          e.preventDefault();
+          e.shiftKey ? redo() : undo();
+          return;
+      }
+
+      // Region Cycling Keys (Simplicity/Precision)
+      const isRight = e.key === 'ArrowRight' || e.key === ']';
+      const isLeft = e.key === 'ArrowLeft' || e.key === '[';
+
+      if (isRight || isLeft) {
+          e.preventDefault(); 
+          cycleRegion(isRight ? 'next' : 'prev');
+      }
+    });
 
     els.btnZoomIn.onclick = () => setZoom(state.scaleMultiplier + 0.25);
     els.btnZoomOut.onclick = () => setZoom(state.scaleMultiplier - 0.25);
     els.btnUndo.onclick = undo;
     els.btnRedo.onclick = redo;
+    els.btnCyclePrev.onclick = () => cycleRegion('prev');
+    els.btnCycleNext.onclick = () => cycleRegion('next');
 
     // Draft Actions Bar Listeners (New)
     els.draftActionsBar.addEventListener('click', e => {
@@ -1724,13 +1793,6 @@ window.app = (function () {
       
     }
     state.dragAction = null;
-  }
-  function handleKeyDown(e) {
-    // Esc key is handled by the main.html extension now for better cleanup.
-    if ((e.ctrlKey || e.metaKey) && e.key === "z") {
-      e.preventDefault();
-      e.shiftKey ? redo() : undo();
-    }
   }
 
   function setZoom(m) {
