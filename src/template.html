@@ -1,7 +1,9 @@
 <!-- 
-    This file has been simplified to use dedicated CSS classes for all structural elements,
-    eliminating the need for utility classes in the HTML.
-    -->
+    This file lives at https://lsparrish.github.io/sciconvert/src/template.html
+    Changes made here will need to be pushed to github before they are available.
+    Normally, make changes in main.js. If they prove to be durable, we add them here.
+    Note: Use the full url.
+-->
 <style>
   /* --- Global Reset and Base Styles --- */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -22,15 +24,38 @@
   .inset-0 { top: 0; left: 0; right: 0; bottom: 0; }
   .transition { transition: all 0.15s ease-in-out; }
   .cursor-pointer { cursor: pointer; }
+  .uppercase { text-transform: uppercase; }
+  .select-none { user-select: none; }
+  .disabled { opacity: 0.5; pointer-events: none; transition: opacity 0.15s ease-in-out; }
+  .flex-container { display: flex; align-items: center; }
+  .flex-col { flex-direction: column; }
+  .flex-1 { flex: 1 1 0%; }
+  .shrink-0 { flex-shrink: 0; }
+
+  /* --- Animations --- */
+  .loader-spinner {
+    width: 3rem; height: 3rem; 
+    border: 4px solid #4b5563; 
+    border-top-color: #3b82f6; 
+    border-radius: 9999px; 
+    animation: spin 1s linear infinite; 
+    margin-bottom: 1rem;
+  }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  #ai-status { animation: pulse 1s infinite alternate; }
+  @keyframes pulse { from { opacity: 0.5; } to { opacity: 1; } }
+
 
   /* --- Z-Indices --- */
+  .z-0 { z-index: 0; }
   .z-10 { z-index: 10; }
   .z-20 { z-index: 20; }
   .z-30 { z-index: 30; }
   .z-50 { z-index: 50; }
+  .z-100 { z-index: 100; }
 
   /* --- 1. Header Styles --- */
-  .app-header-style {
+  .app-header {
     background-color: #1f2937;
     padding: 0.75rem;
     display: flex;
@@ -41,13 +66,13 @@
     flex-shrink: 0;
     z-index: 30;
   }
-  .header-group-style { display: flex; align-items: center; gap: 1rem; }
-  .header-h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.05em; color: #f3f4f6; margin-right: 1rem; }
-  .header-h1 span { color: #60a5fa; }
+  .header-group { display: flex; align-items: center; gap: 1rem; }
+  .header-title { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.05em; color: #f3f4f6; margin-right: 1rem; }
+  .header-title span { color: #60a5fa; }
   .header-divider { width: 1px; height: 1.5rem; background-color: #4b5563; margin-left: 0.5rem; margin-right: 0.5rem; }
 
   /* --- Header Component Styles --- */
-  .zoom-controls-style {
+  .zoom-controls {
     display: flex;
     align-items: center;
     background-color: #374151;
@@ -60,7 +85,7 @@
   .zoom-button:hover { opacity: 0.8; }
   .zoom-level-text { font-size: 0.75rem; font-family: monospace; width: 3.5rem; text-align: center; color: #e5e7eb; user-select: none; }
   
-  /* --- Primary Button Styles --- */
+  /* --- Button Styles --- */
   .btn {
     padding: 0.375rem 0.75rem;
     border-radius: 0.25rem;
@@ -77,17 +102,32 @@
       color: white; 
       border-color: rgba(96, 165, 250, 0.2); 
       box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      font-size: 0.875rem; /* text-sm */
   }
   .btn-primary:hover { background-color: #3b82f6; }
+  
   .btn-secondary { 
       background-color: #374151;
       color: #e5e7eb;
       border-color: #4b5563;
+      font-size: 0.75rem; /* text-xs */
   }
   .btn-secondary:hover { background-color: #4b5563; }
+  
+  .action-bar-btn {
+    padding: 0.25rem 0.75rem;
+    border-radius: 0.25rem;
+    font-weight: 700;
+    font-size: 0.75rem;
+    color: white;
+    transition: background-color 0.15s;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    border: 1px solid transparent;
+  }
+  .action-bar-btn:hover { opacity: 0.9; }
 
   /* --- 2. Main Layout and Workspace Styles --- */
-  .main-wrapper-style {
+  .main-content-wrapper {
     flex: 1 1 0%; 
     flex-direction: column; 
     overflow: hidden; 
@@ -95,7 +135,7 @@
     background-color: white;
     display: flex;
   }
-  .workspace-style {
+  .workspace-container {
     flex: 1 1 0%;
     display: flex;
     overflow: hidden;
@@ -103,7 +143,7 @@
   }
 
   /* --- Empty State/Loader Styles --- */
-  .empty-state-style, .loader-style {
+  .empty-state-container, .loader-overlay {
     position: absolute; 
     top: 0; left: 0; right: 0; bottom: 0;
     display: flex; 
@@ -112,71 +152,142 @@
     justify-content: center; 
     z-index: 50; 
   }
-  .empty-state-style { background-color: #f3f4f6; color: #374151; }
-  .empty-card-style { background-color: white; padding: 1.5rem; border-radius: 1rem; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05); text-align: center; border: 1px solid #d1d5db; }
-  .empty-card-style h2 { font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem; color: #374151; }
-  .empty-card-style p { font-size: 0.875rem; color: #374151; }
+  .empty-state-container { background-color: #f3f4f6; color: #6b7280; }
+  .empty-card { 
+    background-color: white; 
+    padding: 1.5rem; 
+    border-radius: 1rem; 
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05); 
+    text-align: center; 
+    border: 1px solid #e5e7eb;
+  }
+  .empty-card h2 { font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem; color: #374151; }
+  .empty-card p { font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem; }
   
-  .loader-style { background-color: rgba(17, 24, 39, 0.7); backdrop-filter: blur(4px); }
-  .loader-spinner { width: 3rem; height: 3rem; border: 4px solid #4b5563; border-top-color: #3b82f6; border-radius: 9999px; animation: spin 1s linear infinite; margin-bottom: 1rem; }
+  .loader-overlay { background-color: rgba(17, 24, 39, 0.7); backdrop-filter: blur(4px); }
   .loader-text { color: white; font-weight: 700; letter-spacing: 0.025em; font-size: 1.125rem; }
-  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 
-  /* --- 3. Editor Panel (Left) Styles --- */
-  .editor-area-style {
-      width: 400px; 
-      min-width: 400px;
-      height: 100%;
+  /* --- 3. Sidebar Styles (Restored Complexity) --- */
+  .sidebar-panel {
+    width: 20rem;
+    min-width: 320px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid #e5e7eb;
+    background-color: white;
+    z-index: 10;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    flex-shrink: 0;
+  }
+  .prop-header {
+      background-color: #f3f4f6;
+      padding: 0.75rem 1rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #4b5563;
+      border-bottom: 1px solid #e5e7eb;
       display: flex;
       flex-direction: column;
-      border-right: 1px solid #d1d5db;
-      background-color: white;
-      z-index: 10;
+      gap: 0.5rem;
       flex-shrink: 0;
-      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
   }
-  .editor-header-style {
-      background-color: #f3f4f6;
+  .prop-header-top { display: flex; justify-content: space-between; align-items: center; }
+  .prop-header-top span { letter-spacing: 0.025em; }
+  .region-count-badge { background-color: #dbeafe; color: #1d4ed8; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 10px; font-weight: 700; }
+  .mode-toggle-group { display: flex; background-color: #e5e7eb; border-radius: 0.25rem; padding: 0.125rem; border: 1px solid #d1d5db; }
+  .mode-button { padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-size: 10px; font-weight: 700; transition: background-color 0.15s; }
+  .mode-button-active { background-color: white; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); color: #2563eb; }
+  .mode-button-inactive { color: #6b7280; }
+  .prop-header-bottom { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #e5e7eb; padding-top: 0.5rem; margin-top: 0.25rem; }
+  .prop-header-bottom span { font-size: 10px; color: #9ca3af; font-weight: 400; }
+  .prop-header-tools { display: flex; gap: 0.5rem; }
+
+  /* --- Geometry Inputs --- */
+  .geometry-inputs { 
+    padding: 1rem; 
+    background-color: #f9fafb; 
+    border-bottom: 1px solid #e5e7eb; 
+    display: grid; 
+    grid-template-columns: repeat(2, minmax(0, 1fr)); 
+    gap: 0.75rem; 
+    font-size: 0.75rem; 
+    user-select: none; 
+    position: relative; 
+    flex-shrink: 0;
+  }
+  .input-label { display: block; color: #9ca3af; font-weight: 700; margin-bottom: 0.25rem; font-size: 10px; }
+  .input-field {
+    width: 100%;
+    background-color: white;
+    border: 1px solid #d1d5db;
+    border-radius: 0.25rem;
+    padding: 0.375rem;
+    font-family: monospace;
+    color: #374151;
+    outline: none;
+    text-align: center;
+  }
+  .input-field:focus { border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6; }
+  .mode-status { 
+    position: absolute; 
+    top: 0.25rem; 
+    right: 0.5rem; 
+    font-size: 9px; 
+    font-weight: 700; 
+    letter-spacing: 0.05em; 
+    pointer-events: none;
+    color: #60a5fa; /* Default Area Mode */
+  }
+
+  /* --- Layer List Styles --- */
+  .layer-list-header {
       padding: 0.5rem 1rem;
       font-size: 0.75rem;
       font-weight: 700;
       color: #6b7280;
       border-bottom: 1px solid #e5e7eb;
+      background-color: #f3f4f6;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
       flex-shrink: 0;
   }
-  .editor-header-actions { display: flex; gap: 0.5rem; align-items: center; }
-  .editor-textarea { 
-    font-family: monospace; 
-    line-height: 1.5; 
-    resize: none; 
-    font-size: 11px; 
-    width: 100%;
-    height: 100%;
-    padding: 0.5rem;
-    border: none;
-    outline: none;
-    background-color: #f9fafb;
-    color: #374151;
-    flex: 1 1 0%;
+  .layer-list-header button { 
+      font-size: 10px; 
+      font-weight: 700; 
+      color: #2563eb; 
+      padding: 0.125rem 0.5rem; 
+      background-color: #eff6ff; 
+      border-radius: 0.25rem; 
+      border: 1px solid #bfdbfe; 
+      transition: opacity 0.15s; 
   }
+  .layer-list-container {
+    flex: 1 1 0%; 
+    overflow-y: auto; 
+    padding: 0.5rem; 
+    background-color: #f3f4f6; 
+    border-top: 1px solid #e5e7eb;
+  }
+  .layer-list-empty { text-align: center; color: #9ca3af; font-size: 10px; margin-top: 1rem; }
 
-  /* --- Context Action Bar (Editor Footer) --- */
-  .context-actions-style {
-      padding: 0.375rem 0.75rem;
-      border-top: 1px solid #d1d5db;
-      background-color: #f9fafb;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-shrink: 0;
-      transition: opacity 0.15s;
+  /* --- Sidebar Footer (Context Actions) --- */
+  .sidebar-footer { 
+    padding: 0.75rem; 
+    border-top: 1px solid #e5e7eb; 
+    background-color: #f9fafb; 
+    display: flex; 
+    flex-wrap: wrap; 
+    gap: 0.5rem; 
+    justify-content: space-between; 
+    align-items: center; 
+    flex-shrink: 0; 
   }
-  .context-status-text { font-size: 0.75rem; font-weight: 700; color: #374151; }
-  .context-button-group { display: flex; gap: 0.5rem; }
+  .sidebar-footer-group { display: flex; gap: 0.5rem; }
+  .sidebar-footer-group span { font-size: 0.75rem; font-weight: 600; color: #374151; padding: 0.5rem; }
 
   /* --- 4. Canvas Viewport (Right) Styles --- */
   .canvas-view-style {
@@ -224,21 +335,40 @@
     transform-origin: top;
     border: 1px solid rgba(17, 24, 39, 0.05);
   }
+  .grid-overlay {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 0;
+      background-size: 50px 50px;
+      background-image:
+        linear-gradient(to right, rgba(0, 0, 0, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+      pointer-events: none;
+      opacity: 0.5;
+  }
   
-  /* --- SVG Interaction Styles --- */
+  /* --- SVG Interaction Styles (Handles, Frames, Regions) --- */
   .region-highlight { stroke: #f97316; stroke-width: 2; fill: rgba(249, 115, 22, 0.05); opacity: 0; transition: opacity 0.15s; pointer-events: all; }
   .region-highlight:hover { opacity: 1.0; cursor: pointer; }
   .region-selected { stroke: #3b82f6; stroke-width: 2; fill: rgba(59, 130, 246, 0.2); pointer-events: all; cursor: move; }
   .region-draft { fill: rgba(59, 130, 246, 0.1); stroke: #3b82f6; stroke-width: 2; stroke-dasharray: 8, 4; animation: dash 30s linear infinite; pointer-events: none; }
   @keyframes dash { to { stroke-dashoffset: -1000; } }
   #selection-box { border: 2px dashed #3b82f6; background-color: rgba(59, 130, 246, 0.1); position: absolute; pointer-events: none; display: none; z-index: 50; }
+  .selection-frame {
+      position: absolute; border: 1px solid #3b82f6;
+      box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+      background-color: rgba(59, 130, 246, 0.05);
+      cursor: move; z-index: 40; box-sizing: border-box;
+  }
+  .resize-handle {
+      position: absolute; width: 10px; height: 10px;
+      background-color: white; border: 2px solid #3b82f6;
+      z-index: 50; border-radius: 2px; transition: transform 0.1s;
+  }
 
   /* --- 5. Floating Action Bar Styles --- */
-  .action-bar-style {
+  #new-selection-action-bar {
     position: fixed; 
     z-index: 100; 
-    display: flex; 
-    align-items: center; 
+    display: none;
     background-color: rgba(31, 41, 55, 0.95);
     color: white;
     border-radius: 0.5rem;
@@ -247,31 +377,21 @@
     border: 1px solid #4b5563;
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05), 0 0 0 1px rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(4px);
-    
-    /* Animation definition for the bar (still using utility names for simplicity here) */
     animation: fadeIn 0.1s ease-out;
   }
-  .action-bar-style.hidden { display: none; }
-  .action-bar-text { font-size: 0.75rem; font-weight: 700; color: #9ca3af; padding-left: 0.5rem; padding-right: 0.5rem; letter-spacing: 0.05em; }
-  .action-bar-btn {
-    padding: 0.25rem 0.75rem;
-    border-radius: 0.25rem;
-    font-weight: 700;
-    font-size: 0.75rem;
-    color: white;
-    transition: background-color 0.15s;
-    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-    border: 1px solid transparent;
+  @keyframes fadeIn { 
+      from { opacity: 0; transform: scale(0.95) translateY(-5px); } 
+      to { opacity: 1; transform: scale(1) translateY(0); } 
   }
-  .action-bar-btn:hover { opacity: 0.9; }
+  .action-bar-text { font-size: 0.75rem; font-weight: 700; color: #9ca3af; padding-left: 0.5rem; padding-right: 0.5rem; letter-spacing: 0.05em; }
 </style>
 
 <!-- This is the structural HTML that will be injected into main.html's body -->
 <div id="template-structure">
     <!-- HEADER -->
-    <header class="app-header-style">
-      <div class="header-group-style">
-        <h1 class="header-h1">SciText <span>Digitizer</span></h1>
+    <header class="app-header z-30 shrink-0">
+      <div class="header-group">
+        <h1 class="header-title">SciText <span>Digitizer</span></h1>
         
         <!-- File Upload -->
         <div class="relative">
@@ -285,69 +405,120 @@
         <div class="header-divider"></div>
 
         <!-- Zoom Controls -->
-        <div id="pdf-zoom-controls" class="zoom-controls-style">
+        <div id="pdf-zoom-controls" class="zoom-controls">
           <button id="zoom-out" class="zoom-button">-</button>
           <span id="zoom-level" class="zoom-level-text">100%</span>
           <button id="zoom-in" class="zoom-button">+</button>
         </div>
+
+        <!-- History Controls -->
+        <div class="header-group" style="gap:0.25rem; margin-left:0.5rem;">
+            <button id="btn-undo" class="zoom-button" title="Undo" style="color:#9ca3af; padding:0.25rem;"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:1.25rem; height:1.25rem;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg></button>
+            <button id="btn-redo" class="zoom-button" title="Redo" style="color:#9ca3af; padding:0.25rem;"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:1.25rem; height:1.25rem;"><path stroke-linecap="round" stroke-linejoin="round" d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 000 12h3" /></svg></button>
+        </div>
       </div>
       
-      <div class="header-group-style">
-          <span id="ai-status" class="hidden text-blue-400" style="font-size:0.75rem; font-family:monospace;">Processing...</span>
-          <button id="fullscreen-toggle" class="btn btn-secondary" style="font-size:0.75rem; font-weight:600;">Full Screen</button>
+      <div class="header-group">
+          <span id="ai-status" class="hidden" style="color:#60a5fa; font-size:0.75rem; font-family:monospace;">Processing...</span>
+          <button id="fullscreen-toggle" class="btn btn-secondary" style="font-weight:600; border:1px solid #4b5563;">Full Screen</button>
       </div>
     </header>
 
-    <main class="main-wrapper-style">
+    <main class="main-content-wrapper">
+      <!-- Tab Bar -->
+      <div class="header-group" style="background-color:#f9fafb; border-bottom:1px solid #e5e7eb; box-shadow:inset 0 2px 4px 0 rgba(0,0,0,0.06); flex-shrink:0; z-index:20; padding-left:0; padding-right:0;">
+        <button id="tab-overlay" class="tab-button tab-button-active">Compositor</button>
+        <button id="tab-debug" class="tab-button">Debug View</button>
+      </div>
+      
       <!-- Empty State & Loader -->
-      <div id="empty-state" class="empty-state-style">
-        <div class="empty-card-style">
-            <h2 style="font-weight:700;">No Document Loaded</h2>
+      <div id="empty-state" class="empty-state-container">
+        <div class="empty-card">
+            <h2>No Document Loaded</h2>
             <p>Upload a PDF or Image to begin.</p>
         </div>
       </div>
       
-      <div id="pdf-loader" class="loader-style hidden">
+      <div id="pdf-loader" class="loader-overlay hidden">
           <div class="loader-spinner"></div>
           <span class="loader-text">Loading...</span>
       </div>
 
-      <!-- Main Workspace (Compositor/Overlay) -->
-      <div id="workspace-container" class="workspace-style hidden">
+      <!-- Main Workspace (Compositor/Overlay Tab) -->
+      <div id="workspace-container" class="workspace-container hidden">
           
-          <!-- Left: Editor (Output + Actions) -->
-          <div id="editor-output-area" class="editor-area-style">
-              <div class="editor-header-style">
-                  <span id="editor-title">COMPOSITE SVG OUTPUT</span>
-                  <div class="editor-header-actions">
-                     <button id="btn-export" class="btn btn-primary" style="font-size:0.75rem; font-weight:700;">Export SVG</button>
-                     <button id="btn-clear-all" class="text-red-500" style="font-size:0.75rem; font-weight:500;">Reset Patches</button>
+          <!-- Left Sidebar (Properties & Layers) -->
+          <div class="sidebar-panel">
+              <!-- Properties Header -->
+              <div class="prop-header">
+                  <div class="prop-header-top">
+                      <span class="uppercase">Properties</span>
+                      <div class="header-group" style="gap:0.5rem;">
+                          <div class="mode-toggle-group">
+                              <button id="mode-area" class="mode-button mode-button-active">Area</button>
+                              <button id="mode-content" class="mode-button mode-button-inactive">Content</button>
+                          </div>
+                          <span id="region-count" class="region-count-badge">0</span>
+                      </div>
+                  </div>
+                  <div class="prop-header-bottom">
+                      <span>Geometry Tools:</span>
+                      <div class="prop-header-tools">
+                           <button id="btn-fit-area" class="btn btn-secondary" style="font-size:10px; font-weight:600;">Fit Area</button>
+                           <button id="btn-fit-content" class="btn btn-secondary" style="font-size:10px; font-weight:600;">Fill Content</button>
+                      </div>
                   </div>
               </div>
-              <textarea
-                id="overlay-html-input"
-                class="editor-textarea"
-                placeholder="<!-- Composite SVG content will appear here after patching -->"
-                readonly
-              ></textarea>
+
+              <!-- Position/Size/Offset Inputs -->
+              <div class="geometry-inputs">
+                  <div id="mode-label" class="mode-status">Area Mode</div>
+                  <div style="grid-column: span 2 / span 2; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0.75rem;">
+                      <div><label id="lbl-x" class="input-label uppercase">Pos X</label><input type="number" id="prop-x" class="input-field" disabled></div>
+                      <div><label id="lbl-y" class="input-label uppercase">Pos Y</label><input type="number" id="prop-y" class="input-field" disabled></div>
+                  </div>
+                  <div style="grid-column: span 2 / span 2; display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0.75rem;">
+                      <div><label id="lbl-w" class="input-label uppercase">Width</label><input type="number" id="prop-w" class="input-field" disabled></div>
+                      <div><label id="lbl-h" class="input-label uppercase">Height</label><input type="number" id="prop-h" class="input-field" disabled></div>
+                  </div>
+              </div>
               
-              <!-- Simple Context Actions for Selected Patch -->
-              <div id="context-actions" class="context-actions-style disabled">
-                  <span id="active-patch-display" class="context-status-text">No Patch Selected</span>
-                  <div class="context-button-group">
-                       <button id="btn-regen" class="action-bar-btn bg-blue-600">Regen. Text</button>
-                       <button id="btn-delete" class="btn btn-secondary text-red-500" style="font-size:0.75rem; font-weight:600;">Delete</button>
+              <!-- Layer List Header -->
+              <div class="layer-list-header">
+                  <span class="uppercase">Region Layers</span>
+                  <button id="btn-add-layer"> + Add</button>
+              </div>
+              <!-- Layer List Container -->
+              <div id="layer-list" class="layer-list-container">
+                  <div class="layer-list-empty">Select a region to view layers</div>
+              </div>
+              
+              <!-- Footer Actions -->
+              <div class="sidebar-footer">
+                  <div class="sidebar-footer-group">
+                    <button id="btn-export" class="btn btn-secondary" style="color:#047857; border-color:#6ee7b7; font-weight:700;">Compose SVG</button>
+                    <button id="btn-clear-all" style="color:#ef4444; font-weight:500; padding:0.375rem 0.75rem;">Reset</button>
+                  </div>
+                  <div id="context-actions" class="header-group disabled">
+                       <button id="btn-digitize" class="action-bar-btn" style="background-color:#9333ea;">AI Text</button>
+                       <button id="btn-split" class="action-bar-btn" style="background-color:#eef2ff; color:#4338ca; border:1px solid #c7d2fe;">Split</button>
+                       <button id="btn-group" class="action-bar-btn" style="background-color:#0d9488;">Group</button>
+                       <button id="btn-optimize" class="action-bar-btn" style="background-color:#eef2ff; color:#4338ca; border:1px solid #c7d2fe;">Opt</button>
+                       <button id="btn-regen" class="action-bar-btn" style="background-color:#2563eb;">Regen</button>
+                       <button id="btn-delete" class="btn btn-secondary" style="color:#374151; border:1px solid #d1d5db; font-weight:600;">Del</button>
                   </div>
               </div>
           </div>
 
           <!-- Right Canvas Viewport -->
           <div id="canvas-view-area" class="canvas-view-style">
-              <!-- View Toggles (Simplified) -->
+              <!-- View Toggles -->
               <div class="view-toggles-style">
                    <label class="view-toggle-item"><input type="checkbox" id="chk-source" checked style="color:#2563eb;"/><span>Source</span></label>
                    <div class="view-toggle-divider"></div>
                    <label class="view-toggle-item"><input type="checkbox" id="chk-svg" checked style="color:#2563eb;"/><span>SVG Overlay</span></label>
+                   <div class="view-toggle-divider"></div>
+                   <label class="view-toggle-item"><input type="checkbox" id="chk-grid" style="color:#2563eb;"/><span>Grid</span></label>
               </div>
               
               <!-- Canvas Scroller and Wrapper -->
@@ -355,9 +526,8 @@
                   <div id="canvas-wrapper" class="canvas-wrapper-style">
                       <!-- Layers rendered by JS: PDF Image, Grid, SVG Output, Interaction Area -->
                       <div id="pdf-layer" class="transition"></div> 
-                      <!-- Grid layer and SVG layer remain. Note: main.js still handles grid toggle if needed -->
-                      <div id="grid-layer" class="absolute inset-0 z-0" style="opacity:0.5; pointer-events:none;"></div>
-                      <div id="svg-layer" class="absolute inset-0 z-10" style="pointer-events:none;"></div> 
+                      <div id="grid-layer" class="grid-overlay hidden"></div>
+                      <div id="svg-layer" class="absolute inset-0 z-10 transition" style="pointer-events:none;"></div> 
                       <div id="interaction-layer" class="absolute inset-0 z-20"></div>
                       <div id="selection-box"></div>
                   </div>
@@ -365,16 +535,37 @@
           </div>
       </div>
       
+      <!-- Debug View Container -->
+      <div id="debug-container" class="workspace-container hidden" style="background-color:#111827; flex-direction:column; padding:1.5rem; overflow-y:auto;">
+           <div class="header-group" style="justify-content:center; gap:1rem; margin-bottom:1.5rem; height:20rem; flex-shrink:0;">
+               <div style="border:1px solid #374151; background-color:black; padding:0.75rem; border-radius:0.5rem; display:flex; flex-direction:column; align-items:center; width:33.333%; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);">
+                   <span style="font-size:0.75rem; font-weight:700; color:#f59e0b; margin-bottom:0.5rem; letter-spacing:0.025em;" class="uppercase">Source Crop</span>
+                   <img id="debug-img-source" style="height:100%; object-fit:contain; background-color:#1a1a1a; border-radius:0.25rem; border:1px solid #1f2937;"/>
+               </div>
+               <div style="border:1px solid #374151; background-color:black; padding:0.75rem; border-radius:0.5rem; display:flex; flex-direction:column; align-items:center; width:33.333%; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);">
+                   <span style="font-size:0.75rem; font-weight:700; color:#c084fc; margin-bottom:0.5rem; letter-spacing:0.025em;" class="uppercase">Blueprint (RLE)</span>
+                   <div id="debug-blueprint" style="height:100%; width:100%; display:flex; align-items:center; justify-content:center; background-color:white; color:black; border-radius:0.25rem; border:1px solid #1f2937;"></div>
+               </div>
+               <div style="border:1px solid #374151; background-color:black; padding:0.75rem; border-radius:0.5rem; display:flex; flex-direction:column; align-items:center; width:33.333%; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1);">
+                   <span style="font-size:0.75rem; font-weight:700; color:#60a5fa; margin-bottom:0.5rem; letter-spacing:0.025em;" class="uppercase">SVG Result</span>
+                   <div id="debug-svg-preview" style="height:100%; width:100%; display:flex; align-items:center; justify-content:center; background-color:white; color:black; border-radius:0.25rem; border:1px solid #1f2937;"></div>
+               </div>
+           </div>
+           <div style="flex:1 1 0%; display:flex; flex-direction:column; border:1px solid #374151; background-color:#1f2937; border-radius:0.5rem; padding:0.75rem; box-shadow:inset 0 2px 4px 0 rgba(0,0,0,0.06);">
+               <span style="font-size:0.75rem; font-weight:700; color:#9ca3af; display:block; margin-bottom:0.25rem; letter-spacing:0.025em; border-bottom:1px solid #374151; padding-bottom:0.25rem;" class="uppercase">Region Data (JSON)</span>
+               <pre id="debug-log" style="font-size:0.75rem; font-family:monospace; color:#4ade80; overflow:auto; height:100%; padding:0.5rem;"></pre>
+           </div>
+      </div>
     </main>
 
     <!-- Floating Action Bar for New Selections -->
-    <div id="new-selection-action-bar" class="action-bar-style">
+    <div id="new-selection-action-bar" class="action-bar-style hidden">
       <span class="action-bar-text">CREATE:</span>
       <!-- These call global methods initialized in src/main.js -->
       <button class="action-bar-btn" style="background-color:#2563eb;" onclick="app.createRegion('text')">Text</button>
       <button class="action-bar-btn" style="background-color:#d97706;" onclick="app.createRegion('image')">Image</button>
       <button class="action-bar-btn" style="background-color:#4b5563;" onclick="app.createRegion('empty')">Empty</button>
-      <div class="header-divider h-6"></div>
+      <div class="header-divider" style="height:1rem;"></div>
       <button class="action-bar-btn" style="color:#9ca3af; background-color:transparent;" onclick="app.clearSelection()">Cancel</button>
     </div>
     
