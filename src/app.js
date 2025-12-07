@@ -1675,7 +1675,6 @@ window.app = (function () {
 
   app.bootstrap = function () {
     loadTemplate();
-    applyUIExtensions();
   };
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => window.app.bootstrap());
