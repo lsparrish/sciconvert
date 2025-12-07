@@ -1174,7 +1174,7 @@
         els.btnAddLayer.onclick = addLayerToRegion;
 
         [els.propX, els.propY, els.propW, els.propH].forEach(input => {
-            input.addEventListener('input', updateRegionFromInput);
+            input.addEventListener('input', loadDefaultImage);
         });
         
         els.modeArea.onclick = () => { state.editMode = 'area'; updatePropertyInputs(); };
