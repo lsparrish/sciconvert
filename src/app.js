@@ -1,9 +1,540 @@
 /**
  * SciText Digitizer - Application Bundle (src/app.js)
- * Consolidated logic: Helpers, App State, AI Integration, and Advanced Region Tools.
+ * This file consolidates:
+ * 1. SciTextHelpers: Core math and SVG utilities.
+ * 2. App Logic: State management, AI integration, and Canvas interaction.
+ * 3. Default UI Extensions: The "Draft Actions" toolbar logic.
+ * 4. Embedded Template: HTML structure and CSS styles separated for clarity.
  */
 
 (function(global) {
+    // =========================================================================
+    // 0. EMBEDDED RESOURCES (Styles & Structure)
+    // =========================================================================
+    
+    const APP_STYLES = `
+  /* --- Global Reset and Base Styles --- */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #111827;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    color: #1f2937;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .hidden { display: none !important; }
+  .relative { position: relative; }
+  .absolute { position: absolute; }
+  .inset-0 { top: 0; left: 0; right: 0; bottom: 0; }
+  .transition { transition: all 0.15s ease-in-out; }
+  .cursor-pointer { cursor: pointer; }
+  .uppercase { text-transform: uppercase; }
+  .select-none { user-select: none; }
+  .disabled, .disabled-bar { opacity: 0.5; pointer-events: none; transition: opacity 0.15s ease-in-out; }
+  .flex-container { display: flex; align-items: center; }
+  .flex-col { flex-direction: column; }
+  .flex-1 { flex: 1 1 0%; }
+  .shrink-0 { flex-shrink: 0; }
+
+  /* --- Animations --- */
+  .loader-spinner {
+    width: 3rem; height: 3rem; 
+    border: 4px solid #4b5563; 
+    border-top-color: #3b82f6; 
+    border-radius: 9999px; 
+    animation: spin 1s linear infinite; 
+    margin-bottom: 1rem;
+  }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  #ai-status { animation: pulse 1s infinite alternate; }
+  @keyframes pulse { from { opacity: 0.5; } to { opacity: 1; } }
+
+  /* --- Z-Indices --- */
+  .z-0 { z-index: 0; }
+  .z-10 { z-index: 10; }
+  .z-20 { z-index: 20; }
+  .z-30 { z-index: 30; }
+  .z-50 { z-index: 50; }
+  .z-100 { z-index: 100; }
+
+  /* --- Header Styles --- */
+  .app-header {
+    background-color: #1f2937;
+    padding: 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    border-bottom: 1px solid #111827;
+    flex-shrink: 0;
+    z-index: 30;
+  }
+  .header-group { display: flex; align-items: center; gap: 1rem; }
+  .header-title { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.05em; color: #f3f4f6; margin-right: 1rem; }
+  .header-title span { color: #60a5fa; }
+  .header-divider { width: 1px; height: 1.5rem; background-color: #4b5563; margin-left: 0.5rem; margin-right: 0.5rem; }
+
+  /* --- Header Component Styles --- */
+  .zoom-controls {
+    display: flex;
+    align-items: center;
+    background-color: #374151;
+    border-radius: 0.375rem;
+    padding: 0.125rem;
+    box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+    border: 1px solid #4b5563;
+  }
+  .zoom-button { color: #d1d5db; padding: 0.25rem 0.5rem; border-radius: 0.125rem; font-weight: 700; }
+  .zoom-button:hover { opacity: 0.8; }
+  .zoom-level-text { font-size: 0.75rem; font-family: monospace; width: 3.5rem; text-align: center; color: #e5e7eb; user-select: none; }
+  
+  /* --- Button Styles --- */
+  .btn {
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.25rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.15s ease-in-out;
+  }
+  .btn-primary { 
+      background-color: #2563eb; 
+      color: white; 
+      border-color: rgba(96, 165, 250, 0.2); 
+      box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      font-size: 0.875rem;
+  }
+  .btn-primary:hover { background-color: #3b82f6; }
+  
+  .btn-secondary { 
+      background-color: #374151;
+      color: #e5e7eb;
+      border-color: #4b5563;
+      font-size: 0.75rem;
+  }
+  .btn-secondary:hover { background-color: #4b5563; }
+  
+  .action-bar-btn {
+    padding: 0.25rem 0.75rem;
+    border-radius: 0.25rem;
+    font-weight: 700;
+    font-size: 0.75rem;
+    color: white;
+    transition: background-color 0.15s;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    border: 1px solid transparent;
+  }
+  .action-bar-btn:hover { opacity: 0.9; }
+
+  /* --- Main Layout --- */
+  .main-content-wrapper {
+    flex: 1 1 0%; 
+    flex-direction: column; 
+    overflow: hidden; 
+    position: relative; 
+    background-color: white;
+    display: flex;
+  }
+  .workspace-container {
+    flex: 1 1 0%;
+    display: flex;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* --- Empty State/Loader --- */
+  .empty-state-container, .loader-overlay {
+    position: absolute; 
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; 
+    justify-content: center; 
+    z-index: 50; 
+  }
+  .empty-state-container { background-color: #f3f4f6; color: #6b7280; }
+  .empty-card { 
+    background-color: white; 
+    padding: 1.5rem; 
+    border-radius: 1rem; 
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05); 
+    text-align: center; 
+    border: 1px solid #e5e7eb;
+  }
+  .empty-card h2 { font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem; color: #374151; }
+  .empty-card p { font-size: 0.875rem; color: #6b7280; margin-bottom: 1.5rem; }
+  
+  .loader-overlay { background-color: rgba(17, 24, 39, 0.7); backdrop-filter: blur(4px); }
+  .loader-text { color: white; font-weight: 700; letter-spacing: 0.025em; font-size: 1.125rem; }
+
+  /* --- Sidebar --- */
+  .sidebar-panel {
+    width: 20rem;
+    min-width: 320px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid #e5e7eb;
+    background-color: white;
+    z-index: 10;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    flex-shrink: 0;
+  }
+  .prop-header {
+      background-color: #f3f4f6;
+      padding: 0.75rem 1rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #4b5563;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      flex-shrink: 0;
+  }
+  .prop-header-top { display: flex; justify-content: space-between; align-items: center; }
+  .prop-header-top span { letter-spacing: 0.025em; }
+  .region-count-badge { background-color: #dbeafe; color: #1d4ed8; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 10px; font-weight: 700; }
+  .mode-toggle-group { display: flex; background-color: #e5e7eb; border-radius: 0.25rem; padding: 0.125rem; border: 1px solid #d1d5db; }
+  .mode-button { padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-size: 10px; font-weight: 700; transition: background-color 0.15s; }
+  .mode-button-active { background-color: white; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); color: #2563eb; }
+  .mode-button-inactive { color: #6b7280; }
+  .prop-header-bottom { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #e5e7eb; padding-top: 0.5rem; margin-top: 0.25rem; }
+  .prop-header-bottom span { font-size: 10px; color: #9ca3af; font-weight: 400; }
+  .prop-header-tools { display: flex; gap: 0.5rem; }
+
+  /* --- Geometry Inputs --- */
+  .geometry-inputs { 
+    padding: 1rem; 
+    background-color: #f9fafb; 
+    border-bottom: 1px solid #e5e7eb; 
+    display: grid; 
+    grid-template-columns: repeat(2, minmax(0, 1fr)); 
+    gap: 0.75rem; 
+    font-size: 0.75rem; 
+    user-select: none; 
+    position: relative; 
+    flex-shrink: 0;
+  }
+  .input-label { display: block; color: #9ca3af; font-weight: 700; margin-bottom: 0.25rem; font-size: 10px; }
+  .input-field {
+    width: 100%;
+    background-color: white;
+    border: 1px solid #d1d5db;
+    border-radius: 0.25rem;
+    padding: 0.375rem;
+    font-family: monospace;
+    color: #374151;
+    outline: none;
+    text-align: center;
+  }
+  .input-field:focus { border-color: #3b82f6; box-shadow: 0 0 0 1px #3b82f6; }
+  .mode-status { 
+    position: absolute; 
+    top: 0.25rem; 
+    right: 0.5rem; 
+    font-size: 9px; 
+    font-weight: 700; 
+    letter-spacing: 0.05em; 
+    pointer-events: none;
+    color: #60a5fa; 
+  }
+
+  /* --- Layer List --- */
+  .layer-list-header {
+      padding: 0.5rem 1rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: #6b7280;
+      border-bottom: 1px solid #e5e7eb;
+      background-color: #f3f4f6;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+      flex-shrink: 0;
+  }
+  .layer-list-header button { 
+      font-size: 10px; 
+      font-weight: 700; 
+      color: #2563eb; 
+      padding: 0.125rem 0.5rem; 
+      background-color: #eff6ff; 
+      border-radius: 0.25rem; 
+      border: 1px solid #bfdbfe; 
+      transition: opacity 0.15s; 
+  }
+  .layer-list-container {
+    flex: 1 1 0%; 
+    overflow-y: auto; 
+    padding: 0.5rem; 
+    background-color: #f3f4f6; 
+    border-top: 1px solid #e5e7eb;
+  }
+  .layer-list-empty { text-align: center; color: #9ca3af; font-size: 10px; margin-top: 1rem; }
+
+  /* --- Sidebar Footer --- */
+  .sidebar-footer { 
+    padding: 0.75rem; 
+    border-top: 1px solid #e5e7eb; 
+    background-color: #f9fafb; 
+    display: flex; 
+    flex-wrap: wrap; 
+    gap: 0.5rem; 
+    justify-content: space-between; 
+    align-items: center; 
+    flex-shrink: 0; 
+  }
+  .sidebar-footer-group { display: flex; gap: 0.5rem; }
+
+  /* --- Canvas Viewport --- */
+  .canvas-view-style {
+    flex: 1 1 0%; 
+    height: 100%; 
+    display: flex; 
+    flex-direction: column; 
+    background-color: #e5e7eb; 
+    overflow: hidden; 
+    position: relative;
+  }
+  .view-toggles-style {
+      background-color: white; 
+      padding: 0.5rem 1rem; 
+      display: flex; 
+      justify-content: center; 
+      align-items: center; 
+      gap: 1.5rem; 
+      font-size: 0.75rem; 
+      font-weight: 700; 
+      color: #374151; 
+      border-bottom: 1px solid #d1d5db; 
+      flex-shrink: 0;
+      z-index: 20;
+  }
+  .view-toggle-item { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+  .view-toggle-divider { width: 1px; height: 1rem; background-color: #d1d5db; }
+
+  /* --- Canvas Scroller --- */
+  .canvas-scroller-style {
+    flex: 1 1 0%;
+    overflow: auto; 
+    display: flex; 
+    justify-content: center; 
+    padding: 3rem; 
+    position: relative; 
+    cursor: default; 
+    background-color: #e5e7eb;
+  }
+  .canvas-wrapper-style {
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+    transition: width 0.15s ease-out;
+    background-color: white;
+    position: relative;
+    transform-origin: top;
+    border: 1px solid rgba(17, 24, 39, 0.05);
+  }
+  .grid-overlay {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 0;
+      background-size: 50px 50px;
+      background-image:
+        linear-gradient(to right, rgba(0, 0, 0, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+      pointer-events: none;
+      opacity: 0.5;
+  }
+  
+  /* --- SVG Interaction --- */
+  .region-highlight { stroke: #f97316; stroke-width: 2; fill: rgba(249, 115, 22, 0.05); opacity: 0; transition: opacity 0.15s; pointer-events: all; }
+  .region-highlight:hover { opacity: 1.0; cursor: pointer; }
+  .region-selected { stroke: #3b82f6; stroke-width: 2; fill: rgba(59, 130, 246, 0.2); pointer-events: all; cursor: move; }
+  .region-draft { fill: rgba(59, 130, 246, 0.1); stroke: #3b82f6; stroke-width: 2; stroke-dasharray: 8, 4; animation: dash 30s linear infinite; pointer-events: none; }
+  @keyframes dash { to { stroke-dashoffset: -1000; } }
+  #selection-box { border: 2px dashed #3b82f6; background-color: rgba(59, 130, 246, 0.1); position: absolute; pointer-events: none; display: none; z-index: 50; }
+  .selection-frame {
+      position: absolute; border: 1px solid #3b82f6;
+      box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+      background-color: rgba(59, 130, 246, 0.05);
+      cursor: move; z-index: 40; box-sizing: border-box;
+  }
+  .resize-handle {
+      position: absolute; width: 10px; height: 10px;
+      background-color: white; border: 2px solid #3b82f6;
+      z-index: 50; border-radius: 2px; transition: transform 0.1s;
+  }
+
+  /* --- Tab Bar --- */
+  .tab-button {
+      padding: 0.5rem 1rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #6b7280;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: all 0.15s;
+  }
+  .tab-button:hover { color: #374151; }
+  .tab-button-active { color: #2563eb; border-bottom-color: #2563eb; }
+    `;
+
+    const APP_STRUCTURE = `
+<div id="template-structure">
+    <!-- HEADER -->
+    <header class="app-header z-30 shrink-0">
+      <div class="header-group">
+        <h1 class="header-title">SciText <span>Digitizer</span></h1>
+        <div class="relative">
+          <input type="file" id="pdf-upload" accept="application/pdf, image/*" class="hidden" />
+          <label for="pdf-upload" class="btn btn-primary">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:1rem; height:1rem;"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+            Load
+          </label>
+        </div>
+        <div class="header-divider"></div>
+        <div id="pdf-zoom-controls" class="zoom-controls">
+          <button id="zoom-out" class="zoom-button">-</button>
+          <span id="zoom-level" class="zoom-level-text">100%</span>
+          <button id="zoom-in" class="zoom-button">+</button>
+        </div>
+        <div class="header-group" style="gap:0.25rem; margin-left:0.5rem;">
+            <button id="btn-undo" class="zoom-button" title="Undo" style="color:#9ca3af; padding:0.25rem;"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:1.25rem; height:1.25rem;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" /></svg></button>
+            <button id="btn-redo" class="zoom-button" title="Redo" style="color:#9ca3af; padding:0.25rem;"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:1.25rem; height:1.25rem;"><path stroke-linecap="round" stroke-linejoin="round" d="M15 15l6-6m0 0l-6-6m6 6H9a6 6 0 000 12h3" /></svg></button>
+        </div>
+      </div>
+      <div class="header-group">
+          <span id="ai-status" class="hidden" style="color:#60a5fa; font-size:0.75rem; font-family:monospace;">Processing...</span>
+          <button id="fullscreen-toggle" class="btn btn-secondary" style="font-weight:600; border:1px solid #4b5563;">Full Screen</button>
+      </div>
+    </header>
+
+    <main class="main-content-wrapper">
+      <!-- Tab Bar -->
+      <div class="header-group" style="background-color:#f9fafb; border-bottom:1px solid #e5e7eb; box-shadow:inset 0 2px 4px 0 rgba(0,0,0,0.06); flex-shrink:0; z-index:20; padding-left:0; padding-right:0;">
+        <button id="tab-overlay" class="tab-button tab-button-active">Compositor</button>
+        <button id="tab-debug" class="tab-button">Debug View</button>
+      </div>
+      
+      <!-- Empty State & Loader -->
+      <div id="empty-state" class="empty-state-container">
+        <div class="empty-card">
+            <h2>No Document Loaded</h2>
+            <p>Upload a PDF or Image to begin.</p>
+        </div>
+      </div>
+      <div id="pdf-loader" class="loader-overlay hidden">
+          <div class="loader-spinner"></div>
+          <span class="loader-text">Loading...</span>
+      </div>
+
+      <!-- Main Workspace -->
+      <div id="workspace-container" class="workspace-container hidden">
+          <!-- Sidebar -->
+          <div class="sidebar-panel">
+              <div class="prop-header">
+                  <div class="prop-header-top">
+                      <span class="uppercase">Properties</span>
+                      <div class="header-group" style="gap:0.5rem;">
+                          <div class="mode-toggle-group">
+                              <button id="mode-area" class="mode-button mode-button-active">Area</button>
+                              <button id="mode-content" class="mode-button mode-button-inactive">Content</button>
+                          </div>
+                          <span id="region-count" class="region-count-badge">0</span>
+                      </div>
+                  </div>
+                  <div class="prop-header-bottom">
+                      <span>Geometry Tools:</span>
+                      <div class="prop-header-tools">
+                           <button id="btn-fit-area" class="btn btn-secondary" style="font-size:10px; font-weight:600;">Fit Area</button>
+                           <button id="btn-fit-content" class="btn btn-secondary" style="font-size:10px; font-weight:600;">Fill Content</button>
+                      </div>
+                  </div>
+              </div>
+              <div class="geometry-inputs">
+                  <div id="mode-label" class="mode-status">Area Mode</div>
+                  <div style="grid-column: span 2; display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                      <div><label id="lbl-x" class="input-label uppercase">Pos X</label><input type="number" id="prop-x" class="input-field" disabled></div>
+                      <div><label id="lbl-y" class="input-label uppercase">Pos Y</label><input type="number" id="prop-y" class="input-field" disabled></div>
+                  </div>
+                  <div style="grid-column: span 2; display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                      <div><label id="lbl-w" class="input-label uppercase">Width</label><input type="number" id="prop-w" class="input-field" disabled></div>
+                      <div><label id="lbl-h" class="input-label uppercase">Height</label><input type="number" id="prop-h" class="input-field" disabled></div>
+                  </div>
+              </div>
+              <div class="layer-list-header">
+                  <span class="uppercase">Region Layers</span>
+                  <button id="btn-add-layer"> + Add</button>
+              </div>
+              <div id="layer-list" class="layer-list-container">
+                  <div class="layer-list-empty">Select a region to view layers</div>
+              </div>
+              <div class="sidebar-footer">
+                  <div class="sidebar-footer-group">
+                    <button id="btn-export" class="btn btn-secondary" style="color:#047857; border-color:#6ee7b7; font-weight:700;">Compose SVG</button>
+                    <button id="btn-clear-all" style="color:#ef4444; font-weight:500; padding:0.375rem 0.75rem;">Reset</button>
+                  </div>
+                  <div id="context-actions" class="header-group disabled-bar">
+                       <button id="btn-digitize" class="action-bar-btn" style="background-color:#9333ea;">AI Text</button>
+                       <button id="btn-split" class="action-bar-btn" style="background-color:#eef2ff; color:#4338ca; border:1px solid #c7d2fe;">Split</button>
+                       <button id="btn-group" class="action-bar-btn" style="background-color:#0d9488;">Group</button>
+                       <button id="btn-optimize" class="action-bar-btn" style="background-color:#eef2ff; color:#4338ca; border:1px solid #c7d2fe;">Opt</button>
+                       <button id="btn-regen" class="action-bar-btn" style="background-color:#2563eb;">Regen</button>
+                       <button id="btn-delete" class="btn btn-secondary" style="color:#374151; border:1px solid #d1d5db; font-weight:600;">Del</button>
+                  </div>
+              </div>
+          </div>
+          <!-- Canvas Viewport -->
+          <div id="canvas-view-area" class="canvas-view-style">
+              <div class="view-toggles-style">
+                   <label class="view-toggle-item"><input type="checkbox" id="chk-source" checked style="color:#2563eb;"/><span>Source</span></label>
+                   <div class="view-toggle-divider"></div>
+                   <label class="view-toggle-item"><input type="checkbox" id="chk-svg" checked style="color:#2563eb;"/><span>SVG Overlay</span></label>
+                   <div class="view-toggle-divider"></div>
+                   <label class="view-toggle-item"><input type="checkbox" id="chk-grid" style="color:#2563eb;"/><span>Grid</span></label>
+              </div>
+              <div id="canvas-scroller" class="canvas-scroller-style">
+                  <div id="canvas-wrapper" class="canvas-wrapper-style">
+                      <div id="pdf-layer" class="transition"></div> 
+                      <div id="grid-layer" class="grid-overlay hidden"></div>
+                      <div id="svg-layer" class="absolute inset-0 z-10 transition" style="pointer-events:none;"></div> 
+                      <div id="interaction-layer" class="absolute inset-0 z-20"></div>
+                      <div id="selection-box"></div>
+                  </div>
+              </div>
+          </div>
+      </div>
+      <!-- Debug View -->
+      <div id="debug-container" class="workspace-container hidden" style="background-color:#111827; flex-direction:column; padding:1.5rem; overflow-y:auto;">
+           <div class="header-group" style="justify-content:center; gap:1rem; margin-bottom:1.5rem; height:20rem; flex-shrink:0;">
+               <div style="border:1px solid #374151; background-color:black; padding:0.75rem; border-radius:0.5rem; display:flex; flex-direction:column; align-items:center; width:33.333%;">
+                   <span style="font-size:0.75rem; font-weight:700; color:#f59e0b; margin-bottom:0.5rem;" class="uppercase">Source Crop</span>
+                   <img id="debug-img-source" style="height:100%; object-fit:contain; background-color:#1a1a1a;"/>
+               </div>
+               <div style="border:1px solid #374151; background-color:black; padding:0.75rem; border-radius:0.5rem; display:flex; flex-direction:column; align-items:center; width:33.333%;">
+                   <span style="font-size:0.75rem; font-weight:700; color:#c084fc; margin-bottom:0.5rem;" class="uppercase">Blueprint (RLE)</span>
+                   <div id="debug-blueprint" style="height:100%; width:100%; display:flex; align-items:center; justify-content:center; background-color:white; color:black;"></div>
+               </div>
+               <div style="border:1px solid #374151; background-color:black; padding:0.75rem; border-radius:0.5rem; display:flex; flex-direction:column; align-items:center; width:33.333%;">
+                   <span style="font-size:0.75rem; font-weight:700; color:#60a5fa; margin-bottom:0.5rem;" class="uppercase">SVG Result</span>
+                   <div id="debug-svg-preview" style="height:100%; width:100%; display:flex; align-items:center; justify-content:center; background-color:white; color:black;"></div>
+               </div>
+           </div>
+           <div style="flex:1 1 0%; display:flex; flex-direction:column; border:1px solid #374151; background-color:#1f2937; border-radius:0.5rem; padding:0.75rem;">
+               <span style="font-size:0.75rem; font-weight:700; color:#9ca3af; display:block; margin-bottom:0.25rem;" class="uppercase">Region Data (JSON)</span>
+               <pre id="debug-log" style="font-size:0.75rem; font-family:monospace; color:#4ade80; overflow:auto; height:100%; padding:0.5rem;"></pre>
+           </div>
+      </div>
+    </main>
+    <div id="new-selection-action-bar" class="hidden" style="position:fixed; z-index:100;"></div>
+    <canvas id="processing-canvas" style="display:none;"></canvas>
+</div>
+    `;
+
     // =========================================================================
     // 1. SCITEXT HELPERS (Utilities)
     // =========================================================================
@@ -11,11 +542,9 @@
         normalizeRect: function(x, y, w, h, canvasWidth, canvasHeight) {
             return { x: x / canvasWidth, y: y / canvasHeight, w: w / canvasWidth, h: h / canvasHeight };
         },
-
         denormalizeRect: function(rect, canvasWidth, canvasHeight) {
             return { x: rect.x * canvasWidth, y: rect.y * canvasHeight, w: rect.w * canvasWidth, h: rect.h * canvasHeight };
         },
-
         runLengthEncode: function(imageData) {
             let path = "";
             const { width, height, data } = imageData;
@@ -39,27 +568,22 @@
             }
             return path;
         },
-
         compressSVG: function(svgString) { 
             if (!svgString) return '';
             return svgString.replace(/\s+/g, ' ').replace(/>\s*</g, '><').trim(); 
         },
-
         composeSVG: function(regions, canvasWidth, canvasHeight) {
             let out = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n`;
             out += `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasWidth}" height="${canvasHeight}" viewBox="0 0 ${canvasWidth} ${canvasHeight}">\n`;
             out += `  <rect width="100%" height="100%" fill="white"/>\n`;
-
             regions.forEach(r => {
                 if (!r.svgContent) return;
                 const x = (r.rect.x * canvasWidth).toFixed(3);
                 const y = (r.rect.y * canvasHeight).toFixed(3);
                 const w = (r.rect.w * canvasWidth).toFixed(3);
                 const h = (r.rect.h * canvasHeight).toFixed(3);
-                
                 r.scale = r.scale || { x: 1, y: 1 };
                 r.offset = r.offset || { x: 0, y: 0 };
-                
                 out += `  <svg x="${x}" y="${y}" width="${w}" height="${h}" viewBox="0 0 ${r.bpDims.w} ${r.bpDims.h}" preserveAspectRatio="none" overflow="visible">\n`;
                 out += `    <rect width="100%" height="100%" fill="white" opacity="0"/>\n`;
                 out += `    <g transform="translate(${r.offset.x},${r.offset.y}) scale(${r.scale.x},${r.scale.y})">\n`;
@@ -67,7 +591,6 @@
                 out += `    </g>\n`;
                 out += `  </svg>\n`;
             });
-
             out += `</svg>`;
             return out;
         }
@@ -110,32 +633,16 @@
 
     // --- INITIALIZATION ---
 
-    async function fetchTemplate() {
-        if (document.readyState === 'loading') {
-            await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
-        }
-        try {
-            const response = await fetch('https://lsparrish.github.io/sciconvert/src/template.html');
-            const htmlText = await response.text();
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(htmlText, 'text/html');
-            const styleElement = doc.querySelector('style');
-            const structureDiv = doc.querySelector('#template-structure');
-            if (styleElement && structureDiv) {
-                document.head.appendChild(styleElement.cloneNode(true));
-                const body = document.querySelector('body');
-                while (structureDiv.firstChild) body.appendChild(structureDiv.firstChild);
-            }
-            init(); 
-        } catch (error) {
-            console.error("Failed to load template.html:", error);
-            document.body.innerHTML = '<h1>Error loading template.</h1>';
-        }
+    function loadTemplate() {
+        const style = document.createElement('style');
+        style.textContent = APP_STYLES;
+        document.head.appendChild(style);
+        document.body.insertAdjacentHTML('beforeend', APP_STRUCTURE);
+        init();
     }
 
     function init() {
         state.canvas = document.getElementById('processing-canvas');
-        // Populate refs
         els.upload = document.getElementById('pdf-upload');
         els.btnZoomIn = document.getElementById('zoom-in');
         els.btnZoomOut = document.getElementById('zoom-out');
@@ -252,7 +759,6 @@
             const rle = SciTextHelpers.runLengthEncode(bpC.getContext('2d').getImageData(0,0,r.bpDims.w,r.bpDims.h));
             prompt = `You are a precision SVG Typesetter.\nINPUTS:\n1. IMAGE: A 2x scale scan.\n2. BLUEPRINT: A 1x scale vector path.\nTASK:\nGenerate SVG <text> elements positioned over the BLUEPRINT.\nViewBox: 0 0 ${r.bpDims.w} ${r.bpDims.h}.\nOutput strictly valid SVG elements.\nBLUEPRINT (Partial):\n${rle.substring(0, 500)}...`; 
         } else {
-            const rle = "N/A"; // Figures rely less on RLE
             prompt = `You are a precision SVG Graphic Designer.\nINPUTS:\n1. IMAGE: 2x scan.\nTASK:\nReplicate the figure. Use <image> with href="data:image/png;base64,${base64}" if complex, or vector shapes if simple.\nViewBox: 0 0 ${r.bpDims.w} ${r.bpDims.h}.\n`;
         }
 
@@ -386,8 +892,6 @@
         renderRegions(); renderLayerList(r); saveState();
     };
 
-    // --- RESTORED FUNCTIONS ---
-
     function addLayerToRegion() {
         const r = getRegion(state.activeRegionId); if(!r) return;
         r.svgContent += `\n<text x="10" y="10" font-size="10" fill="black">New Text</text>`;
@@ -468,17 +972,11 @@
             const cw = state.canvas.width; const ch = state.canvas.height;
             const newRegions = [];
             
-            // Note: BBox extraction logic simplified for this environment (requires rendering to measure)
-            // In a real browser environment we would use getBoundingClientRect on the rendered element
-            // Here we assume splitting is mostly structural.
-            
             indices.forEach(idx => {
                 const child = children[idx];
-                // For simplicity in non-DOM-measured context, we duplicate the parent rect
-                // A robust implementation requires measuring rendered SVGs
                 newRegions.push({
                     id: `r${Date.now()}-${Math.random()}`,
-                    rect: {...r.rect}, // Placeholder: In real app, calculate new bounds
+                    rect: {...r.rect}, 
                     bpDims: {...r.bpDims},
                     svgContent: child.outerHTML,
                     scale: {x:1, y:1}, offset: {x:0, y:0}, status: 'optimized'
@@ -569,13 +1067,11 @@
         const group = document.getElementById(`group-${region.id}`); if (!group) return;
         const children = Array.from(group.children);
         const cw = state.canvas.width; 
-        // Need to calculate positions based on rendered children (simplified for safety in this env)
         els.interactionLayer.querySelectorAll('.split-overlay').forEach(el => el.remove());
         children.forEach((child, idx) => {
             const div = document.createElement('div');
             div.className = 'absolute border-dashed border-indigo-400 bg-indigo-500/20 hover:bg-indigo-500/40 cursor-pointer';
             if (state.splitSelection.has(idx)) div.className = 'absolute border-red-500 bg-red-500/40';
-            // Placeholder positioning (would need getBoundingClientRect on child)
             div.style.left = '0'; div.style.top = '0'; div.style.width = '20px'; div.style.height = '20px';
             div.dataset.splitIndex = idx;
             div.classList.add('split-overlay');
@@ -637,19 +1133,6 @@
             if (r.srcCrop) els.debugImg.src = r.srcCrop;
             els.debugLog.textContent = JSON.stringify(r, null, 2);
         }
-    }
-
-    function updateRegionFromInput() {
-        const r = getRegion(state.activeRegionId); if(!r) return;
-        const cw = state.canvas.width; const ch = state.canvas.height;
-        if (state.editMode === 'area') {
-            r.rect.x = parseFloat(els.propX.value) / cw; r.rect.y = parseFloat(els.propY.value) / ch;
-            r.rect.w = parseFloat(els.propW.value) / cw; r.rect.h = parseFloat(els.propH.value) / ch;
-        } else {
-            r.offset.x = parseFloat(els.propX.value) || 0; r.offset.y = parseFloat(els.propY.value) || 0;
-            r.bpDims.w = parseFloat(els.propW.value) || r.bpDims.w; r.bpDims.h = parseFloat(els.propH.value) || r.bpDims.h;
-        }
-        renderRegions(); saveState();
     }
 
     function updatePropertyInputs() {
@@ -829,12 +1312,13 @@
     }
 
     app.bootstrap = async function() {
-        await fetchTemplate();
+        loadTemplate();
         applyUIExtensions();
     };
 
     // =========================================================================
-    // 3. BAKED-IN EXTENSIONS (Moving Draft Actions Logic Here)
+    // 3. BAKED-IN EXTENSIONS 
+    // These are dogfood testing for the 
     // =========================================================================
     function registerDefaultExtensions() {
         // Draft Actions Bar
