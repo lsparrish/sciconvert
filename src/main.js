@@ -382,7 +382,7 @@ function handleMouseDown(e) {
     if (!e.shiftKey) deselect();
     els.selectionBox.style.display = 'block';
     els.selectionBox.style.width = '0'; els.selectionBox.style.height = '0';
-    els.selectionBar.style.display = 'none';
+    els.selectionBar.classList.add('hidden');
 }
 
 function handleMouseMove(e) {
@@ -918,8 +918,8 @@ function selectRegion(id, multi = false) {
     if(r) {
         renderLayerList(r);
         updateUIProperties(r);
-        if (r.status === 'draft') showCreationBar(r); else els.selectionBar.style.display = 'none';
-    } else els.selectionBar.style.display = 'none';
+        if (r.status === 'draft') showCreationBar(r); else els.selectionBar.classList.add('hidden');
+    } else els.selectionBar.classList.add('hidden');
 }
 
 function deselect() {
@@ -934,7 +934,7 @@ function deselect() {
     state.activeRegionId = null;
     state.selectedIds.clear();
     renderRegions();
-    els.selectionBar.style.display = 'none';
+    els.selectionBar.classList.add('hidden');
     els.selectionBox.style.display = 'none';
     els.layerList.innerHTML = '<div class="text-center text-gray-400 text-[10px] mt-4">Select a region to view layers</div>';
     els.contextActions.classList.add('disabled-bar');
@@ -971,7 +971,7 @@ function showCreationBar(r) {
      const sy = rect.top + (r.rect.y * ch * ratio) + (r.rect.h * ch * ratio) + 10;
      els.selectionBar.style.left = Math.min(window.innerWidth - 250, Math.max(10, sx)) + 'px';
      els.selectionBar.style.top = sy + 'px';
-     els.selectionBar.style.display = 'flex';
+     els.selectionBar.classList.remove('hidden');
 }
 
 function updatePropertyInputs() {
@@ -1029,7 +1029,7 @@ async function handleFileUpload(e) {
 export async function createRegion(type, id) {
     const tid = id || state.activeRegionId; if(!tid) return;
     const r = getRegion(tid); if(!r) return;
-    els.aiStatus.classList.remove('hidden'); els.selectionBar.style.display = 'none';
+    els.aiStatus.classList.remove('hidden'); els.selectionBar.classList.add('hidden');
     
     const cw = state.canvas.width; const ch = state.canvas.height;
     const pxW = Math.floor(r.rect.w * cw); const pxH = Math.floor(r.rect.h * ch);
