@@ -687,7 +687,6 @@ window.app = (function () {
     els.txtZoomLevel = document.getElementById("zoom-level");
     els.btnUndo = document.getElementById("btn-undo");
     els.btnRedo = document.getElementById("btn-redo");
-    // els.btnDeselect is removed
     els.btnCyclePrev = document.getElementById("btn-cycle-prev");
     els.btnCycleNext = document.getElementById("btn-cycle-next");
     els.workspace = document.getElementById("workspace-container");
@@ -1482,9 +1481,9 @@ window.app = (function () {
       els.contextActions.classList.remove("disabled-bar");
     else
       els.contextActions.classList.add("disabled-bar");
-    const isDisabled = state.regions.length < 2;
-    els.btnCyclePrev.disabled = isDisabled;
-    els.btnCycleNext.disabled = isDisabled;
+    const isEnsabled = state.regions.length > 0;
+    els.btnCyclePrev.disabled = !isEnsabled;
+    els.btnCycleNext.disabled = !isEnsabled;
   }
   
   // NOTE: showCreationBar logic is now merged into showDraftActionsBar. Retaining empty shell for old references.
@@ -1519,7 +1518,7 @@ window.app = (function () {
     }
   }
 
-  // --- DRAFT ACTION BAR LOGIC (Moved from main.html) ---
+  // --- DRAFT ACTION BAR LOGIC ---
 
   function handleDraftAction(type) {
       if (type === 'cancel') {
