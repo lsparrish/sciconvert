@@ -28,7 +28,7 @@ const state = {
     dragStart: { x: 0, y: 0 }, 
     initialRect: null, 
     initialScale: null, 
-    canvas: document.createElement('canvas'),
+    canvas: null,
 };
 
 const els = {};

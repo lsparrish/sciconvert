@@ -26,7 +26,7 @@
   .cursor-pointer { cursor: pointer; }
   .uppercase { text-transform: uppercase; }
   .select-none { user-select: none; }
-  .disabled { opacity: 0.5; pointer-events: none; transition: opacity 0.15s ease-in-out; }
+  .disabled, .disabled-bar { opacity: 0.5; pointer-events: none; transition: opacity 0.15s ease-in-out; } /* ADDED .disabled-bar */
   .flex-container { display: flex; align-items: center; }
   .flex-col { flex-direction: column; }
   .flex-1 { flex: 1 1 0%; }
@@ -499,7 +499,7 @@
                     <button id="btn-export" class="btn btn-secondary" style="color:#047857; border-color:#6ee7b7; font-weight:700;">Compose SVG</button>
                     <button id="btn-clear-all" style="color:#ef4444; font-weight:500; padding:0.375rem 0.75rem;">Reset</button>
                   </div>
-                  <div id="context-actions" class="header-group disabled">
+                  <div id="context-actions" class="header-group disabled-bar">
                        <button id="btn-digitize" class="action-bar-btn" style="background-color:#9333ea;">AI Text</button>
                        <button id="btn-split" class="action-bar-btn" style="background-color:#eef2ff; color:#4338ca; border:1px solid #c7d2fe;">Split</button>
                        <button id="btn-group" class="action-bar-btn" style="background-color:#0d9488;">Group</button>
