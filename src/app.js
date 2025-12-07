@@ -1300,7 +1300,17 @@
 
     // --- EXTENSIONS ---
     const uiExtensions = [];
-    app.insertElementBefore = (html, sel, cb) => uiExtensions.push({ html, sel, cb });
+    app.insertElementBefore = (html, sel, cb) => {
+        const t = document.querySelector(sel);
+        if (t) {
+            t.insertAdjacentHTML('beforebegin', html);
+            cb(t.previousElementSibling);
+            console.log("didn't need applyUIExtensions");
+        } else {
+            uiExtensions.push({ html, sel, cb });
+            console.log("need applyUIExtensions");
+        }
+    };
     app.observeState = (cb) => { uiExtensions.push({ callback: cb }); cb(); };
     
     function applyUIExtensions() {
@@ -1308,17 +1318,17 @@
             if(ext.applied || !ext.html) return;
             const t = document.querySelector(ext.sel);
             if(t) { t.insertAdjacentHTML('beforebegin', ext.html); ext.cb(t.previousElementSibling); ext.applied = true; }
+            console.log("applyUIExtensions applied for {ext}");
         });
     }
 
-    app.bootstrap = async function() {
+    app.bootstrap = function() {
         loadTemplate();
         applyUIExtensions();
     };
 
     // =========================================================================
-    // 3. BAKED-IN EXTENSIONS 
-    // These are dogfood testing for the 
+    // 3. BAKED-IN EXTENSIONS (Moving Draft Actions Logic Here)
     // =========================================================================
     function registerDefaultExtensions() {
         // Draft Actions Bar
