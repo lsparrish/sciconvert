@@ -28,7 +28,7 @@ const state = {
     dragStart: { x: 0, y: 0 }, 
     initialRect: null, 
     initialScale: null, 
-    canvas: null,
+    canvas: document.createElement('canvas'),
 };
 
 const els = {};
@@ -54,55 +54,6 @@ function getLocalPos(e) {
  */
 function getRegion(id) {
     return state.regions.find(x => x.id === id);
-}
-
-// --- NEW BOOTSTRAP FUNCTION (MOVED FROM main.html) ---
-
-/**
- * Fetches the template.html file, extracts the CSS and structure,
- * injects them into the document, and then initializes the application.
- * This function handles the full UI bootstrap process.
- */
-export async function bootstrap() {
-    // Check if the DOM is ready before proceeding (though this is called on DOMContentLoaded)
-    if (document.readyState === 'loading') {
-        await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
-    }
-    
-    try {
-        // 1. Fetch template HTML which contains the structure and CSS
-        const response = await fetch('https://lsparrish.github.io/sciconvert/src/template.html');
-        const htmlText = await response.text();
-        
-        // 2. Parse the content
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(htmlText, 'text/html');
-        
-        const styleElement = doc.querySelector('style');
-        const structureDiv = doc.querySelector('#template-structure');
-        
-        if (styleElement && structureDiv) {
-            // 3. Inject Styles into the main document's head
-            document.head.appendChild(styleElement.cloneNode(true));
-            
-            // 4. Inject structural HTML into the main document's body
-            const body = document.querySelector('body');
-            while (structureDiv.firstChild) {
-                body.appendChild(structureDiv.firstChild);
-            }
-            
-        } else {
-            console.error("Template parsing error: Structure or styles missing.");
-            document.body.innerHTML = '<h1>Error loading application template.</h1>';
-            return;
-        }
-        
-        // 5. Initialize the application logic
-        init(); // Call the original init function
-    } catch (error) {
-        console.error("Failed to load or parse template.html:", error);
-        document.body.innerHTML = '<h1>Critical Error: Failed to fetch application template.</h1>';
-    }
 }
 
 // --- INIT & SETUP (EXPORTED) ---
@@ -382,7 +333,7 @@ function handleMouseDown(e) {
     if (!e.shiftKey) deselect();
     els.selectionBox.style.display = 'block';
     els.selectionBox.style.width = '0'; els.selectionBox.style.height = '0';
-    els.selectionBar.classList.add('hidden');
+    els.selectionBar.style.display = 'none';
 }
 
 function handleMouseMove(e) {
@@ -918,8 +869,8 @@ function selectRegion(id, multi = false) {
     if(r) {
         renderLayerList(r);
         updateUIProperties(r);
-        if (r.status === 'draft') showCreationBar(r); else els.selectionBar.classList.add('hidden');
-    } else els.selectionBar.classList.add('hidden');
+        if (r.status === 'draft') showCreationBar(r); else els.selectionBar.style.display = 'none';
+    } else els.selectionBar.style.display = 'none';
 }
 
 function deselect() {
@@ -934,7 +885,7 @@ function deselect() {
     state.activeRegionId = null;
     state.selectedIds.clear();
     renderRegions();
-    els.selectionBar.classList.add('hidden');
+    els.selectionBar.style.display = 'none';
     els.selectionBox.style.display = 'none';
     els.layerList.innerHTML = '<div class="text-center text-gray-400 text-[10px] mt-4">Select a region to view layers</div>';
     els.contextActions.classList.add('disabled-bar');
@@ -971,7 +922,7 @@ function showCreationBar(r) {
      const sy = rect.top + (r.rect.y * ch * ratio) + (r.rect.h * ch * ratio) + 10;
      els.selectionBar.style.left = Math.min(window.innerWidth - 250, Math.max(10, sx)) + 'px';
      els.selectionBar.style.top = sy + 'px';
-     els.selectionBar.classList.remove('hidden');
+     els.selectionBar.style.display = 'flex';
 }
 
 function updatePropertyInputs() {
@@ -1029,7 +980,7 @@ async function handleFileUpload(e) {
 export async function createRegion(type, id) {
     const tid = id || state.activeRegionId; if(!tid) return;
     const r = getRegion(tid); if(!r) return;
-    els.aiStatus.classList.remove('hidden'); els.selectionBar.classList.add('hidden');
+    els.aiStatus.classList.remove('hidden'); els.selectionBar.style.display = 'none';
     
     const cw = state.canvas.width; const ch = state.canvas.height;
     const pxW = Math.floor(r.rect.w * cw); const pxH = Math.floor(r.rect.h * ch);
@@ -1469,3 +1420,4 @@ function exportSVG() {
     const url = URL.createObjectURL(new Blob([out], {type: 'image/svg+xml'}));
     const a = document.createElement('a'); a.href = url; a.download = "scitext.svg"; a.click();
 }
+export const state_ = state;
