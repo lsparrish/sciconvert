@@ -1661,36 +1661,17 @@ window.app = (function () {
     els.btnRedo.disabled = state.historyIndex >= state.history.length - 1;
   }
 
-  // --- EXTENSIONS ---
-  const uiExtensions = [];
   app.insertElementBefore = (html, sel, cb) => {
     const t = document.querySelector(sel);
     if (t) {
       t.insertAdjacentHTML("beforebegin", html);
       cb(t.previousElementSibling);
-      console.log("didn't need applyUIExtensions");
-    } else {
-      uiExtensions.push({ html, sel, cb });
-      console.log("need applyUIExtensions");
     }
   };
   app.observeState = (cb) => {
     uiExtensions.push({ callback: cb });
     cb();
   };
-
-  function applyUIExtensions() {
-    uiExtensions.forEach((ext) => {
-      if (ext.applied || !ext.html) return;
-      const t = document.querySelector(ext.sel);
-      if (t) {
-        t.insertAdjacentHTML("beforebegin", ext.html);
-        ext.cb(t.previousElementSibling);
-        ext.applied = true;
-      }
-      console.log("applyUIExtensions applied for {ext}");
-    });
-  }
 
   app.bootstrap = function () {
     loadTemplate();
