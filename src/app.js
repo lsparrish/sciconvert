@@ -643,7 +643,7 @@ window.app = (function () {
     canvas: null,
   };
 
-  app.state_ = state;
+  app.state = state;
   const els = {};
 
   // --- INITIALIZATION ---
