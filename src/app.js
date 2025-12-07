@@ -1322,7 +1322,7 @@
         });
     }
 
-    app.bootstrap = function() {
+    app.bootstrap = extern function() {
         loadTemplate();
         applyUIExtensions();
     };
