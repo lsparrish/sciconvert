@@ -1,4 +1,4 @@
-/**
+/*// At the top or appropriate place in app.js
  * SciText Digitizer - Application Bundle (src/app.js)
  * This file consolidates:
  * 1. SciTextHelpers: Core math and SVG utilities.
@@ -8,7 +8,7 @@
  */
 
 // lives at https://lsparrish.github.io/sciconvert/src/main.js
-(function (global) {
+window.app = (function () {
   // =========================================================================
   // 0. EMBEDDED RESOURCES (Styles & Structure)
   // =========================================================================
@@ -615,7 +615,7 @@
   // 2. MAIN APPLICATION LOGIC
   // =========================================================================
 
-  const app = (global.app = global.app || {});
+  const app = (window.app = window.app || {});
 
   const CONFIG = {
     defaultPdfUrl: "https://lsparrish.github.io/sciconvert/sample.png",
@@ -709,7 +709,6 @@
     }
     setupEventListeners();
     updateHistoryUI();
-    registerDefaultExtensions();
   }
 
   // --- CORE LOGIC & AI INTEGRATION ---
@@ -1702,4 +1701,5 @@
   } else {
     window.app.bootstrap();
   }
-});
+  return app;
+})();

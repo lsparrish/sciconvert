@@ -3,7 +3,6 @@
 <script type="module">
   await import('./src/app.js')
     .catch(() => import('https://lsparrish.github.io/sciconvert/src/app.js'));
-  window.app.bootstrap();
 
   // Developer Note:
   // To add custom UI extensions without modifying app.js, use the window.app.insertElementBefore API.
