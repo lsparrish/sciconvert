@@ -3,7 +3,7 @@
  * This file consolidates:
  * 1. SciTextHelpers: Core math and SVG utilities.
  * 2. App Logic: State management, AI integration, and Canvas interaction.
- * 3. Default UI Extensions: The "Draft Actions" toolbar logic.
+ * 3. Default UI Extensions: The "Region Actions" toolbar logic.
  * 4. Embedded Template: HTML structure and CSS styles separated for clarity.
  */
 
@@ -383,7 +383,7 @@ window.app = (function () {
   .tab-button:hover { color: #374151; }
   .tab-button-active { color: #2563eb; border-bottom-color: #2563eb; }
   
-  /* --- Draft Actions Bar --- */
+  /* --- Region Actions Bar --- */
   .draft-actions-bar {
       position: fixed;
       z-index: 100;
@@ -789,14 +789,13 @@ window.app = (function () {
       r.blueprint = `<svg viewBox="0 0 ${bpW} ${bpH}"><path d="${rlePath}" fill="#00ff00"/></svg>`;
 
       r.bpDims = { w: bpW, h: bpH };
-      r.status = undefined;
+      r.status = "generated"; // <--- NO DRAFT STATUS
       r.scale = { x: 1, y: 1 };
       r.offset = { x: 0, y: 0 };
       r.type = type;
 
       if (type === "empty") {
         r.svgContent = "";
-        r.status = "generated";
       } else {
         r.svgContent = `<text x="50%" y="50%" font-size="${bpH / 5}" text-anchor="middle" fill="#ccc">Processing...</text>`;
         selectRegion(r.id);
@@ -807,7 +806,7 @@ window.app = (function () {
       selectRegion(r.id);
     } catch (e) {
       console.error(e);
-      r.status = "draft";
+      r.status = "generated";
     }
     els.aiStatus.classList.add("hidden");
   };
@@ -861,56 +860,57 @@ window.app = (function () {
       const rle = SciTextHelpers.runLengthEncode(
         bpC.getContext("2d").getImageData(0, 0, r.bpDims.w, r.bpDims.h),
       );
+
+    if (type === "text") {
       prompt = `You are a precision SVG Typesetter.\nINPUTS:\n1. IMAGE: A 2x scale scan.\n2. BLUEPRINT: A 1x scale vector path.\nTASK:\nGenerate SVG <text> elements positioned over the BLUEPRINT.\nViewBox: 0 0 ${r.bpDims.w} ${r.bpDims.h}.\nOutput strictly valid SVG elements.\nBLUEPRINT (Partial):\n${rle.substring(0, 500)}...`;
-    } else {
-      prompt = `You are a precision SVG Graphic Designer.\nINPUTS:\n1. IMAGE: 2x scan.\nTASK:\nReplicate the figure. Use <image> with href="data:image/png;base64,${base64}" if complex, or vector shapes if simple.\nViewBox: 0 0 ${r.bpDims.w} ${r.bpDims.h}.\n`;
-    }
 
-    try {
-      const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  { text: prompt },
-                  { inlineData: { mimeType: "image/png", data: base64 } },
+        try {
+          const resp = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [
+                  {
+                    role: "user",
+                    parts: [
+                      { text: prompt },
+                      { inlineData: { mimeType: "image/png", data: base64 } },
+                    ],
+                  },
                 ],
-              },
-            ],
-          }),
-        },
-      );
-      const json = await resp.json();
-      const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!text) throw new Error("No SVG generated.");
+              }),
+            },
+          );
+          const json = await resp.json();
+          const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!text) throw new Error("No SVG generated.");
 
-      r.svgContent = text
-        .replace(/```svg/g, "")
-        .replace(/```/g, "")
-        .trim();
-      r.status = "generated";
-      r.scale = { x: 1, y: 1 };
-      r.offset = { x: 0, y: 0 };
+          r.svgContent = text
+            .replace(/```svg/g, "")
+            .replace(/```/g, "")
+            .trim();
+          r.status = "generated";
+          r.scale = { x: 1, y: 1 };
+          r.offset = { x: 0, y: 0 };
 
-      saveState();
-      selectRegion(r.id);
-      fitContentToArea();
-    } catch (e) {
-      console.error("AI Error:", e);
-      els.aiStatus.textContent = "Error generating content.";
-      r.svgContent = `<text x="50%" y="50%" font-size="20" fill="red">Error</text>`;
-    } finally {
-      setTimeout(() => {
-        els.aiStatus.classList.add("hidden");
-        els.aiStatus.textContent = "Processing...";
-      }, 3000);
-      renderRegions();
-    }
+          saveState();
+          selectRegion(r.id);
+          fitContentToArea();
+        } catch (e) {
+          console.error("AI Error:", e);
+          els.aiStatus.textContent = "Error generating content.";
+          r.svgContent = `<text x="50%" y="50%" font-size="20" fill="red">Error</text>`;
+        } finally {
+          setTimeout(() => {
+            els.aiStatus.classList.add("hidden");
+            els.aiStatus.textContent = "Processing...";
+          }, 3000);
+          renderRegions();
+        }
+    } else {
+        r.svgContent = rle;
   };
 
   function getRegion(id) {
@@ -1247,33 +1247,21 @@ window.app = (function () {
       const py = r.rect.y * ch;
       const pw = r.rect.w * cw;
       const ph = r.rect.h * ch;
-
-      if (r.status === "draft") {
-        const rect = document.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "rect",
-        );
-        rect.setAttribute("x", px);
-        rect.setAttribute("y", py);
-        rect.setAttribute("width", pw);
-        rect.setAttribute("height", ph);
-        rect.setAttribute("class", "region-draft");
-        gRegions.appendChild(rect);
-      } else {
-        const svg = document.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "svg",
-        );
-        svg.setAttribute("x", px);
-        svg.setAttribute("y", py);
-        svg.setAttribute("width", pw);
-        svg.setAttribute("height", ph);
-        svg.setAttribute("viewBox", `0 0 ${r.bpDims.w} ${r.bpDims.h}`);
-        svg.setAttribute("preserveAspectRatio", "none");
-        svg.setAttribute("id", `svg-region-${r.id}`);
-        svg.innerHTML = `<g id="group-${r.id}" transform="translate(${r.offset.x}, ${r.offset.y}) scale(${r.scale.x}, ${r.scale.y})">${r.svgContent}</g>`;
-        gRegions.appendChild(svg);
-      }
+      
+      const svg = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "svg",
+      );
+      svg.setAttribute("x", px);
+      svg.setAttribute("y", py);
+      svg.setAttribute("width", pw);
+      svg.setAttribute("height", ph);
+      svg.setAttribute("viewBox", `0 0 ${r.bpDims.w} ${r.bpDims.h}`);
+      svg.setAttribute("preserveAspectRatio", "none");
+      svg.setAttribute("id", `svg-region-${r.id}`);
+      svg.innerHTML = `<g id="group-${r.id}" transform="translate(${r.offset.x}, ${r.offset.y}) scale(${r.scale.x}, ${r.scale.y})">${r.svgContent}</g>`;
+      gRegions.appendChild(svg);
+      
 
       // Render highlights for interaction
       const highlightRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -1387,10 +1375,8 @@ window.app = (function () {
     if (r) {
       renderLayerList(r);
       updateUIProperties(r);
-      // Use helper functions to show/hide the draft bar
-      if (r.status === "draft") showDraftActionsBar(r);
-      else hideDraftActionsBar();
-    } else hideDraftActionsBar();
+      showRegionActionsBar();
+    } else hideRegionActionsBar();
   }
   app.selectRegion = selectRegion;
 
@@ -1415,7 +1401,7 @@ window.app = (function () {
     els.interactionLayer.innerHTML = "";
     
     // 2. Hide floating action bars
-    hideDraftActionsBar(); // Use helper function
+    hideRegionActionsBar(); // Use helper function
     
     // 3. Update UI
     els.layerList.innerHTML = "";
@@ -1427,11 +1413,10 @@ window.app = (function () {
   app.deselect = deselect;
   
   /**
-   * Shows the draft action bar and positions it relative to the draft region.
+   * Shows the region action bar and positions it relative to the region.
+   * but we keep the logic clean.
    */
-  function showDraftActionsBar(r) {
-    if (!r || r.status !== 'draft') return;
-    
+  function showRegionActionsBar(r) {
     const rect = els.interactionLayer.getBoundingClientRect();
     const cw = state.canvas.width;
     const ch = state.canvas.height;
@@ -1468,27 +1453,25 @@ window.app = (function () {
   /**
    * Hides the draft action bar.
    */
-  function hideDraftActionsBar() {
+  function hideRegionActionsBar() {
       els.draftActionsBar.classList.add("hidden");
   }
 
   // --- UTILS & HELPERS ---
   function updateUI() {
     els.regionCount.textContent = `${state.regions.length}`;
-    // Context actions disabled if split mode is on or no region selected OR if active region is draft
-    const isActiveDraft = state.activeRegionId && getRegion(state.activeRegionId)?.status === 'draft';
-    if (state.activeRegionId && !state.splitMode && !isActiveDraft)
+    if (state.activeRegionId && !state.splitMode)
       els.contextActions.classList.remove("disabled-bar");
     else
       els.contextActions.classList.add("disabled-bar");
-    const isEnsabled = state.regions.length > 0;
-    els.btnCyclePrev.disabled = !isEnsabled;
-    els.btnCycleNext.disabled = !isEnsabled;
+    const isDisabled = state.regions.length < 1; // Change check to > 0 regions
+    els.btnCyclePrev.disabled = isDisabled;
+    els.btnCycleNext.disabled = isDisabled;
   }
   
-  // NOTE: showCreationBar logic is now merged into showDraftActionsBar. Retaining empty shell for old references.
+  // NOTE: showCreationBar logic is now merged into showRegionActionsBar. Retaining empty shell for old references.
   function showCreationBar(r) {
-    showDraftActionsBar(r);
+    showRegionActionsBar(r);
   }
 
   function updateUIProperties(r) {
@@ -1518,26 +1501,22 @@ window.app = (function () {
     }
   }
 
-  // --- DRAFT ACTION BAR LOGIC ---
+  // --- DRAFT ACTION BAR LOGIC
 
-  function handleDraftAction(type) {
+  function handleRegionAction(type) {
+      const id = state?.activeRegionId;
+      if (!id) return;
       if (type === 'cancel') {
-          const id = state?.activeRegionId;
-          if (id) {
-              const regions = state.regions;
-              const idx = regions.findIndex(r => r.id === id);
-              // Only remove if it's a 'draft' region
-              if (idx !== -1 && regions[idx].status === 'draft') regions.splice(idx, 1);
-              deselect(); // Calls the patched deselect
-              saveState();
-          }
+          const regions = state.regions;
+          const idx = regions.findIndex(r => r.id === id);
+          if (idx !== -1) regions.splice(idx, 1);
+          deselect(); 
+          saveState();
       } else {
-          // Handles buttons with data-type (AI Text, Image, Empty)
-          if (state?.activeRegionId) {
-              app.createRegion(type, state.activeRegionId);
-          }
+          app.generateRegionContent(type, id);
       }
   }
+  
   /**
    * Sorts regions by visual position (Y then X) and cycles to the next/previous one.
    */
@@ -1611,13 +1590,13 @@ window.app = (function () {
     els.btnCyclePrev.onclick = () => cycleRegion('prev');
     els.btnCycleNext.onclick = () => cycleRegion('next');
 
-    // Draft Actions Bar Listeners (New)
+    // Region Actions Bar Listeners (New)
     els.draftActionsBar.addEventListener('click', e => {
         const button = e.target.closest('button');
         if (!button) return;
         const type = button.dataset.type;
-        if (type) handleDraftAction(type);
-        else if (button.id === 'btn-cancel-draft') handleDraftAction('cancel');
+        if (type) handleRegionAction(type);
+        else if (button.id === 'btn-cancel-draft') handleRegionAction('cancel');
     });
 
     document.getElementById("btn-export").onclick = () => {
@@ -1779,11 +1758,15 @@ window.app = (function () {
             w: w / state.canvas.width,
             h: h / state.canvas.height,
           },
-          status: "draft",
+          status: "pending", // Temporary status to mark it needs AI action
+          svgContent: svgContent: `<text x="50%" y="50%" font-size="20" fill="#60a5fa" text-anchor="middle">Awaiting Action</text>`,
         };
         state.regions.push(newRegion);
         saveState();
         selectRegion(newRegion.id);
+        showRegionActionsBar(newRegion);
+      } else {
+        deselect(); 
       }
       
       // CRITICAL FIX: Ensure selection box is hidden after mouseup, 
