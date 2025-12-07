@@ -1329,7 +1329,7 @@
     };
 
     // =========================================================================
-    // 3. BAKED-IN EXTENSIONS (Moving Draft Actions Logic Here)
+    // 3. BAKED-IN EXTENSIONS (Recent work can go here. Will be moved out when mature.)
     // =========================================================================
     function registerDefaultExtensions() {
         // Draft Actions Bar
@@ -1365,4 +1365,8 @@
         });
     }
 
-})(window); // Pass window to closure
+}
+(window);
+if (window.app?.bootstrap) {
+  window.app.bootstrap();
+}
