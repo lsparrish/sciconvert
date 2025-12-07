@@ -1661,6 +1661,8 @@ window.app = (function () {
     els.btnRedo.disabled = state.historyIndex >= state.history.length - 1;
   }
 
+  // --- EXTENSIONS ---
+  const uiExtensions = [];
   app.insertElementBefore = (html, sel, cb) => {
     const t = document.querySelector(sel);
     if (t) {
@@ -1673,8 +1675,10 @@ window.app = (function () {
     cb();
   };
 
+
   app.bootstrap = function () {
     loadTemplate();
+    applyUIExtensions();
   };
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => window.app.bootstrap());
