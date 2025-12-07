@@ -382,6 +382,19 @@ window.app = (function () {
   }
   .tab-button:hover { color: #374151; }
   .tab-button-active { color: #2563eb; border-bottom-color: #2563eb; }
+  
+  /* --- Draft Actions Bar --- */
+  .draft-actions-bar {
+      position: fixed;
+      z-index: 100;
+      background-color: rgba(255, 255, 255, 0.95);
+      padding: 0.5rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+      border: 1px solid #d1d5db;
+      display: flex;
+      gap: 0.5rem;
+  }
     `;
 
   const APP_STRUCTURE = `
@@ -531,7 +544,15 @@ window.app = (function () {
            </div>
       </div>
     </main>
-    <div id="new-selection-action-bar" class="hidden" style="position:fixed; z-index:100;"></div>
+    <!-- DRAFT ACTIONS BAR (moved from main.html extension) -->
+    <div id="draft-actions-bar" class="draft-actions-bar hidden">
+      <button data-type="text" id="btn-draft-text" class="action-bar-btn" style="background-color:#2563eb;">AI Text</button>
+      <button data-type="image" id="btn-draft-image" class="action-bar-btn" style="background-color:#d97706;">Image</button>
+      <button data-type="empty" id="btn-draft-empty" class="action-bar-btn" style="background-color:#4b5563;">Empty</button>
+      <div style="width:1px;height:1.5rem;background-color:#d1d5db;"></div>
+      <button id="btn-cancel-draft" class="action-bar-btn" style="color:#ef4444;background:transparent;font-weight:500;border:1px solid #d1d5db;">Cancel</button>
+    </div>
+    
     <canvas id="processing-canvas" style="display:none;"></canvas>
 </div>
     `;
@@ -672,7 +693,8 @@ window.app = (function () {
     els.svgLayer = document.getElementById("svg-layer");
     els.interactionLayer = document.getElementById("interaction-layer");
     els.selectionBox = document.getElementById("selection-box");
-    els.selectionBar = document.getElementById("new-selection-action-bar");
+    // Renamed from els.selectionBar to els.draftActionsBar
+    els.draftActionsBar = document.getElementById("draft-actions-bar");
     els.layerList = document.getElementById("layer-list");
     els.btnAddLayer = document.getElementById("btn-add-layer");
     els.regionCount = document.getElementById("region-count");
@@ -720,7 +742,7 @@ window.app = (function () {
     if (!r) return;
 
     els.aiStatus.classList.remove("hidden");
-    els.selectionBar.classList.add("hidden");
+    els.draftActionsBar.classList.add("hidden");
 
     const cw = state.canvas.width;
     const ch = state.canvas.height;
@@ -1208,8 +1230,8 @@ window.app = (function () {
     const gHighlights = els.svgLayer.querySelector("#highlights");
     gRegions.innerHTML = "";
     gHighlights.innerHTML = "";
-    if (!state.dragAction || state.dragAction === "create")
-      els.interactionLayer.innerHTML = "";
+    // Note: dragAction check removed here, cleanup moved to deselect/handleMouseUp for precision
+    els.interactionLayer.innerHTML = "";
     const cw = state.canvas.width;
     const ch = state.canvas.height;
 
@@ -1249,6 +1271,23 @@ window.app = (function () {
         gRegions.appendChild(svg);
       }
 
+      // Render highlights for interaction
+      const highlightRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      highlightRect.setAttribute("x", px);
+      highlightRect.setAttribute("y", py);
+      highlightRect.setAttribute("width", pw);
+      highlightRect.setAttribute("height", ph);
+      highlightRect.setAttribute("data-id", r.id); // Important for selection
+      highlightRect.setAttribute("class", "region-highlight");
+      
+      // If selected, apply the selected class to the highlight
+      if (state.selectedIds.has(r.id)) {
+          highlightRect.setAttribute("class", "region-selected");
+      }
+
+      gHighlights.appendChild(highlightRect);
+
+
       if (
         r.id === state.activeRegionId &&
         state.selectedIds.size <= 1 &&
@@ -1257,23 +1296,15 @@ window.app = (function () {
         if (state.splitMode && state.splitTargetId === r.id)
           renderSplitOverlays(r);
         else renderActiveSelectionControls(r);
-      } else if (state.selectedIds.has(r.id)) {
-        const rect = document.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "rect",
-        );
-        rect.setAttribute("x", px);
-        rect.setAttribute("y", py);
-        rect.setAttribute("width", pw);
-        rect.setAttribute("height", ph);
-        rect.setAttribute("class", "region-selected");
-        gHighlights.appendChild(rect);
       }
     });
     updateUI();
   }
 
   function renderActiveSelectionControls(region) {
+    // Only render the selection frame if we are not actively dragging to create a new region
+    if (state.dragAction === 'create') return;
+
     if (document.querySelector(`.selection-frame[data-id="${region.id}"]`))
       return;
     const w = state.canvas.width;
@@ -1343,17 +1374,26 @@ window.app = (function () {
       state.selectedIds.add(id);
       state.activeRegionId = id;
     }
+    
+    // Cleanup visual artifacts from any lingering drag action
+    els.selectionBox.style.display = "none";
+    
     renderRegions();
     const r = getRegion(state.activeRegionId);
     if (r) {
       renderLayerList(r);
       updateUIProperties(r);
-      if (r.status === "draft") showCreationBar(r);
-      else els.selectionBar.classList.add("hidden");
-    } else els.selectionBar.classList.add("hidden");
+      // Use helper functions to show/hide the draft bar
+      if (r.status === "draft") showDraftActionsBar(r);
+      else hideDraftActionsBar();
+    } else hideDraftActionsBar();
   }
   app.selectRegion = selectRegion;
 
+  /**
+   * FIX for persistent selection rectangle ("sticky draft"):
+   * Ensures all selection artifacts are cleared across the board.
+   */
   function deselect() {
     if (state.splitMode) {
       state.splitMode = false;
@@ -1364,32 +1404,84 @@ window.app = (function () {
     }
     state.activeRegionId = null;
     state.selectedIds.clear();
-    renderRegions();
-    els.selectionBar.classList.add("hidden");
+    
+    // 1. Critical visual cleanup
     els.selectionBox.style.display = "none";
+    // Also explicitly clear interaction layer content (frames, handles, split overlays)
+    els.interactionLayer.innerHTML = "";
+    
+    // 2. Hide floating action bars
+    hideDraftActionsBar(); // Use helper function
+    
+    // 3. Update UI
     els.layerList.innerHTML = "";
     els.contextActions.classList.add("disabled-bar");
+    
+    // 4. Re-render regions to remove selected/active highlights
+    renderRegions();
   }
   app.deselect = deselect;
-
-  // --- UTILS & HELPERS ---
-  function updateUI() {
-    els.regionCount.textContent = `${state.regions.length}`;
-    if (state.activeRegionId)
-      els.contextActions.classList.remove("disabled-bar");
-  }
-
-  function showCreationBar(r) {
+  
+  /**
+   * Shows the draft action bar and positions it relative to the draft region.
+   */
+  function showDraftActionsBar(r) {
+    if (!r || r.status !== 'draft') return;
+    
     const rect = els.interactionLayer.getBoundingClientRect();
     const cw = state.canvas.width;
     const ch = state.canvas.height;
     const ratio = rect.width / cw;
-    const sx = rect.left + r.rect.x * cw * ratio;
-    const sy = rect.top + r.rect.y * ch * ratio + r.rect.h * ch * ratio + 10;
-    els.selectionBar.style.left =
-      Math.min(window.innerWidth - 250, Math.max(10, sx)) + "px";
-    els.selectionBar.style.top = sy + "px";
-    els.selectionBar.classList.remove("hidden");
+    
+    // Get region coordinates in display pixels
+    const px = r.rect.x * cw * ratio;
+    const py = r.rect.y * ch * ratio;
+    const pw = r.rect.w * cw * ratio;
+    const ph = r.rect.h * ch * ratio;
+    
+    const barWidth = 250; // Approximate width of the bar
+    
+    // Calculate center of the region + offset downwards
+    const sx = rect.left + px + pw / 2;
+    const sy = rect.top + py + ph + 10;
+    
+    let barLeft = sx - barWidth / 2;
+    let barTop = sy;
+
+    // Boundary checks (keep bar within viewport horizontally)
+    barLeft = Math.min(window.innerWidth - barWidth - 10, Math.max(10, barLeft));
+    
+    // Check if bar is too low, if so, position above the region
+    if (barTop + 50 > window.innerHeight) {
+        barTop = rect.top + py - 50; // 50px up from the top of the region
+    }
+    
+    els.draftActionsBar.style.left = barLeft + "px";
+    els.draftActionsBar.style.top = barTop + "px";
+    els.draftActionsBar.classList.remove("hidden");
+  }
+  
+  /**
+   * Hides the draft action bar.
+   */
+  function hideDraftActionsBar() {
+      els.draftActionsBar.classList.add("hidden");
+  }
+
+  // --- UTILS & HELPERS ---
+  function updateUI() {
+    els.regionCount.textContent = `${state.regions.length}`;
+    // Context actions disabled if split mode is on or no region selected OR if active region is draft
+    const isActiveDraft = state.activeRegionId && getRegion(state.activeRegionId)?.status === 'draft';
+    if (state.activeRegionId && !state.splitMode && !isActiveDraft)
+      els.contextActions.classList.remove("disabled-bar");
+    else
+      els.contextActions.classList.add("disabled-bar");
+  }
+  
+  // NOTE: showCreationBar logic is now merged into showDraftActionsBar. Retaining empty shell for old references.
+  function showCreationBar(r) {
+    showDraftActionsBar(r);
   }
 
   function updateUIProperties(r) {
@@ -1419,6 +1511,27 @@ window.app = (function () {
     }
   }
 
+  // --- DRAFT ACTION BAR LOGIC (Moved from main.html) ---
+
+  function handleDraftAction(type) {
+      if (type === 'cancel') {
+          const id = state?.activeRegionId;
+          if (id) {
+              const regions = state.regions;
+              const idx = regions.findIndex(r => r.id === id);
+              // Only remove if it's a 'draft' region
+              if (idx !== -1 && regions[idx].status === 'draft') regions.splice(idx, 1);
+              deselect(); // Calls the patched deselect
+              saveState();
+          }
+      } else {
+          // Handles buttons with data-type (AI Text, Image, Empty)
+          if (state?.activeRegionId) {
+              app.createRegion(type, state.activeRegionId);
+          }
+      }
+  }
+
   function setupEventListeners() {
     els.interactionLayer.addEventListener("mousedown", handleMouseDown);
     window.addEventListener("mousemove", handleMouseMove);
@@ -1429,6 +1542,15 @@ window.app = (function () {
     els.btnZoomOut.onclick = () => setZoom(state.scaleMultiplier - 0.25);
     els.btnUndo.onclick = undo;
     els.btnRedo.onclick = redo;
+
+    // Draft Actions Bar Listeners (New)
+    els.draftActionsBar.addEventListener('click', e => {
+        const button = e.target.closest('button');
+        if (!button) return;
+        const type = button.dataset.type;
+        if (type) handleDraftAction(type);
+        else if (button.id === 'btn-cancel-draft') handleDraftAction('cancel');
+    });
 
     document.getElementById("btn-export").onclick = () => {
       const out = SciTextHelpers.composeSVG(
@@ -1446,6 +1568,7 @@ window.app = (function () {
     };
     document.getElementById("btn-clear-all").onclick = () => {
       state.regions = [];
+      deselect(); // Use deselect to ensure cleanup
       renderRegions();
       saveState();
     };
@@ -1468,7 +1591,8 @@ window.app = (function () {
     els.btnAddLayer.onclick = addLayerToRegion;
 
     [els.propX, els.propY, els.propW, els.propH].forEach((input) => {
-      input.addEventListener("input", loadDefaultImage);
+      // FIX: Changed input listeners to call renderRegions directly instead of loadDefaultImage
+      input.addEventListener("input", renderRegions); 
     });
 
     els.modeArea.onclick = () => {
@@ -1505,15 +1629,16 @@ window.app = (function () {
     els.debugContainer.classList.toggle("flex", t === "debug");
     document
       .getElementById("tab-overlay")
-      .classList.toggle("active", t === "overlay");
+      .classList.toggle("tab-button-active", t === "overlay");
     document
       .getElementById("tab-debug")
-      .classList.toggle("active", t === "debug");
+      .classList.toggle("tab-button-active", t === "debug");
   }
 
   function fitContentToArea() {
     const r = getRegion(state.activeRegionId);
     if (!r) return;
+    // Implementation details omitted for brevity
     renderLayerList(r);
     renderRegions();
     saveState();
@@ -1522,6 +1647,7 @@ window.app = (function () {
   function fitAreaToContent() {
     const r = getRegion(state.activeRegionId);
     if (!r) return;
+    // Implementation details omitted for brevity
     renderRegions();
     saveState();
   }
@@ -1544,6 +1670,9 @@ window.app = (function () {
           .elementFromPoint(e.clientX, e.clientY)
           .classList.contains("region-highlight"))
     ) {
+      // Only start a new drag if we are NOT clicking an existing region highlight
+      if (e.target.closest('#main-svg rect[data-id]')) return;
+      
       state.dragAction = "create";
       state.dragStart = getLocalPos(e);
       if (!e.shiftKey) deselect();
@@ -1588,12 +1717,16 @@ window.app = (function () {
         saveState();
         selectRegion(newRegion.id);
       }
+      
+      // CRITICAL FIX: Ensure selection box is hidden after mouseup, 
+      // regardless of whether a new region was created (Simplicity).
       els.selectionBox.style.display = "none";
+      
     }
     state.dragAction = null;
   }
   function handleKeyDown(e) {
-    if (e.key === "Escape") deselect();
+    // Esc key is handled by the main.html extension now for better cleanup.
     if ((e.ctrlKey || e.metaKey) && e.key === "z") {
       e.preventDefault();
       e.shiftKey ? redo() : undo();
