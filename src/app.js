@@ -220,9 +220,8 @@ class SciTextModel {
         };
         this.subscribers = [];
     }
-
     subscribe(fn) { this.subscribers.push(fn); }
-    notify() { this.subscribers.forEach(fn => fn(this.state)); }
+    notify(context) { this.subscribers.forEach(fn => fn(this.state, context)); }
 
     setState(updates) {
         Object.assign(this.state, updates);
@@ -236,10 +235,7 @@ class SciTextModel {
         this.notify();
     }
 
-    updateRegion(id, updates) {
-        const r = this.getRegion(id);
-        if (r) Object.assign(r, updates);
-        this.notify();
+    updateRegion(id, updates, context) { const r = this.getRegion(id); if (r) Object.assign(r, updates); this.notify(context);
     }
 
     deleteRegion(id) {
@@ -337,7 +333,15 @@ class UIManager {
         });
     }
 
-    render(state) {
+    render(state, context) {
+        if (context && context.type === 'GEOMETRY' && context.id) {
+            this.updateRegionGeometry(context.id, state);
+            return;
+        }
+
+        // Safety check to prevent crash on initial load if elements aren't ready
+        if (!this.els.regionCount || !this.els.canvasWrapper) return;
+
         this.els.regionCount.textContent = state.regions.length;
         if (state.activeRegionId) this.els.contextActions.classList.remove('disabled-bar');
         else this.els.contextActions.classList.add('disabled-bar');
@@ -363,6 +367,7 @@ class UIManager {
             const dimW = r.bpDims?.w || pw, dimH = r.bpDims?.h || ph;
 
             const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svg.dataset.id = r.id; 
             svg.setAttribute("x", px); svg.setAttribute("y", py);
             svg.setAttribute("width", pw); svg.setAttribute("height", ph);
             svg.setAttribute("viewBox", `0 0 ${dimW} ${dimH}`);
@@ -371,7 +376,6 @@ class UIManager {
             svg.style.left = px + "px";
             svg.style.top = py + "px";
             svg.style.color = "black";
-            // Make sure pointer-events are none so clicks pass through to the interaction layer
             svg.style.pointerEvents = "none"; 
             
             svg.innerHTML = `<g transform="translate(${r.offset?.x||0},${r.offset?.y||0}) scale(${r.scale?.x||1},${r.scale?.y||1})">${r.svgContent}</g>`;
@@ -399,7 +403,6 @@ class UIManager {
             }
         } else {
             this.els.regionActionsBar.classList.add('hidden');
-            // Clear inputs if no region selected
             this.els.propX.value = ''; this.els.propY.value = '';
             this.els.propW.value = ''; this.els.propH.value = '';
             this.els.layerList.innerHTML = '<div style="text-align:center; color:#9ca3af; font-size:10px; margin-top:1rem;">Select a region</div>';
@@ -407,6 +410,53 @@ class UIManager {
             if (f) f.remove();
         }
     }
+
+    updateRegionGeometry(id, state) {
+        const r = state.regions.find(x => x.id === id);
+        if(!r) return;
+        const cw = state.canvasWidth, ch = state.canvasHeight;
+        const x = r.rect.x * cw, y = r.rect.y * ch;
+        const w = r.rect.w * cw, h = r.rect.h * ch;
+
+        // 1. Update SVG Position
+        const svg = this.els.svgLayer.querySelector(`svg[data-id="${id}"]`);
+        if(svg) {
+             svg.setAttribute("x", x); svg.setAttribute("y", y);
+             svg.setAttribute("width", w); svg.setAttribute("height", h);
+             svg.style.left = x + "px"; svg.style.top = y + "px";
+        }
+
+        // 2. Update Interaction Highlight Div
+        const div = this.els.interactionLayer.querySelector(`div[data-id="${id}"]`);
+        if(div) {
+            Object.assign(div.style, { left: x+'px', top: y+'px', width: w+'px', height: h+'px' });
+        }
+
+        // 3. Update Active Controls (Frame & Handles)
+        if(state.activeRegionId === id) {
+            const frame = document.getElementById("active-selection-frame");
+            if(frame) {
+                Object.assign(frame.style, { left: x+'px', top: y+'px', width: w+'px', height: h+'px' });
+            }
+            
+            const handles = this.els.interactionLayer.querySelectorAll('.resize-handle');
+            handles.forEach(el => {
+                const dir = Array.from(el.classList).find(c => c.startsWith('handle-') && c !== 'handle-size')?.replace('handle-', '');
+                if (!dir) return;
+
+                let hx=0, hy=0;
+                if (dir.includes('e')) hx = x + w; else if (dir.includes('w')) hx = x; else hx = x + w/2;
+                if (dir.includes('s')) hy = y + h; else if (dir.includes('n')) hy = y; else hy = y + h/2;
+                
+                el.style.left = (hx - 4) + "px";
+                el.style.top = (hy - 4) + "px";
+            });
+
+            this.updatePropertiesInputs(r, state);
+            this.showRegionActionsBar(r, state);
+        }
+    }
+
     renderActiveControls(r, state) {
         const cw = state.canvasWidth;
         const ch = state.canvasHeight;
@@ -707,9 +757,8 @@ class RegionEditor {
                     w: this.initialRect.w,
                     h: this.initialRect.h
                 };
-                this.controller.model.updateRegion(r.id, { rect: newRect });
-                // Immediate UI update
-                this.controller.view.updatePropertiesInputs(r, this.controller.model.state);
+                // Pass GEOMETRY context
+                this.controller.model.updateRegion(r.id, { rect: newRect }, { type: 'GEOMETRY', id: r.id });
             }
         } else if (this.mode === 'RESIZE') {
             const r = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
@@ -728,8 +777,7 @@ class RegionEditor {
                 
                 if(nw > 5 && nh > 5) {
                     const newRect = { x: nx/cw, y: ny/ch, w: nw/cw, h: nh/ch };
-                    this.controller.model.updateRegion(r.id, { rect: newRect });
-                    this.controller.view.updatePropertiesInputs(r, this.controller.model.state);
+                    this.controller.model.updateRegion(r.id, { rect: newRect }, { type: 'GEOMETRY', id: r.id });
                 }
             }
         }
@@ -1235,12 +1283,11 @@ window.app = (function() {
     const controller = new SciTextController(model, view);
 
     // Wire Observer
-    model.subscribe(state => {
-        view.render(state);
-        if (state.activeRegionId) {
+    model.subscribe((state, context) => {
+        view.render(state, context);
+        if (state.activeRegionId && (!context || context.type !== 'GEOMETRY')) {
             const r = model.getRegion(state.activeRegionId);
             if (r) {
-                // Ensure controls are drawn on top
                 view.renderActiveControls(r, state);
             }
         }
