@@ -367,7 +367,13 @@ class UIManager {
             svg.setAttribute("width", pw); svg.setAttribute("height", ph);
             svg.setAttribute("viewBox", `0 0 ${dimW} ${dimH}`);
             svg.setAttribute("preserveAspectRatio", "none");
+            svg.style.position = "absolute";
+            svg.style.left = px + "px";
+            svg.style.top = py + "px";
             svg.style.color = "black";
+            // Make sure pointer-events are none so clicks pass through to the interaction layer
+            svg.style.pointerEvents = "none"; 
+            
             svg.innerHTML = `<g transform="translate(${r.offset?.x||0},${r.offset?.y||0}) scale(${r.scale?.x||1},${r.scale?.y||1})">${r.svgContent}</g>`;
             this.els.svgLayer.appendChild(svg);
 
@@ -816,7 +822,6 @@ class SciTextController {
 };
         this.view.els.btnClearAll.onclick = () => { this.model.setState({regions:[]}); this.model.deselect(); this.model.saveHistory(); };
         this.view.els.btnDigitize.onclick = () => this.generateContent('text');
-        this.view.els.btnScan.onclick = () => this.generateContent('blueprint');
         this.view.els.regionActionsBar.onclick = (e) => {
             const type = e.target.dataset.type;
             if(type) this.generateContent(type);
@@ -998,132 +1003,68 @@ class SciTextController {
         this.model.saveHistory();
     }
 
-generateInkMap(region) {
-    const s = this.model.state;
-    const cw = s.canvasWidth;
-    const ch = s.canvasHeight;
-    
-    const w = region.rect.w * cw;
-    const h = region.rect.h * ch;
-    if (w <= 0 || h <= 0) return null;
+    async fitArea() {
+        const id = this.model.state.activeRegionId;
+        const r = this.model.getRegion(id);
+        if (!r) return;
 
-    const scale = Math.min(1.0, 300 / Math.max(w, h)); 
-    const smW = Math.floor(w * scale);
-    const smH = Math.floor(h * scale);
+        // 1. Setup Scan (Using 2x scale to match blueprint precision)
+        const s = this.model.state;
+        const pw = Math.floor(r.rect.w * s.canvasWidth);
+        const ph = Math.floor(r.rect.h * s.canvasHeight);
+        
+        if (pw < 1 || ph < 1) return;
 
-    if (smW < 1 || smH < 1) return null;
+        const tmp = document.createElement("canvas");
+        tmp.width = pw * 2; tmp.height = ph * 2;
+        const ctx = tmp.getContext("2d");
+        ctx.drawImage(s.canvas, r.rect.x * s.canvasWidth, r.rect.y * s.canvasHeight, pw, ph, 0, 0, pw * 2, ph * 2);
+        
+        const data = ctx.getImageData(0, 0, pw * 2, ph * 2).data;
+        
+        // 2. Find Bounds of Ink
+        let minX = pw * 2, minY = ph * 2, maxX = 0, maxY = 0;
+        let found = false;
 
-    const tmp = document.createElement('canvas');
-    tmp.width = smW;
-    tmp.height = smH;
-    const ctx = tmp.getContext('2d', { willReadFrequently: true });
-
-    try {
-        ctx.drawImage(s.canvas, 
-            region.rect.x * cw, region.rect.y * ch, w, h, 
-            0, 0, smW, smH
-        );
-        const imageData = ctx.getImageData(0, 0, smW, smH);
-        const data = imageData.data;
-    } catch (e) {
-        console.error("Canvas draw or data access error (likely CORS):", e);
-        return null;
-    }
-
-    const THRESHOLD = 700; 
-
-    let pathD = "";
-    let minX = smW, minY = smH, maxX = 0, maxY = 0;
-    let found = false;
-
-    for (let y = 0; y < smH; y++) {
-        let startX = -1;
-        for (let x = 0; x < smW; x++) {
-            const i = (y * smW + x) * 4;
-            const isInk = data[i+3] > 50 && (data[i] + data[i+1] + data[i+2] < THRESHOLD);
-
-            if (isInk) {
-                if (startX === -1) startX = x;
-                if (x < minX) minX = x;
-                if (x > maxX) maxX = x;
-                if (y < minY) minY = y;
-                if (y > maxY) maxY = y;
-                found = true;
-            } else if (startX !== -1) {
-                pathD += `M${startX} ${y}h${x - startX}v1h-${x - startX}z`;
-                startX = -1;
+        for (let y = 0; y < ph * 2; y++) {
+            for (let x = 0; x < pw * 2; x++) {
+                const i = (y * (pw * 2) + x) * 4;
+                // Threshold matches your RLE logic (Dark < 128)
+                if (data[i + 3] > 128 && data[i] < 128) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                    found = true;
+                }
             }
         }
-        if (startX !== -1) pathD += `M${startX} ${y}h${smW - startX}v1h-${smW - startX}z`;
+
+        if (!found) return; // No ink found, do nothing
+
+        // 3. Add Padding (4px at 2x scale = 2px visual padding)
+        const pad = 4;
+        minX = Math.max(0, minX - pad);
+        minY = Math.max(0, minY - pad);
+        maxX = Math.min(pw * 2, maxX + pad);
+        maxY = Math.min(ph * 2, maxY + pad);
+
+        // 4. Calculate New Global Rect (Converting 2x coords back to global 0-1)
+        const globalX = r.rect.x + (minX / 2) / s.canvasWidth;
+        const globalY = r.rect.y + (minY / 2) / s.canvasHeight;
+        const globalW = ((maxX - minX) / 2) / s.canvasWidth;
+        const globalH = ((maxY - minY) / 2) / s.canvasHeight;
+
+        // 5. Update Region
+        this.model.updateRegion(id, {
+            rect: { x: globalX, y: globalY, w: globalW, h: globalH },
+            scale: { x: 1, y: 1 },  // Reset transforms
+            offset: { x: 0, y: 0 }
+        });
+
+        // 6. Regenerate Blueprint for the new tight box
+        await this.generateContent('blueprint');
     }
-
-    if (!found) return null;
-
-    return {
-        path: pathD,
-        scale: scale,
-        scanBounds: { minX, minY, w: (maxX - minX + 1), h: (maxY - minY + 1) },
-        globalBounds: {
-            x: (region.rect.x * cw + (minX / scale)) / cw,
-            y: (region.rect.y * ch + (minY / scale)) / ch,
-            w: ((maxX - minX + 1) / scale) / cw,
-            h: ((maxY - minY + 1) / scale) / ch
-        }
-    };
-}
-fitArea() {
-    const id = this.model.state.activeRegionId;
-    if (!id) return;
-    
-    const r = this.model.getRegion(id);
-    const bp = this.generateInkMap(r);
-
-    if (!bp) {
-        console.log("No ink found in selection.");
-        return;
-    }
-
-    const s = this.model.state;
-    const pad = 4; // Pixel padding
-
-    // 1. Calculate the New Region Rect (Tight bounds around ink)
-    const newRect = {
-        x: bp.globalBounds.x - (pad / s.canvasWidth),
-        y: bp.globalBounds.y - (pad / s.canvasHeight),
-        w: bp.globalBounds.w + ((pad * 2) / s.canvasWidth),
-        h: bp.globalBounds.h + ((pad * 2) / s.canvasHeight)
-    };
-
-    // 2. Sidebar Preview (Standard ViewBox logic)
-    const padSc = pad * bp.scale;
-    const vbX = bp.scanBounds.minX - padSc;
-    const vbY = bp.scanBounds.minY - padSc;
-    const vbW = bp.scanBounds.w + (padSc * 2);
-    const vbH = bp.scanBounds.h + (padSc * 2);
-    const sidebarSVG = `<svg viewBox="${vbX} ${vbY} ${vbW} ${vbH}" width="100%" height="100%" preserveAspectRatio="none"><path d="${bp.path}" fill="#3b82f6" /></svg>`;
-
-    // 3. Main Canvas Content (The Fix)
-    // We use a matrix to explicitly set: x' = (x * scale) + translate
-    const scaleUp = 1 / bp.scale;
-    const transX = pad - (bp.scanBounds.minX * scaleUp);
-    const transY = pad - (bp.scanBounds.minY * scaleUp);
-    
-    // Matrix format: matrix(scaleX, skewY, skewX, scaleY, transX, transY)
-    const contentSVG = `<path d="${bp.path}" fill="#3b82f6" fill-opacity="0.2" transform="matrix(${scaleUp}, 0, 0, ${scaleUp}, ${transX}, ${transY})" />`;
-
-    // 4. Update Region & RESET State
-    // We MUST reset scale/offset to identity, otherwise they compound with the new fit.
-    this.model.updateRegion(id, { 
-        rect: newRect,
-        inkMapSVG: sidebarSVG,
-        svgContent: contentSVG,
-        bpDims: { w: vbW / bp.scale, h: vbH / bp.scale },
-        scale: {x: 1, y: 1},    // <--- CRITICAL RESET
-        offset: {x: 0, y: 0}    // <--- CRITICAL RESET
-    });
-    
-    this.model.saveHistory();
-}
     
     fitContent() {
         const id = this.model.state.activeRegionId;
@@ -1240,12 +1181,14 @@ fitArea() {
 
         // 3. Handle Local Blueprint (NO AI)
         if (type === 'blueprint') {
-            // Apply the RLE path directly to svgContent
             r.svgContent = `<path d="${rle}" fill="black" />`;
             r.status = 'scanned';
-            // Set dimensions to match the 2x scale of the RLE scan
             r.bpDims = { w: pw * 2, h: ph * 2 };
             
+            r.scale = { x: 1, y: 1 };
+            r.offset = { x: 0, y: 0 };
+            // -----------------------------
+
             this.model.saveHistory();
             this.model.notify();
             this.view.els.aiStatus.classList.add('hidden');
@@ -1281,7 +1224,7 @@ fitArea() {
             this.view.els.aiStatus.classList.add('hidden');
         }
     }
-
+}
 // ============================================================================
 // 6. BOOTSTRAP
 // ============================================================================
