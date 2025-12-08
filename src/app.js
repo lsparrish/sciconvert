@@ -8,8 +8,7 @@
  * 5. Consolidated Logic with Modular Drawing System.
  */
 
-await import('https://lsparrish.github.io/sciconvert/src/draw.js')
-  .catch(() => import('./src/app.js'));
+import { RegionEditor } from 'https://lsparrish.github.io/sciconvert/src/draw.js'
 
 window.app = (function () {
   // =========================================================================
