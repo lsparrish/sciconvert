@@ -329,7 +329,7 @@ class UIManager {
         });
     }
 
-        render(state) {
+    render(state) {
         this.els.regionCount.textContent = state.regions.length;
         
         this.els.zoomLevel.textContent = Math.round(state.scaleMultiplier * 100) + "%";
@@ -471,78 +471,40 @@ class UIManager {
             el.className = `resize-handle handle-${dir}`;
             
             // Positioning logic based on direction
-            // Note: CSS classes handle cursor and some positioning, 
-            // but we need to anchor them to the frame's specific geometry here
-            // relative to the interaction layer.
-            
             let hx = 0, hy = 0;
-            
-            // X positioning
-            if (dir.includes('e')) hx = x + w;
-            else if (dir.includes('w')) hx = x;
-            else hx = x + w/2; // n, s
-            
-            // Y positioning
-            if (dir.includes('s')) hy = y + h;
-            else if (dir.includes('n')) hy = y;
-            else hy = y + h/2; // e, w
-
-            // Offset by handle size (4px is half of 8px handle)
+            if (dir.includes('e')) hx = x + w; else if (dir.includes('w')) hx = x; else hx = x + w / 2;
+            if (dir.includes('s')) hy = y + h; else if (dir.includes('n')) hy = y; else hy = y + h / 2;
             el.style.left = (hx - 4) + "px";
             el.style.top = (hy - 4) + "px";
-            
+
             this.els.interactionLayer.appendChild(el);
-        });
-    }
-    renderLayerList(r) {
-        const container = this.els.layerList;
-        container.innerHTML = '';
-        if (!r || !r.svgContent) {
-            container.innerHTML = '<div style="text-align:center; color:#9ca3af; font-size:10px; margin-top:1rem;">No content</div>';
-            return;
-        }
-
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(`<svg>${r.svgContent}</svg>`, "image/svg+xml");
-        const children = Array.from(doc.documentElement.childNodes).filter(n => n.nodeType === 1);
-
-        children.forEach((child, idx) => {
-            const div = document.createElement('div');
-            div.style.cssText = "background:white; border:1px solid #e5e7eb; border-radius:4px; padding:4px; margin-bottom:4px;";
-            div.innerHTML = `<div style="font-size:10px; font-weight:700; color:#3b82f6; margin-bottom:2px;">${child.tagName}</div>
-            <textarea readonly style="width:100%; height: 60px; font-size:10px; border:1px solid #f3f4f6; resize:vertical; font-family:monospace;">${child.outerHTML}</textarea>`;
-            container.appendChild(div);
         });
     }
 
     updatePropertiesInputs(r, state) {
-        const x = r.rect.x * state.canvasWidth;
-        const y = r.rect.y * state.canvasHeight;
-        const w = r.rect.w * state.canvasWidth;
-        const h = r.rect.h * state.canvasHeight;
-        this.els.propX.value = x.toFixed(0);
-        this.els.propY.value = y.toFixed(0);
-        this.els.propW.value = w.toFixed(0);
-        this.els.propH.value = h.toFixed(0);
+        const scale = state.scaleMultiplier;
+        const physicalCw = state.canvasWidth * scale;
+        const physicalCh = state.canvasHeight * scale;
+        this.els.propX.value = Math.round(r.rect.x * physicalCw);
+        this.els.propY.value = Math.round(r.rect.y * physicalCh);
+        this.els.propW.value = Math.round(r.rect.w * physicalCw);
+        this.els.propH.value = Math.round(r.rect.h * physicalCh);
     }
 
     showRegionActionsBar(r, state) {
-        const rect = this.els.interactionLayer.getBoundingClientRect();
-        const scale = rect.width / state.canvasWidth;
-        const px = r.rect.x * state.canvasWidth * scale;
-        const py = r.rect.y * state.canvasHeight * scale;
-        const ph = r.rect.h * state.canvasHeight * scale;
-        const pw = r.rect.w * state.canvasWidth * scale;
-        
-        let top = rect.top + py + ph + 10;
-        let left = rect.left + px + (pw / 2) - (this.els.regionActionsBar.offsetWidth / 2);
-
-        if (left < 10) left = 10;
-        if (top > window.innerHeight - 50) top = rect.top + py - 50; 
-
-        this.els.regionActionsBar.style.left = left + "px";
-        this.els.regionActionsBar.style.top = top + "px";
-        this.els.regionActionsBar.classList.remove("hidden");
+        const scale = state.scaleMultiplier;
+        const physicalCw = state.canvasWidth * scale;
+        const physicalCh = state.canvasHeight * scale;
+        const x = r.rect.x * physicalCw;
+        const y = r.rect.y * physicalCh;
+        const w = r.rect.w * physicalCw;
+        const bar = this.els.regionActionsBar;
+        bar.style.left = `${x}px`;
+        bar.style.top = `${y - bar.offsetHeight - 8}px`;
+        if (parseFloat(bar.style.top) < 0) {
+            bar.style.top = `${y + physicalCh + 8}px`;
+        }
+        bar.classList.remove('hidden');
     }
 
     hideRegionActionsBar() {
@@ -553,36 +515,29 @@ class UIManager {
         this.els.zoomLevel.textContent = Math.round(scale * 100) + "%";
     }
 
+    renderLayerList(r) {
+        this.els.layerList.innerHTML = '<div style="text-align:center; color:#9ca3af; font-size:10px; margin-top:1rem;">Layer list placeholder</div>';
+    }
+
     toggleLoader(show) {
-        if(show) this.els.pdfLoader.classList.remove('hidden');
-        else this.els.pdfLoader.classList.add('hidden');
+        this.els.pdfLoader.classList.toggle('hidden', !show);
     }
 
     toggleWorkspace(show) {
-        if(show) {
-            this.els.emptyState.classList.add('hidden');
-            this.els.workspaceContainer.classList.remove('hidden');
-        } else {
-            this.els.emptyState.classList.remove('hidden');
-            this.els.workspaceContainer.classList.add('hidden');
-        }
+        this.els.workspaceContainer.classList.toggle('hidden', !show);
+        this.els.emptyState.classList.toggle('hidden', show);
     }
 
     setDebugLog(data) {
         this.els.debugLog.textContent = JSON.stringify(data, null, 2);
     }
-    switchTab(tabName) {
-        if (tabName === 'overlay') {
-            this.els.workspaceContainer.classList.remove('hidden');
-            this.els.debugContainer.classList.add('hidden');
-            this.els.tabOverlay.classList.add('tab-button-active');
-            this.els.tabDebug.classList.remove('tab-button-active');
-        } else if (tabName === 'debug') {
-            this.els.workspaceContainer.classList.add('hidden');
-            this.els.debugContainer.classList.remove('hidden');
-            this.els.tabOverlay.classList.remove('tab-button-active');
-            this.els.tabDebug.classList.add('tab-button-active');
-        }
+
+    switchTab(tab) {
+        const isOverlay = tab === 'overlay';
+        this.els.tabOverlay.classList.toggle('tab-button-active', isOverlay);
+        this.els.tabDebug.classList.toggle('tab-button-active', !isOverlay);
+        this.els.workspaceContainer.classList.toggle('hidden', !isOverlay);
+        this.els.debugContainer.classList.toggle('hidden', isOverlay);
     }
     updateSelectionBox(x, y, w, h) {
         const box = this.els.selectionBox;
@@ -593,20 +548,17 @@ class UIManager {
         box.style.display = "block";
     }
 }
-
 // ============================================================================
-// 4. RegionEditor(Canvas Interaction Logic)
+// 4. REGION EDITOR (Canvas Interaction Logic)
 // ============================================================================
 
 class RegionEditor {
     constructor(controller) {
         this.controller = controller;
-        this.mode = 'IDLE'; 
-        this.activeHandle = null;
-        this.dragStart = { x: 0, y: 0 };
+        this.mode = 'IDLE';
+        this.dragStart = null;
         this.initialRect = null;
-        this.handleSize = 8;
-        this.minSize = 5;
+        this.activeHandle = null;
     }
 
     init() {
