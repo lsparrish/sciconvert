@@ -66,8 +66,6 @@ export class RegionEditor {
 
         const { x, y, w, h } = this.denormalizeRect(region.rect);
         const handleOffset = (this.handleSize / 2) * (this.state.canvas.width / this.els.interactionLayer.getBoundingClientRect().width); 
-        // Note: We use a simplified proximity check for handles relative to canvas scale, 
-        // but for robustness we calculate handle positions in canvas space.
         
         // Define Handles
         const handles = {
@@ -102,7 +100,19 @@ export class RegionEditor {
         if (e.button !== 0) return; // Only left click
 
         const pos = this.getLocalPos(e);
-        const hit = this.hitTest(pos);
+        let hit = this.hitTest(pos);
+
+        // 1. SMART SELECTION: If we didn't hit the active region, check if we hit ANY region
+        if (hit.type === 'NONE') {
+            if (e.target.classList.contains('region-highlight')) {
+                const id = e.target.dataset.id;
+                if (id) {
+                    this.app.selectRegion(id);
+                    // Re-calculate hit against the NEW active region so we can drag immediately
+                    hit = this.hitTest(pos); 
+                }
+            }
+        }
 
         this.dragStart = pos;
 
@@ -123,16 +133,9 @@ export class RegionEditor {
 
         } else {
             // Start Creation (or Deselection if clicking empty space)
-            // Check if we clicked another existing unselected region (handled by app.js logic usually, but we can intercept here)
-            // For now, we assume if we didn't hit the *active* region, we are creating or selecting a new one.
-            
-            // Note: Currently simple selection logic is embedded in app.js rendering (via region-highlight elements).
-            // If the user clicks a region-highlight that isn't active, app.js handles the click.
-            // If the user clicks empty space, we create.
-            
             if (e.target === this.els.interactionLayer || e.target === this.els.selectionBox) {
                 this.interactionMode = 'CREATE';
-                this.app.deselect(); // Clear existing selection
+                this.app.deselect(); 
                 this.els.selectionBox.style.display = 'block';
                 this.updateSelectionBoxCSS(pos.x, pos.y, 0, 0);
             }
@@ -190,8 +193,6 @@ export class RegionEditor {
         let newH = init.h;
 
         // Calculate deltas
-        // Note: This logic allows free resizing. Constraint logic (minSize) is applied at the end.
-        
         if (this.activeHandle.includes('e')) newW = pos.x - init.x;
         if (this.activeHandle.includes('s')) newH = pos.y - init.y;
         if (this.activeHandle.includes('w')) {
@@ -237,7 +238,6 @@ export class RegionEditor {
                     h: h / this.state.canvas.height
                 });
             } else {
-                // Clicked without dragging much -> Deselect
                 this.app.deselect();
             }
             this.els.selectionBox.style.display = 'none';
@@ -269,9 +269,8 @@ export class RegionEditor {
     // --- RENDERERS ---
 
     renderActiveControls(region) {
-        if (this.interactionMode === 'CREATE') return; // Don't show handles while creating new box
+        if (this.interactionMode === 'CREATE') return; 
 
-        // Remove old frame
         const oldFrame = document.getElementById('active-selection-frame');
         if (oldFrame) oldFrame.remove();
 

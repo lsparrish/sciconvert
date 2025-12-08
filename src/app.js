@@ -1,10 +1,14 @@
 /*
  * SciText Digitizer - Application Bundle (src/app.js)
+ * This file consolidates:
+ * 1. SciTextHelpers: Core math and SVG utilities.
+ * 2. App Logic: State management, AI integration, and Canvas interaction.
+ * 3. Default UI Extensions: The "Region Actions" toolbar logic.
+ * 4. Embedded Template: HTML structure and CSS styles separated for clarity.
  * Consolidated Logic with Modular Drawing System.
  */
 
-import { RegionEditor } from 'https://lsparrish.github.io/sciconvert/src/draw.js'
-
+let RegionEditor;
 window.app = (function () {
   // =========================================================================
   // 0. EMBEDDED RESOURCES (Styles & Structure)
@@ -33,10 +37,6 @@ window.app = (function () {
   .uppercase { text-transform: uppercase; }
   .select-none { user-select: none; }
   .disabled, .disabled-bar { opacity: 0.5; pointer-events: none; transition: opacity 0.15s ease-in-out; }
-  .flex-container { display: flex; align-items: center; }
-  .flex-col { flex-direction: column; }
-  .flex-1 { flex: 1 1 0%; }
-  .shrink-0 { flex-shrink: 0; }
   
   /* --- Animations --- */
   .loader-spinner { width: 3rem; height: 3rem; border: 4px solid #4b5563; border-top-color: #3b82f6; border-radius: 9999px; animation: spin 1s linear infinite; margin-bottom: 1rem; }
@@ -70,7 +70,7 @@ window.app = (function () {
   .main-content-wrapper { flex: 1 1 0%; flex-direction: column; overflow: hidden; position: relative; background-color: white; display: flex; }
   .workspace-container { flex: 1 1 0%; display: flex; overflow: hidden; position: relative; }
 
-  /* --- Sidebar (Restored Elements) --- */
+  /* --- Sidebar --- */
   .sidebar-panel { width: 20rem; min-width: 320px; height: 100%; display: flex; flex-direction: column; border-right: 1px solid #e5e7eb; background-color: white; z-index: 10; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); flex-shrink: 0; }
   .prop-header { background-color: #f3f4f6; padding: 0.75rem 1rem; font-size: 0.75rem; font-weight: 700; color: #4b5563; border-bottom: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 0.5rem; flex-shrink: 0; }
   .prop-header-top { display: flex; justify-content: space-between; align-items: center; }
@@ -175,23 +175,12 @@ window.app = (function () {
         <button id="tab-overlay" class="tab-button tab-button-active">Compositor</button>
         <button id="tab-debug" class="tab-button">Debug View</button>
       </div>
-      
-      <!-- Empty State & Loader -->
-      <div id="empty-state" class="empty-state-container">
-        <div class="empty-card">
-            <h2>No Document Loaded</h2>
-            <p>Upload a PDF or Image to begin.</p>
-        </div>
-      </div>
-      <div id="pdf-loader" class="loader-overlay hidden">
-          <div class="loader-spinner"></div>
-          <span class="loader-text">Loading...</span>
-      </div>
 
       <!-- Main Workspace -->
       <div id="workspace-container" class="workspace-container hidden">
           <!-- Sidebar -->
           <div class="sidebar-panel">
+              <!-- Property Header - Restored full structure -->
               <div class="prop-header">
                   <div class="prop-header-top">
                       <span class="uppercase">Properties</span>
@@ -211,6 +200,8 @@ window.app = (function () {
                       </div>
                   </div>
               </div>
+              
+              <!-- Geometry Inputs - Restored -->
               <div class="geometry-inputs">
                   <div id="mode-label" class="mode-status">Area Mode</div>
                   <div style="grid-column: span 2; display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
@@ -222,13 +213,18 @@ window.app = (function () {
                       <div><label id="lbl-h" class="input-label uppercase">Height</label><input type="number" id="prop-h" class="input-field" disabled></div>
                   </div>
               </div>
+
+              <!-- Layer List Header - Restored -->
               <div class="layer-list-header">
                   <span class="uppercase">Region Layers</span>
                   <button id="btn-add-layer"> + Add</button>
               </div>
+
               <div id="layer-list" class="layer-list-container">
                   <div style="text-align:center; color:#9ca3af; font-size:10px; margin-top:1rem;">Select a region to view layers</div>
               </div>
+              
+              <!-- Sidebar Footer - Restored full context actions -->
               <div class="sidebar-footer">
                   <div class="header-group" style="gap:0.25rem;">
                     <button id="btn-export" class="action-bar-btn" style="background-color:#047857;">Export SVG</button>
@@ -244,6 +240,7 @@ window.app = (function () {
                   </div>
               </div>
           </div>
+
           <!-- Canvas Viewport -->
           <div id="canvas-view-area" class="canvas-view-style">
               <div id="canvas-scroller" class="canvas-scroller-style">
@@ -259,7 +256,8 @@ window.app = (function () {
       
       <!-- Debug View Container - Restored (Hidden by default) -->
       <div id="debug-container" class="workspace-container hidden" style="background-color:#111827; flex-direction:column; padding:1.5rem; overflow-y:auto;">
-           <div style="color:white;">[Debug View Content Goes Here]</div>
+           <div style="color:white; font-family:monospace;">[Debug View - Select a region to view details]</div>
+           <pre id="debug-log" style="color:#4ade80; font-size:10px;"></pre>
       </div>
       
       <!-- Loaders & Empty States -->
@@ -312,14 +310,31 @@ window.app = (function () {
   const els = {};
   let regionEditor = null; // Instance of RegionEditor
 
-  function init() {
+  async function init() {
+    // Dynamically import draw.js if not already available
+    if (!RegionEditor) {
+        try {
+            const module = await import('./draw.js');
+            RegionEditor = module.RegionEditor;
+        } catch (e) {
+            console.warn("Local import failed, trying CDN fallback...");
+            try {
+                const module = await import('https://lsparrish.github.io/sciconvert/src/draw.js');
+                RegionEditor = module.RegionEditor;
+            } catch (err) {
+                console.error("Failed to load draw.js:", err);
+                return; // Critical failure
+            }
+        }
+    }
+
     // Inject Styles
     const style = document.createElement("style");
     style.textContent = APP_STYLES;
     document.head.appendChild(style);
     document.body.insertAdjacentHTML("beforeend", APP_STRUCTURE);
 
-    // Bind DOM (Restoring missing bindings)
+    // Bind DOM
     state.canvas = document.getElementById("processing-canvas");
     els.upload = document.getElementById("pdf-upload");
     els.btnZoomIn = document.getElementById("zoom-in");
@@ -329,9 +344,10 @@ window.app = (function () {
     els.btnRedo = document.getElementById("btn-redo");
     
     // Tabs & Views
-    els.tabOverlay = document.getElementById("tab-overlay"); // NEW
-    els.tabDebug = document.getElementById("tab-debug");     // NEW
-    els.debugContainer = document.getElementById("debug-container"); // NEW
+    els.tabOverlay = document.getElementById("tab-overlay"); 
+    els.tabDebug = document.getElementById("tab-debug");     
+    els.debugContainer = document.getElementById("debug-container"); 
+    els.debugLog = document.getElementById("debug-log");
     els.workspace = document.getElementById("workspace-container");
     
     // Main UI
@@ -343,9 +359,9 @@ window.app = (function () {
     els.interactionLayer = document.getElementById("interaction-layer");
     els.selectionBox = document.getElementById("selection-box");
     
-    // Action Bars - Renamed from draft-actions-bar
+    // Action Bars 
     els.regionActionsBar = document.getElementById("region-actions-bar");
-    els.btnCancelRegion = document.getElementById("btn-cancel-region"); // NEW
+    els.btnCancelRegion = document.getElementById("btn-cancel-region"); 
 
     // Sidebar
     els.layerList = document.getElementById("layer-list");
@@ -355,7 +371,7 @@ window.app = (function () {
     els.btnDelete = document.getElementById("btn-delete");
     els.fullscreenBtn = document.getElementById("fullscreen-toggle");
     
-    // Sidebar - Geometry & Mode - NEW
+    // Sidebar - Geometry & Mode 
     els.modeArea = document.getElementById("mode-area");
     els.modeContent = document.getElementById("mode-content");
     els.modeLabel = document.getElementById("mode-label");
@@ -367,7 +383,7 @@ window.app = (function () {
     els.propH = document.getElementById("prop-h");
     els.btnAddLayer = document.getElementById("btn-add-layer");
     
-    // Sidebar - Context Actions - NEW
+    // Sidebar - Context Actions 
     els.btnDigitize = document.getElementById("btn-digitize");
     els.btnSplit = document.getElementById("btn-split");
     els.btnGroup = document.getElementById("btn-group");
@@ -434,8 +450,9 @@ window.app = (function () {
       if (r) {
           regionEditor.renderActiveControls(r);
           renderLayerList(r);
-          updateUIProperties(r); // NEW: Update property inputs
+          updateUIProperties(r); 
           showRegionActionsBar(r);
+          els.debugLog.textContent = JSON.stringify(r, null, 2); // Debug View Update
       }
       updateUI();
   };
@@ -443,8 +460,7 @@ window.app = (function () {
   app.deselect = function() {
       state.activeRegionId = null;
       state.selectedIds.clear();
-      els.regionActionsBar.classList.add("hidden"); // Renamed
-      // Hide and clear selection frame
+      els.regionActionsBar.classList.add("hidden"); 
       const frame = document.getElementById('active-selection-frame');
       if (frame) frame.remove();
       
@@ -474,6 +490,8 @@ window.app = (function () {
           svg.setAttribute("height", ph);
           svg.setAttribute("viewBox", `0 0 ${dimW} ${dimH}`);
           svg.setAttribute("preserveAspectRatio", "none");
+          // Add default color if black
+          svg.style.color = "black";
           svg.innerHTML = `<g transform="translate(${r.offset.x || 0}, ${r.offset.y || 0}) scale(${r.scale?.x || 1}, ${r.scale?.y || 1})">${r.svgContent || ''}</g>`;
           els.svgLayer.appendChild(svg);
 
@@ -575,7 +593,6 @@ window.app = (function () {
       els.btnRedo.disabled = state.historyIndex >= state.history.length - 1;
   }
   
-  // Restored: switchTab
   function switchTab(t) {
     els.workspace.classList.toggle("hidden", t !== "overlay");
     els.debugContainer.classList.toggle("hidden", t !== "debug");
@@ -594,29 +611,48 @@ window.app = (function () {
       els.btnUndo.onclick = undo;
       els.btnRedo.onclick = redo;
 
-      // File
+      // File Upload - Restored PDF Support
       els.upload.onchange = async (e) => {
           const file = e.target.files[0];
           if (!file) return;
           els.loader.classList.remove("hidden");
-          const img = new Image();
-          img.src = URL.createObjectURL(file);
-          await new Promise(r => img.onload = r);
-          state.canvas.width = img.width;
-          state.canvas.height = img.height;
-          state.baseWidth = img.width;
-          state.canvas.getContext('2d').drawImage(img, 0, 0);
+          
+          if (file.type === "application/pdf" && window.pdfjsLib) {
+              const ab = await file.arrayBuffer();
+              const pdf = await pdfjsLib.getDocument(ab).promise;
+              const page = await pdf.getPage(1);
+              const viewport = page.getViewport({ scale: 2.0 });
+              state.canvas.width = viewport.width;
+              state.canvas.height = viewport.height;
+              state.baseWidth = viewport.width;
+              await page.render({
+                canvasContext: state.canvas.getContext("2d"),
+                viewport,
+              }).promise;
+          } else {
+              const img = new Image();
+              img.src = URL.createObjectURL(file);
+              await new Promise(r => img.onload = r);
+              state.canvas.width = img.width;
+              state.canvas.height = img.height;
+              state.baseWidth = img.width;
+              state.canvas.getContext('2d').drawImage(img, 0, 0);
+          }
+          
           renderPage();
           els.loader.classList.add("hidden");
           els.emptyState.classList.add("hidden");
           els.workspace.classList.remove("hidden");
           els.workspace.classList.add("flex");
+          // Reset
+          state.regions = [];
+          state.history = [];
           saveState(true);
       };
 
       // Actions
       els.btnDelete.onclick = () => {
-          state.regions = state.regions.filter(r => r.id !== state.activeRegionId);
+          state.regions = state.regions.filter(r => !state.selectedIds.has(r.id));
           app.deselect();
           saveState();
       };
@@ -662,23 +698,15 @@ window.app = (function () {
       // Context Actions (Placeholder actions)
       els.btnDigitize.onclick = () => generateContent('text');
       els.btnRegen.onclick = () => generateContent('text');
-      // Other context buttons (split, group, optimize, add layer) need complex logic,
-      // so we use a minimal placeholder function for now to prevent errors.
-      [els.btnSplit, els.btnGroup, els.btnOptimize, els.btnAddLayer].forEach(btn => {
-          btn.onclick = () => {
-              els.aiStatus.textContent = `Action "${btn.textContent.trim()}" not implemented yet.`;
-              els.aiStatus.classList.remove("hidden");
-              setTimeout(() => els.aiStatus.classList.add("hidden"), 3000);
-          };
-      });
-
+      els.btnGroup.onclick = groupSelectedRegions; // Restored
 
       document.getElementById('btn-export').onclick = () => {
-          const svg = els.svgLayer.innerHTML; // Simplified export
-          const blob = new Blob([`<svg xmlns="http://www.w3.org/2000/svg" width="${state.canvas.width}" height="${state.canvas.height}">${svg}</svg>`], {type: "image/svg+xml"});
+          // Use SciTextHelpers.composeSVG for proper export
+          const svg = SciTextHelpers.composeSVG(state.regions, state.canvas.width, state.canvas.height);
+          const blob = new Blob([svg], {type: "image/svg+xml"});
           const a = document.createElement('a');
           a.href = URL.createObjectURL(blob);
-          a.download = "export.svg";
+          a.download = "scitext_export.svg";
           a.click();
       };
       
@@ -703,8 +731,90 @@ window.app = (function () {
   }
 
   // =========================================================================
-  // 4. HELPERS (Zoom, History, AI)
+  // 4. HELPERS (Zoom, History, AI, SVG)
   // =========================================================================
+
+  // Restored: SciTextHelpers for SVG Ops and RLE
+  const SciTextHelpers = {
+    normalizeRect: function (x, y, w, h, canvasWidth, canvasHeight) {
+      return { x: x / canvasWidth, y: y / canvasHeight, w: w / canvasWidth, h: h / canvasHeight };
+    },
+    runLengthEncode: function (imageData) {
+      let path = "";
+      const { width, height, data } = imageData;
+      for (let y = 0; y < height; y += 2) {
+        let startX = -1;
+        for (let x = 0; x < width; x++) {
+          const idx = (y * width + x) * 4;
+          const isDark = data[idx + 3] > 128 && data[idx] < 128 && data[idx + 1] < 128 && data[idx + 2] < 128;
+          if (isDark) {
+            if (startX === -1) startX = x;
+          } else {
+            if (startX !== -1) {
+              path += `M${startX} ${y}h${x - startX}v2h-${x - startX}z`;
+              startX = -1;
+            }
+          }
+        }
+        if (startX !== -1) path += `M${startX} ${y}h${width - startX}v2h-${width - startX}z`;
+      }
+      return path;
+    },
+    composeSVG: function (regions, canvasWidth, canvasHeight) {
+      let out = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n`;
+      out += `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasWidth}" height="${canvasHeight}" viewBox="0 0 ${canvasWidth} ${canvasHeight}">\n`;
+      out += `  <rect width="100%" height="100%" fill="white"/>\n`;
+      regions.forEach((r) => {
+        if (!r.svgContent) return;
+        const x = (r.rect.x * canvasWidth).toFixed(3);
+        const y = (r.rect.y * canvasHeight).toFixed(3);
+        const w = (r.rect.w * canvasWidth).toFixed(3);
+        const h = (r.rect.h * canvasHeight).toFixed(3);
+        r.scale = r.scale || { x: 1, y: 1 };
+        r.offset = r.offset || { x: 0, y: 0 };
+        out += `  <svg x="${x}" y="${y}" width="${w}" height="${h}" viewBox="0 0 ${r.bpDims.w} ${r.bpDims.h}" preserveAspectRatio="none" overflow="visible">\n`;
+        out += `    <g transform="translate(${r.offset.x},${r.offset.y}) scale(${r.scale.x},${r.scale.y})">\n`;
+        out += `      ${r.svgContent}\n`;
+        out += `    </g>\n`;
+        out += `  </svg>\n`;
+      });
+      out += `</svg>`;
+      return out;
+    }
+  };
+
+  function groupSelectedRegions() {
+    const selected = state.regions.filter((r) => state.selectedIds.has(r.id));
+    if (selected.length < 2) return;
+    const cw = state.canvas.width;
+    const ch = state.canvas.height;
+    let minX = 1, minY = 1, maxX = 0, maxY = 0;
+    selected.forEach((r) => {
+      minX = Math.min(minX, r.rect.x);
+      minY = Math.min(minY, r.rect.y);
+      maxX = Math.max(maxX, r.rect.x + r.rect.w);
+      maxY = Math.max(maxY, r.rect.y + r.rect.h);
+    });
+    let mergedContent = "";
+    selected.forEach((r) => {
+      const relX = (r.rect.x - minX) * cw;
+      const relY = (r.rect.y - minY) * ch;
+      mergedContent += `<svg x="${relX.toFixed(3)}" y="${relY.toFixed(3)}" width="${(r.rect.w * cw).toFixed(3)}" height="${(r.rect.h * ch).toFixed(3)}" viewBox="0 0 ${r.bpDims.w} ${r.bpDims.h}" preserveAspectRatio="none" overflow="visible"><g transform="translate(${r.offset.x},${r.offset.y}) scale(${r.scale.x},${r.scale.y})">${r.svgContent}</g></svg>`;
+    });
+    const newRegion = {
+      id: `r${Date.now()}`,
+      rect: { x: minX, y: minY, w: maxX - minX, h: maxY - minY },
+      bpDims: { w: (maxX - minX) * cw, h: (maxY - minY) * ch },
+      svgContent: mergedContent,
+      scale: { x: 1, y: 1 },
+      offset: { x: 0, y: 0 },
+      status: "grouped",
+    };
+    state.regions = state.regions.filter((r) => !state.selectedIds.has(r.id));
+    state.regions.push(newRegion);
+    app.selectRegion(newRegion.id);
+    saveState();
+  }
 
   function setZoom(m) {
       state.scaleMultiplier = Math.max(0.25, Math.min(5.0, m));
@@ -712,7 +822,6 @@ window.app = (function () {
       const w = state.baseWidth * state.scaleMultiplier;
       els.wrapper.style.width = w + "px";
       els.wrapper.style.height = (w * (state.canvas.height / state.canvas.width)) + "px";
-      // Render regions after zoom to update the controls position
       app.renderRegions();
   }
 
@@ -782,7 +891,7 @@ window.app = (function () {
       if (!r) return;
       
       els.aiStatus.classList.remove("hidden");
-      els.regionActionsBar.classList.add("hidden"); // Renamed
+      els.regionActionsBar.classList.add("hidden"); 
 
       if (type === 'empty') {
           r.svgContent = '';
@@ -793,17 +902,64 @@ window.app = (function () {
           return;
       }
 
-      // Simulation of AI generation (keeping it simple for this step)
-      setTimeout(() => {
-          const color = type === 'image' ? '#f59e0b' : '#10b981';
-          r.svgContent = `<rect width="100%" height="100%" fill="${color}" fill-opacity="0.2"/><text x="50%" y="50%" font-size="20" fill="black" text-anchor="middle">Generated ${type}</text>`;
-          r.status = 'done';
-          r.bpDims = { w: r.rect.w * state.canvas.width, h: r.rect.h * state.canvas.height };
-          
-          app.renderRegions();
-          els.aiStatus.classList.add("hidden");
+      // Prepare AI Request (Real Logic Restored)
+      els.aiStatus.textContent = `Generating ${type}...`;
+      const cw = state.canvas.width;
+      const ch = state.canvas.height;
+      const pw = Math.floor(r.rect.w * cw);
+      const ph = Math.floor(r.rect.h * ch);
+      
+      // 1. Create High-Res Crop
+      const tmp = document.createElement("canvas");
+      tmp.width = pw * 2;
+      tmp.height = ph * 2;
+      tmp.getContext("2d").drawImage(state.canvas, r.rect.x * cw, r.rect.y * ch, pw, ph, 0, 0, pw * 2, ph * 2);
+      const base64 = tmp.toDataURL("image/png").split(",")[1];
+
+      // 2. Create Blueprint
+      const bpC = document.createElement("canvas");
+      bpC.width = pw; bpC.height = ph;
+      bpC.getContext("2d").drawImage(state.canvas, r.rect.x * cw, r.rect.y * ch, pw, ph, 0, 0, pw, ph);
+      const rle = SciTextHelpers.runLengthEncode(bpC.getContext("2d").getImageData(0, 0, pw, ph));
+      
+      r.bpDims = { w: pw, h: ph };
+      
+      const prompt = `You are a precision SVG Typesetter.\nINPUTS:\n1. IMAGE: A 2x scale scan.\n2. BLUEPRINT: A 1x scale vector path.\nTASK:\nGenerate SVG <text> elements positioned over the BLUEPRINT.\nViewBox: 0 0 ${pw} ${ph}.\nOutput strictly valid SVG elements.\nBLUEPRINT (Partial):\n${rle.substring(0, 500)}...`;
+
+      try {
+          const resp = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: base64 } }] }]
+              }),
+            }
+          );
+          const json = await resp.json();
+          const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!text) throw new Error("No SVG generated.");
+
+          r.svgContent = text.replace(/```svg/g, "").replace(/```/g, "").trim();
+          r.status = "generated";
+          r.scale = { x: 1, y: 1 };
+          r.offset = { x: 0, y: 0 };
+
           saveState();
-      }, 1000);
+          app.renderRegions();
+          app.selectRegion(r.id);
+      } catch (e) {
+          console.error("AI Error:", e);
+          els.aiStatus.textContent = "Error generating content.";
+          r.svgContent = `<text x="50%" y="50%" font-size="20" fill="red">Error</text>`;
+          app.renderRegions();
+      } finally {
+          setTimeout(() => {
+            els.aiStatus.classList.add("hidden");
+            els.aiStatus.textContent = "Processing...";
+          }, 3000);
+      }
   }
 
   app.bootstrap = init;
