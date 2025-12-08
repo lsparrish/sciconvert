@@ -135,7 +135,12 @@ const APP_STRUCTURE = `
                   <div><label class="input-label">Width</label><input type="number" id="prop-w" class="input-field"></div>
                   <div><label class="input-label">Height</label><input type="number" id="prop-h" class="input-field"></div>
               </div>
-
+              <div id="prop-preview" style="height: 120px; border-bottom: 1px solid #e5e7eb; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative;">
+                <span style="color: #9ca3af; font-size: 10px; font-weight: 600; text-transform: uppercase; margin-bottom: 4px;">Ink Blueprint</span>
+                <div id="preview-content" style="width: 90%; height: 80px; border: 1px dashed #d1d5db; display: flex; align-items: center; justify-content: center;">
+                   <span style="color:#d1d5db; font-size:9px;">No Data</span>
+                </div>
+              </div>
               <div id="layer-list" class="layer-list-container">
                   <div style="text-align:center; color:#9ca3af; font-size:10px; margin-top:1rem;">Select a region</div>
               </div>
@@ -185,7 +190,7 @@ const APP_STRUCTURE = `
     <div id="region-actions-bar" class="region-actions-bar hidden">
       <button data-type="text" class="action-bar-btn" style="background:#2563eb;">AI Text</button>
       <button data-type="image" class="action-bar-btn" style="background:#d97706;">Image</button>
-      <button data-type="empty" class="action-bar-btn" style="background:#4b5563;">Empty</button>
+      <button data-type="blueprint" class="action-bar-btn" style="background:#059669;">Scan</button> <button data-type="empty" class="action-bar-btn" style="background:#4b5563;">Empty</button>
       <div style="width:1px;height:1.5rem;background:#d1d5db;"></div>
       <button id="btn-cancel-region" class="action-bar-btn" style="color:#ef4444;background:transparent;border:1px solid #d1d5db;">Cancel</button>
     </div>
@@ -321,7 +326,8 @@ class UIManager {
             'pdf-loader','canvas-wrapper','pdf-layer','svg-layer','interaction-layer','selection-box',
             'region-actions-bar','btn-cancel-region','layer-list','region-count','context-actions',
             'ai-status','btn-delete','fullscreen-toggle','prop-x','prop-y','prop-w','prop-h',
-            'btn-fit-area','btn-fit-content','btn-digitize','btn-split','btn-group','btn-export','btn-clear-all'
+            'btn-fit-area','btn-fit-content','btn-digitize','btn-split','btn-group','btn-export','btn-clear-all',
+            'preview-content'
         ];
         const camelCase = (s) => s.replace(/-./g, x=>x[1].toUpperCase());
         ids.forEach(id => {
@@ -378,6 +384,12 @@ class UIManager {
             this.updatePropertiesInputs(r, state);
             this.showRegionActionsBar(r, state);
             this.renderLayerList(r);
+            const previewEl = this.els.previewContent;
+            if (r.inkMapSVG) {
+                previewEl.innerHTML = r.inkMapSVG;
+            } else {
+                previewEl.innerHTML = '<span style="color:#d1d5db; font-size:9px;">No Data</span>';
+            }
         } else {
             this.els.regionActionsBar.classList.add('hidden');
             // Clear inputs if no region selected
@@ -983,33 +995,142 @@ class SciTextController {
         this.model.updateRegion(id, { rect: r });
         this.model.saveHistory();
     }
+
+generateInkMap(region) {
+    const s = this.model.state;
+    const cw = s.canvasWidth;
+    const ch = s.canvasHeight;
     
-    fitArea() {
-        // Simple heuristic: shrink wrap to content? 
-        // For now, just a stub action or maybe reset to aspect ratio.
-        // Or align to grid.
-        // Let's implement snap to integer coords for cleaner SVG.
-        const id = this.model.state.activeRegionId;
-        if (!id) return;
-        const r = this.model.getRegion(id);
-        const cw = this.model.state.canvasWidth;
-        const ch = this.model.state.canvasHeight;
-        // Snap to nearest pixel
-        const newRect = {
-            x: Math.round(r.rect.x * cw) / cw,
-            y: Math.round(r.rect.y * ch) / ch,
-            w: Math.round(r.rect.w * cw) / cw,
-            h: Math.round(r.rect.h * ch) / ch
-        };
-        this.model.updateRegion(id, { rect: newRect });
-        this.model.saveHistory();
+    const w = region.rect.w * cw;
+    const h = region.rect.h * ch;
+    if (w <= 0 || h <= 0) return null;
+
+    const scale = Math.min(1.0, 300 / Math.max(w, h)); 
+    const smW = Math.floor(w * scale);
+    const smH = Math.floor(h * scale);
+
+    if (smW < 1 || smH < 1) return null;
+
+    const tmp = document.createElement('canvas');
+    tmp.width = smW;
+    tmp.height = smH;
+    const ctx = tmp.getContext('2d', { willReadFrequently: true });
+
+    try {
+        ctx.drawImage(s.canvas, 
+            region.rect.x * cw, region.rect.y * ch, w, h, 
+            0, 0, smW, smH
+        );
+        const imageData = ctx.getImageData(0, 0, smW, smH);
+        const data = imageData.data;
+    } catch (e) {
+        console.error("Canvas draw or data access error (likely CORS):", e);
+        return null;
     }
+
+    const THRESHOLD = 700; 
+
+    let pathD = "";
+    let minX = smW, minY = smH, maxX = 0, maxY = 0;
+    let found = false;
+
+    for (let y = 0; y < smH; y++) {
+        let startX = -1;
+        for (let x = 0; x < smW; x++) {
+            const i = (y * smW + x) * 4;
+            const isInk = data[i+3] > 50 && (data[i] + data[i+1] + data[i+2] < THRESHOLD);
+
+            if (isInk) {
+                if (startX === -1) startX = x;
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+                found = true;
+            } else if (startX !== -1) {
+                pathD += `M${startX} ${y}h${x - startX}v1h-${x - startX}z`;
+                startX = -1;
+            }
+        }
+        if (startX !== -1) pathD += `M${startX} ${y}h${smW - startX}v1h-${smW - startX}z`;
+    }
+
+    if (!found) return null;
+
+    return {
+        path: pathD,
+        scale: scale,
+        scanBounds: { minX, minY, w: (maxX - minX + 1), h: (maxY - minY + 1) },
+        globalBounds: {
+            x: (region.rect.x * cw + (minX / scale)) / cw,
+            y: (region.rect.y * ch + (minY / scale)) / ch,
+            w: ((maxX - minX + 1) / scale) / cw,
+            h: ((maxY - minY + 1) / scale) / ch
+        }
+    };
+}
+fitArea() {
+    const id = this.model.state.activeRegionId;
+    if (!id) return;
+    
+    const r = this.model.getRegion(id);
+    const bp = this.generateInkMap(r);
+
+    if (!bp) {
+        console.log("No ink found in selection.");
+        return;
+    }
+
+    const s = this.model.state;
+    const pad = 4; // Pixel padding
+
+    // 1. Calculate the New Region Rect (Tight bounds around ink)
+    const newRect = {
+        x: bp.globalBounds.x - (pad / s.canvasWidth),
+        y: bp.globalBounds.y - (pad / s.canvasHeight),
+        w: bp.globalBounds.w + ((pad * 2) / s.canvasWidth),
+        h: bp.globalBounds.h + ((pad * 2) / s.canvasHeight)
+    };
+
+    // 2. Sidebar Preview (Standard ViewBox logic)
+    const padSc = pad * bp.scale;
+    const vbX = bp.scanBounds.minX - padSc;
+    const vbY = bp.scanBounds.minY - padSc;
+    const vbW = bp.scanBounds.w + (padSc * 2);
+    const vbH = bp.scanBounds.h + (padSc * 2);
+    const sidebarSVG = `<svg viewBox="${vbX} ${vbY} ${vbW} ${vbH}" width="100%" height="100%" preserveAspectRatio="none"><path d="${bp.path}" fill="#3b82f6" /></svg>`;
+
+    // 3. Main Canvas Content (The Fix)
+    // We use a matrix to explicitly set: x' = (x * scale) + translate
+    const scaleUp = 1 / bp.scale;
+    const transX = pad - (bp.scanBounds.minX * scaleUp);
+    const transY = pad - (bp.scanBounds.minY * scaleUp);
+    
+    // Matrix format: matrix(scaleX, skewY, skewX, scaleY, transX, transY)
+    const contentSVG = `<path d="${bp.path}" fill="#3b82f6" fill-opacity="0.2" transform="matrix(${scaleUp}, 0, 0, ${scaleUp}, ${transX}, ${transY})" />`;
+
+    // 4. Update Region & RESET State
+    // We MUST reset scale/offset to identity, otherwise they compound with the new fit.
+    this.model.updateRegion(id, { 
+        rect: newRect,
+        inkMapSVG: sidebarSVG,
+        svgContent: contentSVG,
+        bpDims: { w: vbW / bp.scale, h: vbH / bp.scale },
+        scale: {x: 1, y: 1},    // <--- CRITICAL RESET
+        offset: {x: 0, y: 0}    // <--- CRITICAL RESET
+    });
+    
+    this.model.saveHistory();
+}
     
     fitContent() {
-        // Placeholder: Reset content scale/offset
         const id = this.model.state.activeRegionId;
         if (!id) return;
-        this.model.updateRegion(id, { scale: {x:1, y:1}, offset: {x:0, y:0} });
+        // Reset transform but keep the box
+        this.model.updateRegion(id, { 
+            scale: {x: 1, y: 1}, 
+            offset: {x: 0, y: 0} 
+        });
         this.model.saveHistory();
     }
     
@@ -1065,13 +1186,14 @@ class SciTextController {
             a.click();
         }
 
-        async generateContent(type) {
-            const r = this.model.getRegion(this.model.state.activeRegionId);
-            if (!r) return;
-        
+    async generateContent(type) {
+        const r = this.model.getRegion(this.model.state.activeRegionId);
+        if (!r) return;
+    
         this.view.els.aiStatus.classList.remove('hidden');
         this.view.hideRegionActionsBar();
 
+        // 1. Handle Empty/Clear
         if (type === 'empty') {
             r.svgContent = ''; 
             r.status = 'done';
@@ -1081,30 +1203,56 @@ class SciTextController {
             return;
         }
 
-        this.view.els.aiStatus.textContent = `Generating ${type}...`;
+        // 2. Prepare Image Data & RLE
+        this.view.els.aiStatus.textContent = `Processing...`;
         const s = this.model.state;
         const pw = Math.floor(r.rect.w * s.canvasWidth);
         const ph = Math.floor(r.rect.h * s.canvasHeight);
 
+        // Create 2x scale canvas for better resolution
         const tmp = document.createElement("canvas");
         tmp.width = pw * 2; tmp.height = ph * 2;
-        tmp.getContext("2d").drawImage(s.canvas, r.rect.x*s.canvasWidth, r.rect.y*s.canvasHeight, pw, ph, 0, 0, pw*2, ph*2);
-        const base64 = tmp.toDataURL("image/png").split(",")[1];
-
-        // RLE Logic Inline
+        const ctx = tmp.getContext("2d");
+        ctx.drawImage(s.canvas, r.rect.x*s.canvasWidth, r.rect.y*s.canvasHeight, pw, ph, 0, 0, pw*2, ph*2);
+        
+        // RLE Logic
         let rle = "";
-        const data = tmp.getContext("2d").getImageData(0,0,pw*2,ph*2).data;
-        // Basic RLE loop
+        const data = ctx.getImageData(0,0,pw*2,ph*2).data;
+        // Basic RLE loop (Threshold < 128 is dark/ink)
         for (let y=0; y<ph*2; y+=2) {
             let sx = -1;
             for (let x=0; x<pw*2; x++) {
                 const i = (y*pw*2 + x)*4;
-                if(data[i+3]>128 && data[i]<128) { if(sx===-1) sx=x; }
-                else { if(sx!==-1) { rle+=`M${sx} ${y}h${x-sx}v2h-${x-sx}z`; sx=-1; } }
+                // Check if pixel is dark enough (using alpha > 128 and red channel < 128 as proxy)
+                if(data[i+3]>128 && data[i]<128) { 
+                    if(sx===-1) sx=x; 
+                } else { 
+                    if(sx!==-1) { 
+                        rle+=`M${sx} ${y}h${x-sx}v2h-${x-sx}z`; 
+                        sx=-1; 
+                    } 
+                }
             }
             if(sx!==-1) rle+=`M${sx} ${y}h${pw*2-sx}v2h-${pw*2-sx}z`;
         }
-        
+
+        // 3. Handle Local Blueprint (NO AI)
+        if (type === 'blueprint') {
+            // Apply the RLE path directly to svgContent
+            r.svgContent = `<path d="${rle}" fill="black" />`;
+            r.status = 'scanned';
+            // Set dimensions to match the 2x scale of the RLE scan
+            r.bpDims = { w: pw * 2, h: ph * 2 };
+            
+            this.model.saveHistory();
+            this.model.notify();
+            this.view.els.aiStatus.classList.add('hidden');
+            return;
+        }
+
+        // 4. Handle AI Generation
+        this.view.els.aiStatus.textContent = `Generating ${type}...`;
+        const base64 = tmp.toDataURL("image/png").split(",")[1];
         const promptType = type === 'image' ? 'SVG Graphic' : 'SVG Text';
         const prompt = `You are a precision SVG Typesetter.\nINPUT: 2x scale scan.\nTASK: Generate ${promptType}.\nViewBox: 0 0 ${pw} ${ph}.\nOutput only <svg> code.\nRLE: ${rle.substring(0,500)}...`;
 
@@ -1119,7 +1267,7 @@ class SciTextController {
             
             r.svgContent = text.replace(/```svg/g, "").replace(/```/g, "").trim();
             r.status = 'generated';
-            r.bpDims = { w: pw, h: ph };
+            r.bpDims = { w: pw, h: ph }; // AI usually returns 1x scale coordinates
             
             this.model.saveHistory();
             this.model.notify();
@@ -1131,7 +1279,6 @@ class SciTextController {
             this.view.els.aiStatus.classList.add('hidden');
         }
     }
-}
 
 // ============================================================================
 // 6. BOOTSTRAP
