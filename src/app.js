@@ -57,6 +57,25 @@ body { font-family: "Segoe UI", sans-serif; background-color: #111827; height: 1
 .input-label { display: block; color: #9ca3af; font-weight: 700; margin-bottom: 0.25rem; font-size: 10px; text-transform: uppercase; }
 .input-field { width: 100%; border: 1px solid #d1d5db; border-radius: 0.25rem; padding: 0.375rem; text-align: center; }
 .layer-list-container { display: flex; flex-direction: column; background-color: #e5e7eb; overflow: hidden; position: relative; }
+.layer-item {
+    padding: 0.5rem 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    border-bottom: 1px solid #e5e7eb;
+    background: white;
+    transition: background 0.15s;
+}
+.layer-item:hover { background: #f3f4f6; }
+.layer-item.active { background: #dbeafe; font-weight: 600; }
+.layer-item .visibility-toggle { font-size: 1rem; opacity: 0.6; cursor: pointer; }
+.layer-item .visibility-toggle.hidden { opacity: 0.2; }
+.layer-item .drag-handle { cursor: move; color: #9ca3af; }
+.layer-item .layer-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.layer-item .delete-btn { color: #ef4444; opacity: 0; font-size: 0.9rem; }
+.layer-item:hover .delete-btn { opacity: 1; }
 .sidebar-footer { padding: 0.75rem; border-top: 1px solid #e5e7eb; background-color: #f9fafb; display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: space-between; }
 
 /* --- Canvas --- */
@@ -132,14 +151,12 @@ const APP_STRUCTURE = `
                   <div><label class="input-label">Width</label><input type="number" id="prop-w" class="input-field"></div>
                   <div><label class="input-label">Height</label><input type="number" id="prop-h" class="input-field"></div>
               </div>
-              <div id="prop-preview" style="height: 120px; border-bottom: 1px solid #e5e7eb; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative;">
-                <span style="color: #9ca3af; font-size: 10px; font-weight: 600; text-transform: uppercase; margin-bottom: 4px;">Ink Blueprint</span>
-                <div id="preview-content" style="width: 90%; height: 80px; border: 1px dashed #d1d5db; display: flex; align-items: center; justify-content: center;">
-                   <span style="color:#d1d5db; font-size:9px;">No Data</span>
-                </div>
-              </div>
               <div id="layer-list" class="layer-list-container">
-                  <div style="text-align:center; color:#9ca3af; font-size:10px; margin-top:1rem;">Select a region</div>
+                  <div class="layer-list-header" style="padding:0.5rem 1rem; background:#f3f4f6; border-bottom:1px solid #e5e7eb; font-size:0.75rem; font-weight:700; color:#4b5563; text-transform:uppercase; letter-spacing:0.05em;">
+                      Layers
+                      <button id="btn-toggle-visibility-all" style="float:right; background:none; border:none; cursor:pointer; color:#6b7280; font-size:1rem;">👁</button>
+                  </div>
+                  <div id="layer-items" style="flex:1; overflow-y:auto; padding:0.25rem 0;"></div>
               </div>
               
               <div class="sidebar-footer">
@@ -225,7 +242,7 @@ class SciTextModel {
     }
 
     addRegion(region) {
-        this.state.regions.push(region);
+        this.state.regions.push({ ...region, visible: true });
         this.selectRegion(region.id);
         this.saveHistory();
         this.notify();
@@ -320,7 +337,7 @@ class UIManager {
             'region-actions-bar','layer-list','region-count',
             'ai-status','fullscreen-toggle','prop-x','prop-y','prop-w','prop-h',
             'btn-fit-area','btn-fit-content','btn-split','btn-group','btn-delete','btn-export','btn-clear-all',
-            'preview-content','canvas-scroller'
+            'canvas-scroller'
         ];
         const camelCase = (s) => s.replace(/-./g, x=>x[1].toUpperCase());
         ids.forEach(id => {
@@ -350,34 +367,64 @@ class UIManager {
         this.els.svgLayer.innerHTML = '';
         this.els.interactionLayer.innerHTML = ''; 
 
+        // === SVG LAYERS & INTERACTION HIGHLIGHTS ===
+        this.els.svgLayer.innerHTML = '';
+        this.els.interactionLayer.innerHTML = ''; 
+
         state.regions.forEach(r => {
-            const px = r.rect.x * physicalCw, py = r.rect.y * physicalCh;
-            const pw = r.rect.w * physicalCw, ph = r.rect.h * physicalCh;
-            const dimW = r.bpDims?.w || (r.rect.w * logicalCw), dimH = r.bpDims?.h || (r.rect.h * logicalCh);
+            const px = r.rect.x * physicalCw;
+            const py = r.rect.y * physicalCh;
+            const pw = r.rect.w * physicalCw;
+            const ph = r.rect.h * physicalCh;
+
+            // Logical dimensions for viewBox (use bpDims if present – that's the real SVG size)
+            const viewW = r.bpDims?.w ?? (r.rect.w * logicalCw);
+            const viewH = r.bpDims?.h ?? (r.rect.h * logicalCh);
+
+            // ---- Interaction highlight (always exists, dimmed when hidden) ----
+            const div = document.createElement("div");
+            div.className = "absolute region-highlight";
+            if (state.selectedIds.has(r.id)) div.classList.add("region-selected");
+            if (r.visible === false) div.style.opacity = "0.3";
+            Object.assign(div.style, {
+                left: px + 'px',
+                top: py + 'px',
+                width: pw + 'px',
+                height: ph + 'px'
+            });
+            div.dataset.id = r.id;
+            this.els.interactionLayer.appendChild(div);
+
+            // ---- SVG content – only if visible ----
+            if (r.visible === false) return;
 
             const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-            svg.setAttribute("x", px); svg.setAttribute("y", py);
-            svg.setAttribute("width", pw); svg.setAttribute("height", ph);
-            svg.setAttribute("viewBox", `0 0 ${dimW} ${dimH}`);
+            svg.setAttribute("x", px);
+            svg.setAttribute("y", py);
+            svg.setAttribute("width", pw);
+            svg.setAttribute("height", ph);
+            svg.setAttribute("viewBox", `0 0 ${viewW} ${viewH}`);
             svg.setAttribute("preserveAspectRatio", "none");
             svg.style.position = "absolute";
             svg.style.left = px + "px";
             svg.style.top = py + "px";
-            svg.style.color = "black";
-            svg.style.pointerEvents = "none"; 
-            
-            svg.innerHTML = `<g transform="translate(${r.offset?.x||0},${r.offset?.y||0}) scale(${r.scale?.x||1},${r.scale?.y||1})">${r.svgContent}</g>`;
-            this.els.svgLayer.appendChild(svg);
+            svg.style.pointerEvents = "none";
+            // No opacity needed here – fully visible
 
-            const div = document.createElement("div");
-            div.className = "absolute region-highlight";
-            if (state.selectedIds.has(r.id)) div.classList.add("region-selected");
-            Object.assign(div.style, { left: px+'px', top: py+'px', width: pw+'px', height: ph+'px' });
-            div.dataset.id = r.id;
-            this.els.interactionLayer.appendChild(div);
+            // Apply any manual offset/scale (from Fit Content / manual tweaks)
+            const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            const tx = r.offset?.x ?? 0;
+            const ty = r.offset?.y ?? 0;
+            const sx = r.scale?.x ?? 1;
+            const sy = r.scale?.y ?? 1;
+            g.setAttribute("transform", `translate(${tx},${ty}) scale(${sx},${sy})`);
+            g.innerHTML = r.svgContent || '';
+            svg.appendChild(g);
+
+            this.els.svgLayer.appendChild(svg);
         });
 
-        if (state.activeRegionId) {
+        if (false) {
             const r = state.regions.find(x => x.id === state.activeRegionId);
             this.els.debugLog.textContent = JSON.stringify(r, null, 2);
             this.updatePropertiesInputs(r, state);
@@ -515,8 +562,48 @@ class UIManager {
         this.els.zoomLevel.textContent = Math.round(scale * 100) + "%";
     }
 
-    renderLayerList(r) {
-        this.els.layerList.innerHTML = '<div style="text-align:center; color:#9ca3af; font-size:10px; margin-top:1rem;">Layer list placeholder</div>';
+    renderLayerList(activeRegion) {
+        const container = this.els.layerItems;
+        if (!container) return;
+
+        const regions = this.model.state.regions.slice().reverse(); // later regions on top
+
+        if (regions.length === 0) {
+            container.innerHTML = '<div style="text-align:center; color:#9ca3af; font-size:10px; padding:1rem;">No layers yet</div>';
+            return;
+        }
+
+        container.innerHTML = regions.map(r => {
+            const isActive = this.model.state.activeRegionId === r.id;
+            const isVisible = r.visible !== false;
+            const icon = r.status === 'scanned' ? '✍' : r.status === 'generated' ? '✓' : '○';
+            return `
+            <div class="layer-item ${isActive ? 'active' : ''}" data-id="${r.id}">
+                <span class="drag-handle">⋮⋮</span>
+                <span class="visibility-toggle ${isVisible ? '' : 'hidden'}">👁</span>
+                <span class="layer-name">${icon} Region ${r.id.slice(1,6)}</span>
+                <span class="delete-btn">×</span>
+            </div>`;
+        }).join('');
+
+        // Event delegation
+        container.onclick = (e) => {
+            const item = e.target.closest('.layer-item');
+            if (!item) return;
+            const id = item.dataset.id;
+
+            if (e.target.classList.contains('visibility-toggle')) {
+                const region = this.model.getRegion(id);
+                if (region) {
+                    region.visible = !region.visible;
+                    this.model.notify();
+                }
+            } else if (e.target.classList.contains('delete-btn')) {
+                this.model.deleteRegion(id);
+            } else {
+                this.model.selectRegion(id);
+            }
+        };
     }
 
     toggleLoader(show) {
@@ -1221,10 +1308,9 @@ window.app = (function() {
         view.render(state, context);
         if (state.activeRegionId && (!context || context.type !== 'GEOMETRY')) {
             const r = model.getRegion(state.activeRegionId);
-            if (r) {
-                view.renderActiveControls(r, state);
-            }
+            if (r) view.renderActiveControls(r, state);
         }
+        view.renderLayerList(state.activeRegionId ? model.getRegion(state.activeRegionId) : null);
     });
 
     return {
