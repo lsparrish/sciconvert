@@ -6,6 +6,7 @@
  * 3. UIManager (View & DOM)
  * 4. SciTextController (Logic & Events)
  * 5. RegionEditor (Canvas Interaction Logic)
+ * * NOTE: The SVG editor has been simplified to an in-panel raw text editor for the selected region.
  */
 
 // ============================================================================
@@ -142,7 +143,6 @@ const APP_STRUCTURE = `
                       <span class="uppercase" style="font-size:0.75rem; font-weight:700; color:#4b5563;">Properties</span>
                       <span id="region-count" style="background:#dbeafe; color:#1d4ed8; padding:0.125rem 0.5rem; border-radius:99px; font-size:10px; font-weight:700;">0</span>
                   </div>
-                  <button id="btn-edit-svg" class="action-bar-btn" style="background:#4f46e5; width:100%; margin-top:0.5rem; font-size:0.75rem;">Edit SVG Source</button>
               </div>
               
               <div class="geometry-inputs">
@@ -151,6 +151,12 @@ const APP_STRUCTURE = `
                   <div><label class="input-label">Pos Y</label><input type="number" id="prop-y" class="input-field"></div>
                   <div><label class="input-label">Width</label><input type="number" id="prop-w" class="input-field"></div>
                   <div><label class="input-label">Height</label><input type="number" id="prop-h" class="input-field"></div>
+              </div>
+
+              <div id="svg-raw-editor-panel" class="hidden" style="padding: 1rem; background-color: #fff; border-bottom: 1px solid #e5e7eb; display:flex; flex-direction:column; gap:0.5rem;">
+                  <span class="input-label" style="margin-bottom:0;">SVG Content (Edit Raw)</span>
+                  <textarea id="svg-raw-content" style="width: 100%; min-height: 150px; border: 1px solid #d1d5db; border-radius: 0.25rem; padding: 0.5rem; font-family: monospace; font-size: 11px; line-height: 1.2; resize: vertical;"></textarea>
+                  <button id="btn-save-raw-svg" class="action-bar-btn" style="background:#4f46e5; font-size:0.75rem;">Apply Changes</button>
               </div>
               <div id="layer-list" class="layer-list-container">
                   <div class="layer-list-header" style="padding:0.5rem 1rem; background:#f3f4f6; border-bottom:1px solid #e5e7eb; font-size:0.75rem; font-weight:700; color:#4b5563; text-transform:uppercase; letter-spacing:0.05em;">
@@ -208,20 +214,6 @@ const APP_STRUCTURE = `
       <button id="btn-split" class="action-bar-btn" style="background:#4338ca;">Split</button>
       <button id="btn-group" class="action-bar-btn" style="background:#0d9488;">Group</button>
       <button id="btn-delete" class="action-bar-btn" style="background:#ef4444;">Del</button>
-    </div>
-    
-    <div id="svg-editor-modal" class="hidden absolute inset-0 z-50" style="background:rgba(17,24,39,0.9); display:flex; flex-direction:column; align-items:center; justify-content:center; padding:1rem;">
-        <div style="width: 90%; max-width: 800px; height: 90%; background:white; border-radius:0.5rem; box-shadow:0 10px 20px rgba(0,0,0,0.5); display:flex; flex-direction:column; overflow:hidden;">
-            <div style="padding:0.75rem; background:#1f2937; color:white; font-weight:700; display:flex; justify-content:space-between; align-items:center;">
-                SVG Source Editor
-                <span id="svg-editor-region-id" style="font-weight:400; font-size:0.75rem; color:#9ca3af;"></span>
-            </div>
-            <textarea id="svg-editor-content" style="flex:1; width:100%; padding:1rem; border:none; resize:none; font-family:monospace; font-size:12px; line-height:1.2; background:#f9fafb;"></textarea>
-            <div style="padding:0.75rem; border-top:1px solid #e5e7eb; display:flex; justify-content:flex-end; gap:0.5rem;">
-                <button id="btn-cancel-svg-edit" class="btn btn-secondary">Cancel</button>
-                <button id="btn-save-svg-edit" class="btn btn-primary">Save Changes</button>
-            </div>
-        </div>
     </div>
     
     <canvas id="processing-canvas" style="display:none;"></canvas>
@@ -357,8 +349,7 @@ class UIManager {
             'ai-status','fullscreen-toggle','prop-x','prop-y','prop-w','prop-h',
             'btn-fit-area','btn-fit-content','btn-split','btn-group','btn-delete','btn-export','btn-clear-all',
             'canvas-scroller',
-            // NEW SVG EDITOR ELEMENTS
-            'btn-edit-svg', 'svg-editor-modal', 'svg-editor-content', 'btn-cancel-svg-edit', 'btn-save-svg-edit', 'svg-editor-region-id'
+            'svg-raw-editor-panel', 'svg-raw-content', 'btn-save-raw-svg' 
         ];
         const camelCase = (s) => s.replace(/-./g, x=>x[1].toUpperCase());
         ids.forEach(id => {
@@ -547,6 +538,20 @@ class UIManager {
         // Update properties when there is an active region
         const active = state.activeRegionId ? state.regions.find(r => r.id === state.activeRegionId) : null;
         this.updatePropertiesInputs(active, state);
+        
+        // --- NEW LOGIC FOR IN-PANEL SVG EDITOR ---
+        if (active && (active.svgContent !== undefined) ) {
+            this.els.svgRawEditorPanel.classList.remove('hidden');
+            // Only update the textarea if the controller isn't actively editing it
+            if (this.els.svgRawContent.value !== active.svgContent) {
+                 this.els.svgRawContent.value = active.svgContent;
+            }
+        } else {
+            this.els.svgRawEditorPanel.classList.add('hidden');
+            this.els.svgRawContent.value = '';
+        }
+        // --- END NEW LOGIC ---
+
         if (active) {
             this.renderActiveControls(active, state);
             this.showRegionActionsBar(active, state);
@@ -631,8 +636,6 @@ class RegionEditor {
 
     handleMouseDown(e) {
         if (e.button !== 0) return;
-        // Block interaction if SVG editor is open
-        if (!this.controller.view.els.svgEditorModal.classList.contains('hidden')) return;
 
         const pos = this.getLocalPos(e);
         const hit = this.hitDetection(pos);
@@ -785,6 +788,7 @@ class SciTextController {
         this.model = model;
         this.view = view;
         this.draw = new RegionEditor(this);
+        // Removed activeSvgDom and activeElementMap as they are no longer needed for the raw editor.
     }
 
     async init() {
@@ -818,10 +822,8 @@ class SciTextController {
         this.view.els.btnSplit.onclick = () => this.splitRegion();
         this.view.els.btnGroup.onclick = () => this.groupSelectedRegions();
         
-        // NEW SVG Editor Bindings
-        this.view.els.btnEditSvg.onclick = () => this.openSvgEditor();
-        this.view.els.btnCancelSvgEdit.onclick = () => this.closeSvgEditor();
-        this.view.els.btnSaveSvgEdit.onclick = () => this.saveSvgChanges();
+        // NEW SVG Editor Bindings (Simplified)
+        this.view.els.btnSaveRawSvg.onclick = () => this.saveRawSvgChanges();
 
         // Property inputs
         ['propX','propY','propW','propH'].forEach(k => {
@@ -964,35 +966,32 @@ class SciTextController {
         this.model.updateRegion(id, { rect: r });
         this.model.saveHistory();
     }
+    
+    // ======== SVG EDITOR LOGIC (Simplified) ========
 
-    openSvgEditor() {
+    saveRawSvgChanges() {
         const activeId = this.model.state.activeRegionId;
-        const region = this.model.getRegion(activeId);
-        if (!region) return;
+        if (!activeId) return;
+        
+        const newSvgContent = this.view.els.svgRawContent.value;
 
-        // We only want the *inner* SVG content, not the wrapping <svg> tag.
-        this.view.els.svgEditorContent.value = region.svgContent || '';
-        this.view.els.svgEditorRegionId.textContent = `Region ID: ${activeId}`;
-        this.view.els.svgEditorModal.classList.remove('hidden');
-    }
-
-    closeSvgEditor() {
-        this.view.els.svgEditorModal.classList.add('hidden');
-    }
-
-    saveSvgChanges() {
-        const activeId = this.model.state.activeRegionId;
-        const newSvgContent = this.view.els.svgEditorContent.value;
+        // Strip surrounding SVG tags if the user accidentally included them
+        const strippedContent = newSvgContent
+            .replace(/<svg[^>]*?>/g, '')
+            .replace(/<\/svg>/g, '')
+            .trim();
 
         this.model.updateRegion(activeId, {
-            svgContent: newSvgContent,
+            svgContent: strippedContent,
             status: 'edited',
-            contentType: 'custom' // Mark as custom content
+            contentType: 'custom' 
         });
 
         this.model.saveHistory();
-        this.closeSvgEditor();
+        this.model.notify(); // Force re-render with new SVG content
     }
+    
+    // ======== End SVG EDITOR LOGIC (Simplified) ========
 
     async fitArea() {
         const id = this.model.state.activeRegionId;
