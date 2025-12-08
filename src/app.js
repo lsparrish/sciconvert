@@ -190,7 +190,8 @@ const APP_STRUCTURE = `
     <div id="region-actions-bar" class="region-actions-bar hidden">
       <button data-type="text" class="action-bar-btn" style="background:#2563eb;">AI Text</button>
       <button data-type="image" class="action-bar-btn" style="background:#d97706;">Image</button>
-      <button data-type="blueprint" class="action-bar-btn" style="background:#059669;">Scan</button> <button data-type="empty" class="action-bar-btn" style="background:#4b5563;">Empty</button>
+      <button data-type="blueprint" class="action-bar-btn" style="background:#059669;">Scan</button> 
+      <button data-type="empty" class="action-bar-btn" style="background:#4b5563;">Empty</button>
       <div style="width:1px;height:1.5rem;background:#d1d5db;"></div>
       <button id="btn-cancel-region" class="action-bar-btn" style="color:#ef4444;background:transparent;border:1px solid #d1d5db;">Cancel</button>
     </div>
@@ -815,6 +816,7 @@ class SciTextController {
 };
         this.view.els.btnClearAll.onclick = () => { this.model.setState({regions:[]}); this.model.deselect(); this.model.saveHistory(); };
         this.view.els.btnDigitize.onclick = () => this.generateContent('text');
+        this.view.els.btnScan.onclick = () => this.generateContent('blueprint');
         this.view.els.regionActionsBar.onclick = (e) => {
             const type = e.target.dataset.type;
             if(type) this.generateContent(type);
