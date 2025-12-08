@@ -122,10 +122,6 @@ const APP_STRUCTURE = `
                       <span class="uppercase" style="font-size:0.75rem; font-weight:700; color:#4b5563;">Properties</span>
                       <span id="region-count" style="background:#dbeafe; color:#1d4ed8; padding:0.125rem 0.5rem; border-radius:99px; font-size:10px; font-weight:700;">0</span>
                   </div>
-                  <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
-                       <button id="btn-fit-area" class="btn btn-secondary" style="flex:1;">Fit Area</button>
-                       <button id="btn-fit-content" class="btn btn-secondary" style="flex:1;">Fill</button>
-                  </div>
               </div>
               
               <div class="geometry-inputs">
@@ -182,10 +178,13 @@ const APP_STRUCTURE = `
     </main>
 
     <div id="region-actions-bar" class="region-actions-bar hidden">
-      <button data-type="text" class="action-bar-btn" style="background:#2563eb;">AI Text</button>
+      <button data-type="text" class="action-bar-btn" style="background:#2563eb;">Digitize</button>
       <button data-type="image" class="action-bar-btn" style="background:#d97706;">Image</button>
       <button data-type="blueprint" class="action-bar-btn" style="background:#059669;">Scan</button> 
       <button data-type="empty" class="action-bar-btn" style="background:#4b5563;">Empty</button>
+      <div style="width:1px;height:1.5rem;background:#d1d5db;"></div>
+      <button id="btn-fit-area" class="action-bar-btn" style="background:#6b21a8;">Fit Area</button>
+      <button id="btn-fit-content" class="action-bar-btn" style="background:#1e40af;">Fill</button>
       <div style="width:1px;height:1.5rem;background:#d1d5db;"></div>
       <button id="btn-split" class="action-bar-btn" style="background:#4338ca;">Split</button>
       <button id="btn-group" class="action-bar-btn" style="background:#0d9488;">Group</button>
@@ -329,28 +328,24 @@ class UIManager {
         });
     }
 
-    render(state, context) {
-        if (context && context.type === 'GEOMETRY' && context.id) {
-            this.updateRegionGeometry(context.id, state);
-            return;
-        }
-
-        // Safety check to prevent crash on initial load if elements aren't ready
-        if (!this.els.regionCount || !this.els.canvasWrapper) return;
-
+        render(state) {
         this.els.regionCount.textContent = state.regions.length;
-        if (state.activeRegionId) this.els.contextActions.classList.remove('disabled-bar');
-        else this.els.contextActions.classList.add('disabled-bar');
         
         this.els.zoomLevel.textContent = Math.round(state.scaleMultiplier * 100) + "%";
         
         if (state.canvasWidth > 0) {
-            const logicalCw = state.canvasWidth;
-            const logicalCh = state.canvasHeight;
-            const physicalCw = logicalCw * scale;
-            const physicalCh = logicalCh * scale;
+            const w = state.baseWidth * state.scaleMultiplier;
+            const h = w * (state.canvasHeight / state.canvasWidth);
+            this.els.canvasWrapper.style.width = w + "px";
+            this.els.canvasWrapper.style.height = h + "px";
         }
 
+        const scale = state.scaleMultiplier;
+        const logicalCw = state.canvasWidth;
+        const logicalCh = state.canvasHeight;
+        const physicalCw = logicalCw * scale;
+        const physicalCh = logicalCh * scale;
+        
         this.els.svgLayer.innerHTML = '';
         this.els.interactionLayer.innerHTML = ''; 
 
@@ -360,7 +355,6 @@ class UIManager {
             const dimW = r.bpDims?.w || (r.rect.w * logicalCw), dimH = r.bpDims?.h || (r.rect.h * logicalCh);
 
             const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-            svg.dataset.id = r.id; 
             svg.setAttribute("x", px); svg.setAttribute("y", py);
             svg.setAttribute("width", pw); svg.setAttribute("height", ph);
             svg.setAttribute("viewBox", `0 0 ${dimW} ${dimH}`);
@@ -601,7 +595,7 @@ class UIManager {
 }
 
 // ============================================================================
-// 4. REGION EDITOR (Controller Logic)
+// 4. REGION EDITOR (Canvas Interaction Logic)
 // ============================================================================
 
 class RegionEditor {
@@ -759,7 +753,7 @@ class RegionEditor {
             }
         } else if (this.mode === 'RESIZE') {
             const r = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
-            if (r && this.initialRect) {
+            if (r && this.initialRect && this.activeHandle) {
                 const scale = this.controller.model.state.scaleMultiplier;
                 const physicalCw = this.controller.model.state.canvasWidth * scale;
                 const physicalCh = this.controller.model.state.canvasHeight * scale;
@@ -869,7 +863,6 @@ class SciTextController {
             Array.from(this.model.state.selectedIds).forEach(id => this.model.deleteRegion(id));
 };
         this.view.els.btnClearAll.onclick = () => { this.model.setState({regions:[]}); this.model.deselect(); this.model.saveHistory(); };
-        this.view.els.btnDigitize.onclick = () => this.generateContent('text');
         this.view.els.regionActionsBar.onclick = (e) => {
             const type = e.target.dataset.type;
             if(type) this.generateContent(type);
