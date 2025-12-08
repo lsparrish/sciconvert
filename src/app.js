@@ -146,11 +146,20 @@ const APP_STRUCTURE = `
               </div>
               
               <div class="geometry-inputs">
-                  <div style="position:absolute; top:0.25rem; right:0.5rem; font-size:9px; font-weight:700; color:#60a5fa;">COORDS</div>
+                  <div style="position:absolute; top:0.25rem; right:0.5rem; font-size:9px; font-weight:700; color:#60a5fa;">COORDS (Normalized Pixels)</div>
                   <div><label class="input-label">Pos X</label><input type="number" id="prop-x" class="input-field"></div>
                   <div><label class="input-label">Pos Y</label><input type="number" id="prop-y" class="input-field"></div>
                   <div><label class="input-label">Width</label><input type="number" id="prop-w" class="input-field"></div>
                   <div><label class="input-label">Height</label><input type="number" id="prop-h" class="input-field"></div>
+                  
+                  <div style="grid-column: 1 / span 2; margin-top: 0.5rem; position:relative;">
+                      <span class="input-label" style="text-align:center; display:block;">SVG Content Adjustment</span>
+                      <div style="position:absolute; top:0.15rem; right:0; font-size:9px; font-weight:700; color:#60a5fa;">OFFSET/SCALE</div>
+                  </div>
+                  <div><label class="input-label">Offset X</label><input type="number" id="prop-offset-x" class="input-field" step="0.1"></div>
+                  <div><label class="input-label">Offset Y</label><input type="number" id="prop-offset-y" class="input-field" step="0.1"></div>
+                  <div><label class="input-label">Scale X</label><input type="number" id="prop-scale-x" class="input-field" step="0.05" min="0.1"></div>
+                  <div><label class="input-label">Scale Y</label><input type="number" id="prop-scale-y" class="input-field" step="0.05" min="0.1"></div>
               </div>
 
               <div id="svg-raw-editor-panel" class="hidden" style="padding: 1rem; background-color: #fff; border-bottom: 1px solid #e5e7eb; display:flex; flex-direction:column; gap:0.5rem;">
@@ -249,8 +258,15 @@ class SciTextModel {
     }
 
     addRegion(region) {
-        this.state.regions.push({ ...region, visible: true });
-        this.selectRegion(region.id);
+        // Ensure new regions have default offset/scale
+        const newRegion = { 
+            ...region, 
+            visible: true,
+            offset: {x: 0, y: 0},
+            scale: {x: 1, y: 1}
+        };
+        this.state.regions.push(newRegion);
+        this.selectRegion(newRegion.id);
         this.saveHistory();
         this.notify();
     }
@@ -294,7 +310,20 @@ class SciTextModel {
         if (this.state.historyIndex < this.state.history.length - 1) {
             this.state.history = this.state.history.slice(0, this.state.historyIndex + 1);
         }
-        this.state.history.push(JSON.parse(JSON.stringify(this.state.regions)));
+        // Deep copy only relevant data to history
+        const regionsCopy = this.state.regions.map(r => ({
+            id: r.id,
+            rect: {...r.rect},
+            svgContent: r.svgContent,
+            bpDims: r.bpDims ? {...r.bpDims} : undefined,
+            visible: r.visible,
+            status: r.status,
+            contentType: r.contentType,
+            offset: {...r.offset},
+            scale: {...r.scale}
+        }));
+
+        this.state.history.push(regionsCopy);
         this.state.historyIndex++;
         if (this.state.history.length > 50) {
             this.state.history.shift();
@@ -317,6 +346,7 @@ class SciTextModel {
     }
 
     restore() {
+        // Restore from history, performing deep copy back to state
         this.state.regions = JSON.parse(JSON.stringify(this.state.history[this.state.historyIndex]));
         this.deselect();
         this.notify();
@@ -347,6 +377,7 @@ class UIManager {
             'pdf-loader','canvas-wrapper','pdf-layer','svg-layer','interaction-layer','selection-box',
             'region-actions-bar','layer-list','region-count','layer-items','btn-toggle-visibility-all',
             'ai-status','fullscreen-toggle','prop-x','prop-y','prop-w','prop-h',
+            'prop-offset-x','prop-offset-y','prop-scale-x','prop-scale-y', // NEW PROP INPUTS
             'btn-fit-area','btn-fit-content','btn-split','btn-group','btn-delete','btn-export','btn-clear-all',
             'canvas-scroller',
             'svg-raw-editor-panel', 'svg-raw-content', 'btn-save-raw-svg' 
@@ -387,7 +418,9 @@ class UIManager {
 
     updatePropertiesInputs(region, state) {
         if (!region) {
-            this.els.propX.value = this.els.propY.value = this.els.propW.value = this.els.propH.value = '';
+            ['propX','propY','propW','propH','propOffsetX','propOffsetY','propScaleX','propScaleY'].forEach(key => {
+                if(this.els[key]) this.els[key].value = '';
+            });
             return;
         }
         const cw = state.canvasWidth;
@@ -396,6 +429,12 @@ class UIManager {
         this.els.propY.value = Math.round(region.rect.y * ch);
         this.els.propW.value = Math.round(region.rect.w * cw);
         this.els.propH.value = Math.round(region.rect.h * ch);
+        
+        // NEW PROPERTIES
+        this.els.propOffsetX.value = (region.offset?.x ?? 0).toFixed(1);
+        this.els.propOffsetY.value = (region.offset?.y ?? 0).toFixed(1);
+        this.els.propScaleX.value = (region.scale?.x ?? 1).toFixed(2);
+        this.els.propScaleY.value = (region.scale?.y ?? 1).toFixed(2);
     }
 
     renderActiveControls(region, state) {
@@ -493,8 +532,8 @@ class UIManager {
             const pw = r.rect.w * physicalCw;
             const ph = r.rect.h * physicalCh;
 
-            const viewW = r.bpDims?.w ?? (r.rect.w * logicalCw);
-            const viewH = r.bpDims?.h ?? (r.rect.h * logicalCh);
+            const viewW = r.bpDims?.w ?? (r.rect.w * logicalCw * 2); // Default to 2x canvas size if bpDims missing
+            const viewH = r.bpDims?.h ?? (r.rect.h * logicalCh * 2);
 
             // Interaction highlight
             const div = document.createElement("div");
@@ -509,13 +548,15 @@ class UIManager {
             this.els.interactionLayer.appendChild(div);
 
             // SVG content (only when visible)
-            if (r.visible === false) return;
+            if (r.visible === false || !r.svgContent) return;
 
             const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            // The position (x, y) and size (width, height) are in PIXELS relative to the canvas.
             svg.setAttribute("x", px);
             svg.setAttribute("y", py);
             svg.setAttribute("width", pw);
             svg.setAttribute("height", ph);
+            // viewBox is set to the logical dimensions of the AI-generated content (usually 2x scaled original canvas pixels)
             svg.setAttribute("viewBox", `0 0 ${viewW} ${viewH}`);
             svg.setAttribute("preserveAspectRatio", "none");
             svg.style.position = "absolute";
@@ -528,10 +569,27 @@ class UIManager {
             const ty = r.offset?.y ?? 0;
             const sx = r.scale?.x ?? 1;
             const sy = r.scale?.y ?? 1;
+            // Apply transformation to the inner group
             g.setAttribute("transform", `translate(${tx},${ty}) scale(${sx},${sy})`);
-            g.innerHTML = r.svgContent || "";
-            svg.appendChild(g);
+            
+            // Inject sanitized SVG content
+            try {
+                // We use DOMParser to safely inject the inner HTML
+                const parser = new DOMParser();
+                // Ensure r.svgContent is wrapped for correct parsing if it only contains elements like <path>
+                const doc = parser.parseFromString(`<svg>${r.svgContent}</svg>`, "image/svg+xml");
+                const generatedSvg = doc.querySelector('svg');
+                if (generatedSvg) {
+                    while (generatedSvg.firstChild) g.appendChild(generatedSvg.firstChild);
+                } else {
+                    // Fallback if parsing failed but content exists
+                    g.innerHTML = r.svgContent; 
+                }
+            } catch (e) {
+                 console.error("Failed to parse or inject SVG content for patch:", r.id, e);
+            }
 
+            svg.appendChild(g);
             this.els.svgLayer.appendChild(svg);
         });
 
@@ -621,7 +679,8 @@ class RegionEditor {
         }
 
         // Check region bodies
-        for (const r of state.regions) {
+        // Reverse order so newest regions (on top visually) are checked first
+        for (const r of state.regions.slice().reverse()) {
             const rx = r.rect.x * cw;
             const ry = r.rect.y * ch;
             const rw = r.rect.w * cw;
@@ -699,7 +758,8 @@ class RegionEditor {
                     w: this.initialRect.w,
                     h: this.initialRect.h
                 };
-                this.controller.model.updateRegion(r.id, { rect: newRect });
+                // Use context to prevent saving history on every tiny move update
+                this.controller.model.updateRegion(r.id, { rect: newRect }, { noHistory: true });
             }
         } else if (this.mode === 'RESIZE') {
             const r = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
@@ -719,7 +779,8 @@ class RegionEditor {
 
                 if (nw > 5 && nh > 5) {
                     const newRect = { x: nx/physicalCw, y: ny/physicalCh, w: nw/physicalCw, h: nh/physicalCh };
-                    this.controller.model.updateRegion(r.id, { rect: newRect });
+                    // Use context to prevent saving history on every tiny resize update
+                    this.controller.model.updateRegion(r.id, { rect: newRect }, { noHistory: true });
                 }
             }
         }
@@ -746,7 +807,10 @@ class RegionEditor {
             }
             this.controller.view.els.selectionBox.style.display = 'none';
         } else {
-            this.controller.model.saveHistory();
+            // Only save history if an actual move/resize occurred
+            if (this.initialRect) {
+                this.controller.model.saveHistory();
+            }
         }
 
         this.mode = 'IDLE';
@@ -771,6 +835,7 @@ class RegionEditor {
             this.controller.view.els.selectionBox.style.display = 'none';
         } else if (this.mode === 'MOVE' || this.mode === 'RESIZE') {
             const r = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
+            // Restore initial rect only if a drag was started
             if (r && this.initialRect) {
                 this.controller.model.updateRegion(r.id, { rect: this.initialRect });
             }
@@ -825,9 +890,14 @@ class SciTextController {
         // NEW SVG Editor Bindings (Simplified)
         this.view.els.btnSaveRawSvg.onclick = () => this.saveRawSvgChanges();
 
-        // Property inputs
+        // Property inputs (Region Bounding Box)
         ['propX','propY','propW','propH'].forEach(k => {
-            if(this.view.els[k]) this.view.els[k].onchange = () => this.updateRegionFromProps();
+            if(this.view.els[k]) this.view.els[k].onchange = () => this.updateRegionFromProps('rect');
+        });
+        
+        // Property inputs (SVG Content Adjustments) // NEW BINDINGS
+        ['propOffsetX','propOffsetY','propScaleX','propScaleY'].forEach(k => {
+            if(this.view.els[k]) this.view.els[k].onchange = () => this.updateRegionFromProps('svg-transform');
         });
 
         // Region actions bar
@@ -952,18 +1022,34 @@ class SciTextController {
         img.src = CONFIG.defaultImgUrl;
     }
 
-    updateRegionFromProps() {
+    updateRegionFromProps(type) {
         const id = this.model.state.activeRegionId;
         if (!id) return;
-        const cw = this.model.state.canvasWidth;
-        const ch = this.model.state.canvasHeight;
-        const r = {
-            x: parseFloat(this.view.els.propX.value) / cw || 0,
-            y: parseFloat(this.view.els.propY.value) / ch || 0,
-            w: parseFloat(this.view.els.propW.value) / cw || 0,
-            h: parseFloat(this.view.els.propH.value) / ch || 0
-        };
-        this.model.updateRegion(id, { rect: r });
+        
+        let updates = {};
+
+        if (type === 'rect') {
+            const cw = this.model.state.canvasWidth;
+            const ch = this.model.state.canvasHeight;
+            const r = {
+                x: parseFloat(this.view.els.propX.value) / cw || 0,
+                y: parseFloat(this.view.els.propY.value) / ch || 0,
+                w: parseFloat(this.view.els.propW.value) / cw || 0,
+                h: parseFloat(this.view.els.propH.value) / ch || 0
+            };
+            updates.rect = r;
+        } else if (type === 'svg-transform') {
+            updates.offset = {
+                x: parseFloat(this.view.els.propOffsetX.value) || 0,
+                y: parseFloat(this.view.els.propOffsetY.value) || 0
+            };
+            updates.scale = {
+                x: parseFloat(this.view.els.propScaleX.value) || 1,
+                y: parseFloat(this.view.els.propScaleY.value) || 1
+            };
+        }
+
+        this.model.updateRegion(id, updates);
         this.model.saveHistory();
     }
     
@@ -1017,7 +1103,8 @@ class SciTextController {
         for (let y = 0; y < ph * 2; y++) {
             for (let x = 0; x < pw * 2; x++) {
                 const i = (y * (pw * 2) + x) * 4;
-                if (data[i + 3] > 128 && data[i] < 128) {
+                // Check for non-white/non-transparent pixels (text is usually black/dark)
+                if (data[i + 3] > 128 && data[i] < 200 && data[i+1] < 200 && data[i+2] < 200) { 
                     if (x < minX) minX = x;
                     if (x > maxX) maxX = x;
                     if (y < minY) minY = y;
@@ -1035,6 +1122,7 @@ class SciTextController {
         maxX = Math.min(pw * 2, maxX + pad);
         maxY = Math.min(ph * 2, maxY + pad);
 
+        // Adjust bounds to be relative to the original canvas dimensions
         const globalX = r.rect.x + (minX / 2) / s.canvasWidth;
         const globalY = r.rect.y + (minY / 2) / s.canvasHeight;
         const globalW = ((maxX - minX) / 2) / s.canvasWidth;
@@ -1042,14 +1130,17 @@ class SciTextController {
 
         this.model.updateRegion(id, {
             rect: { x: globalX, y: globalY, w: globalW, h: globalH },
-            scale: { x: 1, y: 1 },
+            // Reset scale/offset since we've resized the bounding box
+            scale: { x: 1, y: 1 }, 
             offset: { x: 0, y: 0 }
         });
 
+        // Re-run scan to update the blueprint to the new tighter bounds
         await this.generateContent('blueprint');
     }
 
     fitContent() {
+        // This function now resets the internal SVG transform to match the bounding box
         const id = this.model.state.activeRegionId;
         if (!id) return;
         this.model.updateRegion(id, { scale: {x: 1, y: 1}, offset: {x: 0, y: 0} });
@@ -1117,22 +1208,38 @@ class SciTextController {
         const groupH = maxY - minY;
         const cw = this.model.state.canvasWidth;
         const ch = this.model.state.canvasHeight;
-        const bpW = groupW * cw;
-        const bpH = groupH * ch;
+        const bpW = groupW * cw * 2; // Assuming 2x scale was used for blueprint generation originally
+        const bpH = groupH * ch * 2;
 
         let svgContent = '';
         selected.forEach(r => {
-            const offX = (r.rect.x - minX) * cw;
-            const offY = (r.rect.y - minY) * ch;
-            svgContent += `<g transform="translate(${offX},${offY})">${r.svgContent}</g>`;
+            // Calculate offset relative to the new group's top-left corner (in original canvas units)
+            const x = (r.rect.x - minX) * cw; 
+            const y = (r.rect.y - minY) * ch; 
+            
+            // Apply the individual region's existing transform to its content before wrapping in group translate
+            const tx = r.offset?.x ?? 0;
+            const ty = r.offset?.y ?? 0;
+            const sx = r.scale?.x ?? 1;
+            const sy = r.scale?.y ?? 1;
+            
+            // Group content at 2x scale coordinates (since we assume bpDims are 2x)
+            const contentX = x * 2; 
+            const contentY = y * 2; 
+
+            // Wrap in an outer SVG for positioning and scoping the viewBox
+            svgContent += `<svg x="${contentX}" y="${contentY}" width="${r.rect.w * cw * 2}" height="${r.rect.h * ch * 2}" viewBox="0 0 ${r.bpDims?.w || (r.rect.w * cw * 2)} ${r.bpDims?.h || (r.rect.h * ch * 2)}" preserveAspectRatio="none">
+                <g transform="translate(${tx},${ty}) scale(${sx},${sy})">${r.svgContent}</g>
+            </svg>`;
         });
 
         const newRegion = {
             id: `r${Date.now()}`,
             rect: { x: minX, y: minY, w: groupW, h: groupH },
             svgContent,
-            bpDims: { w: bpW, h: bpH },
-            scale: {x:1, y:1}, offset: {x:0, y:0}
+            bpDims: { w: bpW, h: bpH }, // Set viewBox to the bounding box at 2x scale
+            scale: {x:1, y:1}, offset: {x:0, y:0},
+            contentType: 'group'
         };
 
         this.model.state.regions = this.model.state.regions.filter(r => !this.model.state.selectedIds.has(r.id));
@@ -1143,12 +1250,30 @@ class SciTextController {
         const cw = this.model.state.canvasWidth;
         const ch = this.model.state.canvasHeight;
         let out = `<svg xmlns="http://www.w3.org/2000/svg" width="${cw}" height="${ch}" viewBox="0 0 ${cw} ${ch}">\n`;
+        
+        // Add white background
+        out += `  <rect x="0" y="0" width="${cw}" height="${ch}" fill="white"/>\n`;
+
         this.model.state.regions.forEach(r => {
             const x = r.rect.x * cw;
             const y = r.rect.y * ch;
             const w = r.rect.w * cw;
             const h = r.rect.h * ch;
-            out += `<svg x="${x}" y="${y}" width="${w}" height="${h}" viewBox="0 0 ${r.bpDims?.w||w} ${r.bpDims?.h||h}" preserveAspectRatio="none"><g transform="translate(${r.offset?.x||0},${r.offset?.y||0}) scale(${r.scale?.x||1},${r.scale?.y||1})">${r.svgContent}</g></svg>\n`;
+            
+            const bpW = r.bpDims?.w ?? (r.rect.w * cw * 2);
+            const bpH = r.bpDims?.h ?? (r.rect.h * ch * 2);
+            
+            const tx = r.offset?.x ?? 0;
+            const ty = r.offset?.y ?? 0;
+            const sx = r.scale?.x ?? 1;
+            const sy = r.scale?.y ?? 1;
+
+            out += `  <svg x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" height="${h.toFixed(2)}" viewBox="0 0 ${bpW.toFixed(2)} ${bpH.toFixed(2)}" preserveAspectRatio="none">\n`;
+            out += `    <g transform="translate(${tx.toFixed(2)},${ty.toFixed(2)}) scale(${sx.toFixed(2)},${sy.toFixed(2)})">\n`;
+            // Inject content after stripping any wrapping tags if present
+            out += r.svgContent.replace(/<svg[^>]*?>/g, '').replace(/<\/svg>/g, '').split('\n').map(line => `      ${line}`).join('\n').trim() + '\n';
+            out += `    </g>\n`;
+            out += `  </svg>\n`;
         });
         out += `</svg>`;
 
@@ -1156,7 +1281,9 @@ class SciTextController {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = "scitext_export.svg";
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
     }
 
     async generateContent(type) {
@@ -1170,9 +1297,9 @@ class SciTextController {
             r.svgContent = '';
             r.status = 'done';
             r.contentType = 'empty';
-            this.model.notify();
-            this.view.els.aiStatus.classList.add("hidden");
+            this.model.updateRegion(r.id, r);
             this.model.saveHistory();
+            this.view.els.aiStatus.classList.add("hidden");
             return;
         }
 
@@ -1185,13 +1312,15 @@ class SciTextController {
         const ctx = tmp.getContext("2d");
         ctx.drawImage(s.canvas, r.rect.x*s.canvasWidth, r.rect.y*s.canvasHeight, pw, ph, 0, 0, pw*2, ph*2);
 
+        // --- RLE Blueprint Generation (2x scale) ---
         let rle = "";
-        const data = ctx.getImageData(0,0,pw*2,ph*2).data;
+        const data = ctx.getImageData(0, 0, pw * 2, ph * 2).data;
         for (let y=0; y<ph*2; y+=2) {
             let sx = -1;
             for (let x=0; x<pw*2; x++) {
                 const i = (y*pw*2 + x)*4;
-                if(data[i+3]>128 && data[i]<128) {
+                // Check for non-white/non-transparent pixels (text is usually black/dark)
+                if (data[i+3] > 128 && data[i] < 200 && data[i+1] < 200 && data[i+2] < 200) {
                     if(sx===-1) sx=x;
                 } else {
                     if(sx!==-1) {
@@ -1204,15 +1333,16 @@ class SciTextController {
         }
 
         if (type === 'blueprint') {
-            r.svgContent = `<path d="${rle}" fill="black" />`;
-            r.status = 'scanned';
-            r.contentType = 'scan';
-            r.bpDims = { w: pw * 2, h: ph * 2 };
-            r.scale = { x: 1, y: 1 };
-            r.offset = { x: 0, y: 0 };
-
+            const updates = {
+                svgContent: `<path d="${rle}" fill="black" />`,
+                status: 'scanned',
+                contentType: 'scan',
+                bpDims: { w: pw * 2, h: ph * 2 },
+                scale: { x: 1, y: 1 },
+                offset: { x: 0, y: 0 }
+            };
+            this.model.updateRegion(r.id, updates);
             this.model.saveHistory();
-            this.model.notify();
             this.view.els.aiStatus.classList.add('hidden');
             return;
         }
@@ -1220,28 +1350,52 @@ class SciTextController {
         this.view.els.aiStatus.textContent = `Generating ${type}...`;
         const base64 = tmp.toDataURL("image/png").split(",")[1];
         const promptType = type === 'image' ? 'SVG Graphic' : 'SVG Text';
-        const prompt = `You are a precision SVG Typesetter.\nINPUT: 2x scale scan.\nTASK: Generate ${promptType}.\nViewBox: 0 0 ${pw} ${ph}.\nOutput only <svg> code.\nRLE: ${rle.substring(0,500)}...`;
+        const prompt = `You are a precision SVG Typesetter.\nINPUT: 2x scale scan.\nTASK: Generate ${promptType}.\nViewBox: 0 0 ${pw * 2} ${ph * 2}.\nOutput **ONLY** raw SVG code. Do not include markdown fences or any commentary. If the original content contains mathematical equations, render them using only SVG primitives, not KaTeX. RLE: ${rle.substring(0,500)}...`;
 
         try {
-            const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${apiKey}`, {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: base64 } }] }] })
+            const payload = { 
+                contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: base64 } }] }],
+                systemInstruction: { parts: [{ text: "Output ONLY raw SVG code. No markdown fences or commentary." }] }
+            };
+
+            const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
             });
-            const json = await resp.json();
+            
+            const responseText = await resp.text();
+
+            if (!resp.ok) {
+                 throw new Error(`API returned HTTP ${resp.status}. Response: ${responseText.substring(0, 100)}...`);
+            }
+            
+            const json = JSON.parse(responseText);
+
             let text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!text) throw new Error("No SVG");
+            if (!text) throw new Error("Empty SVG content returned from AI.");
 
-            r.svgContent = text.replace(/```svg/g, "").replace(/```/g, "").trim();
-            r.status = 'generated';
-            r.contentType = type;
-            r.bpDims = { w: pw, h: ph };
+            // Extract and clean SVG content aggressively
+            const cleanSVG = text.replace(/```svg/g, "").replace(/```/g, "").replace(/<svg[^>]*>/g, '').replace(/<\/svg>/g, '').trim();
+            
+            if (cleanSVG.length < 10) {
+                 throw new Error(`AI response too short or unusable. Raw text: ${text.substring(0, 50)}...`);
+            }
 
+
+            const updates = {
+                svgContent: cleanSVG,
+                status: 'generated',
+                contentType: type,
+                bpDims: { w: pw * 2, h: ph * 2 }, // Set viewBox to the 2x scale dimensions
+                scale: { x: 1, y: 1 },
+                offset: { x: 0, y: 0 }
+            };
+
+            this.model.updateRegion(r.id, updates);
             this.model.saveHistory();
-            this.model.notify();
         } catch(e) {
-            console.error(e);
-            r.svgContent = '<text x="10" y="20" fill="red">Error</text>';
-            this.model.notify();
+            console.error("AI Generation Error:", e);
+            const errorSvg = `<text x="10" y="30" fill="red" font-size="60" font-weight="bold">ERROR</text><text x="10" y="50" fill="red" font-size="14">${e.message.substring(0, 150)}</text>`;
+            this.model.updateRegion(r.id, { svgContent: errorSvg });
         } finally {
             this.view.els.aiStatus.classList.add('hidden');
         }
@@ -1259,6 +1413,9 @@ window.app = (function() {
     view.model = model;
 
     model.subscribe((state) => {
+        // Only save history when explicitly told (e.g., after mouseup, after generation)
+        // OR when noHistory is not set in the context
+        // if (context?.noHistory !== true) model.saveHistory(); 
         view.render(state);
     });
 
