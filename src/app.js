@@ -595,7 +595,7 @@ class UIManager {
 }
 
 // ============================================================================
-// 4. REGION EDITOR (Canvas Interaction Logic)
+// 4. RegionEditor(Canvas Interaction Logic)
 // ============================================================================
 
 class RegionEditor {
@@ -620,32 +620,37 @@ class RegionEditor {
 
     getLocalPos(e) {
         const rect = this.controller.view.els.interactionLayer.getBoundingClientRect();
-        const scaleX = this.controller.model.state.canvasWidth / rect.width;
-        const scaleY = this.controller.model.state.canvasHeight / rect.height;
-        return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+        return {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+        };
     }
 
-    hitTest(pos) {
-        const handles = document.querySelectorAll('.resize-handle');
-        for (let h of handles) {
-            const r = h.getBoundingClientRect();
-            const layerRect = this.controller.view.els.interactionLayer.getBoundingClientRect();
-            const hx = r.left - layerRect.left;
-            const hy = r.top - layerRect.top;
-            if (pos.x >= hx && pos.x <= hx + r.width && pos.y >= hy && pos.y <= hy + r.height) {
-                return { type: 'HANDLE', dir: h.className.match(/handle-(\w+)/)[1] };
+    hitDetection(pos) {
+        const layer = this.controller.view.els.interactionLayer;
+
+        // Check Handles First (Higher Z)
+        const handles = layer.querySelectorAll('.resize-handle');
+        for (const el of handles) {
+            const hleft = parseFloat(el.style.left);
+            const htop = parseFloat(el.style.top);
+            const hw = el.offsetWidth;
+            const hh = el.offsetHeight;
+            if (pos.x >= hleft && pos.x <= hleft + hw && pos.y >= htop && pos.y <= htop + hh) {
+                const handleClass = Array.from(el.classList).find(c => c.startsWith('handle-'));
+                return { type: 'HANDLE', handle: handleClass ? handleClass.replace('handle-', '') : '' };
             }
         }
 
-        const r = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
-        if (r) {
-            const scale = this.controller.model.state.scaleMultiplier;
-            const cw = this.controller.model.state.canvasWidth * scale;
-            const ch = this.controller.model.state.canvasHeight * scale;
-            const rx = r.rect.x * cw, ry = r.rect.y * ch;
-            const rw = r.rect.w * cw, rh = r.rect.h * ch;
-            if (pos.x >= rx && pos.x <= rx + rw && pos.y >= ry && pos.y <= ry + rh) {
-                return { type: 'BODY' };
+        // Check Region Bodies (All Regions)
+        const regions = layer.querySelectorAll('.region-highlight');
+        for (const el of regions) {
+            const rleft = parseFloat(el.style.left);
+            const rtop = parseFloat(el.style.top);
+            const rw = parseFloat(el.style.width);
+            const rh = parseFloat(el.style.height);
+            if (pos.x >= rleft && pos.x <= rleft + rw && pos.y >= rtop && pos.y <= rtop + rh) {
+                return { type: 'BODY', id: el.dataset.id };
             }
         }
         return { type: 'NONE' };
@@ -654,29 +659,7 @@ class RegionEditor {
     handleMouseDown(e) {
         if (e.button !== 0) return;
         const pos = this.getLocalPos(e);
-        let hit = this.hitTest(pos);
-
-        // Smart Select: Check all regions if we didn't hit the active one
-        if (hit.type === 'NONE') {
-            const allRegions = this.controller.model.state.regions;
-            const cw = this.controller.model.state.canvasWidth;
-            const ch = this.controller.model.state.canvasHeight;
-            
-            // Reverse iterate to find top-most
-            for (let i = allRegions.length - 1; i >= 0; i--) {
-                const r = allRegions[i];
-                const rx = r.rect.x * cw, ry = r.rect.y * ch;
-                const rw = r.rect.w * cw, rh = r.rect.h * ch;
-                
-                if (pos.x >= rx && pos.x <= rx+rw && pos.y >= ry && pos.y <= ry+rh) {
-                    this.controller.model.selectRegion(r.id);
-                    hit = { type: 'BODY' }; // Grab immediately
-                    break;
-                }
-            }
-        }
-
-        this.dragStart = pos;
+        const hit = this.hitDetection(pos);
 
         if (hit.type === 'HANDLE') {
             this.mode = 'RESIZE';
@@ -684,49 +667,30 @@ class RegionEditor {
             this.initialRect = { ...this.controller.model.getRegion(this.controller.model.state.activeRegionId).rect };
             this.controller.view.hideRegionActionsBar(); 
             e.preventDefault(); e.stopPropagation();
+            return;
         } else if (hit.type === 'BODY') {
+            if (hit.id !== this.controller.model.state.activeRegionId) {
+                this.controller.model.selectRegion(hit.id);
+            }
             this.mode = 'MOVE';
-            this.initialRect = { ...this.controller.model.getRegion(this.controller.model.state.activeRegionId).rect };
-            this.controller.view.hideRegionActionsBar(); 
+            this.initialRect = { ...this.controller.model.getRegion(hit.id).rect };
+            this.dragStart = pos;
+            this.controller.view.hideRegionActionsBar();
             e.preventDefault(); e.stopPropagation();
-        } else {
-            this.mode = 'CREATE';
-            this.controller.model.deselect();
-            this.controller.view.els.selectionBox.style.display = 'block';
-            this.controller.view.updateSelectionBox(pos.x, pos.y, 0, 0, this.controller.model.state);
+            return;
+        } else if (hit.type === 'NONE') {
+            if (this.controller.model.state.activeRegionId) {
+                this.controller.model.deselect();
+            } else {
+                this.mode = 'CREATE';
+                this.dragStart = pos;
+                this.controller.view.updateSelectionBox(pos.x, pos.y, 0, 0, this.controller.model.state);
+            }
         }
     }
 
     handleMouseMove(e) {
         const pos = this.getLocalPos(e);
-        
-        if (this.mode === 'IDLE') {
-            const hit = this.hitTest(pos);
-            const layer = this.controller.view.els.interactionLayer;
-            
-            // Check hover for ANY region to change cursor
-            let hoveringAny = false;
-            if (hit.type === 'NONE') {
-                const scale = this.controller.model.state.scaleMultiplier;
-                const cw = this.controller.model.state.canvasWidth * scale;
-                const ch = this.controller.model.state.canvasHeight * scale;
-                for (const r of this.controller.model.state.regions) {
-                    const rx = r.rect.x * cw, ry = r.rect.y * ch;
-                    const rw = r.rect.w * cw, rh = r.rect.h * ch;
-                    if (pos.x >= rx && pos.x <= rx+rw && pos.y >= ry && pos.y <= ry+rh) {
-                        hoveringAny = true;
-                        break;
-                    }
-                }
-            }
-
-            if (hit.type === 'HANDLE') layer.style.cursor = 'crosshair'; 
-            else if (hit.type === 'BODY' || hoveringAny) layer.style.cursor = 'move';
-            else layer.style.cursor = 'default';
-            return;
-        }
-
-        e.preventDefault();
 
         if (this.mode === 'CREATE') {
             const s = this.dragStart;
@@ -774,6 +738,31 @@ class RegionEditor {
                 }
             }
         }
+
+        // Cursor Logic
+        const hit = this.hitDetection(pos);
+        const layer = this.controller.view.els.interactionLayer;
+        
+        // Check hover for ANY region to change cursor
+        let hoveringAny = false;
+        if (hit.type === 'NONE') {
+            const scale = this.controller.model.state.scaleMultiplier;
+            const cw = this.controller.model.state.canvasWidth * scale;
+            const ch = this.controller.model.state.canvasHeight * scale;
+            for (const r of this.controller.model.state.regions) {
+                const rx = r.rect.x * cw, ry = r.rect.y * ch;
+                const rw = r.rect.w * cw, rh = r.rect.h * ch;
+                if (pos.x >= rx && pos.x <= rx+rw && pos.y >= ry && pos.y <= ry+rh) {
+                    hoveringAny = true;
+                    break;
+                }
+            }
+        }
+
+        if (hit.type === 'HANDLE') layer.style.cursor = 'crosshair'; 
+        else if (hit.type === 'BODY' || hoveringAny) layer.style.cursor = 'move';
+        else layer.style.cursor = 'default';
+        return;
     }
 
     handleMouseUp(e) {
