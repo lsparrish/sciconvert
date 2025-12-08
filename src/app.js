@@ -1,10 +1,11 @@
 /*
  * SciText Digitizer - Single File Architecture
  * Contains:
- * 1. SciTextModel (State & Data)
- * 2. UIManager (View & DOM)
- * 3. SciTextController (Logic & Events)
- * 4. RegionEditor (Canvas Interaction Logic)
+ * 1. Config, Styles, HTML.
+ * 2. SciTextModel (State & Data)
+ * 3. UIManager (View & DOM)
+ * 4. SciTextController (Logic & Events)
+ * 5. RegionEditor (Canvas Interaction Logic)
  */
 
 // ============================================================================
@@ -583,14 +584,13 @@ class UIManager {
             this.els.tabDebug.classList.add('tab-button-active');
         }
     }
-    updateSelectionBox(x, y, w, h, state) {
+    updateSelectionBox(x, y, w, h) {
         const box = this.els.selectionBox;
         box.style.left = x + "px";
         box.style.top = y + "px";
         box.style.width = w + "px";
         box.style.height = h + "px";
-        // Convert to percentage for display or debugging if needed, 
-        // but strictly visual logic stays in pixels here.
+        box.style.display = "block";
     }
 }
 
@@ -684,7 +684,7 @@ class RegionEditor {
             } else {
                 this.mode = 'CREATE';
                 this.dragStart = pos;
-                this.controller.view.updateSelectionBox(pos.x, pos.y, 0, 0, this.controller.model.state);
+                this.controller.view.updateSelectionBox(pos.x, pos.y, 0, 0);
             }
         }
     }
@@ -696,7 +696,7 @@ class RegionEditor {
             const s = this.dragStart;
             const x = Math.min(pos.x, s.x), y = Math.min(pos.y, s.y);
             const w = Math.abs(pos.x - s.x), h = Math.abs(pos.y - s.y);
-            this.controller.view.updateSelectionBox(x, y, w, h, this.controller.model.state);
+            this.controller.view.updateSelectionBox(x, y, w, h);
         } else if (this.mode === 'MOVE') {
             const scale = this.controller.model.state.scaleMultiplier;
             const physicalCw = this.controller.model.state.canvasWidth * scale;
