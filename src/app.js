@@ -1,11 +1,6 @@
 /*
  * SciText Digitizer - Application Bundle (src/app.js)
- * This file consolidates:
- * 1. SciTextHelpers: Core math and SVG utilities.
- * 2. App Logic: State management, AI integration, and Canvas interaction.
- * 3. Default UI Extensions: The "Region Actions" toolbar logic.
- * 4. Embedded Template: HTML structure and CSS styles separated for clarity.
- * 5. Consolidated Logic with Modular Drawing System.
+ * Consolidated Logic with Modular Drawing System.
  */
 
 import { RegionEditor } from 'https://lsparrish.github.io/sciconvert/src/draw.js'
@@ -38,6 +33,10 @@ window.app = (function () {
   .uppercase { text-transform: uppercase; }
   .select-none { user-select: none; }
   .disabled, .disabled-bar { opacity: 0.5; pointer-events: none; transition: opacity 0.15s ease-in-out; }
+  .flex-container { display: flex; align-items: center; }
+  .flex-col { flex-direction: column; }
+  .flex-1 { flex: 1 1 0%; }
+  .shrink-0 { flex-shrink: 0; }
   
   /* --- Animations --- */
   .loader-spinner { width: 3rem; height: 3rem; border: 4px solid #4b5563; border-top-color: #3b82f6; border-radius: 9999px; animation: spin 1s linear infinite; margin-bottom: 1rem; }
@@ -71,11 +70,36 @@ window.app = (function () {
   .main-content-wrapper { flex: 1 1 0%; flex-direction: column; overflow: hidden; position: relative; background-color: white; display: flex; }
   .workspace-container { flex: 1 1 0%; display: flex; overflow: hidden; position: relative; }
 
-  /* --- Sidebar --- */
+  /* --- Sidebar (Restored Elements) --- */
   .sidebar-panel { width: 20rem; min-width: 320px; height: 100%; display: flex; flex-direction: column; border-right: 1px solid #e5e7eb; background-color: white; z-index: 10; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); flex-shrink: 0; }
   .prop-header { background-color: #f3f4f6; padding: 0.75rem 1rem; font-size: 0.75rem; font-weight: 700; color: #4b5563; border-bottom: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 0.5rem; flex-shrink: 0; }
+  .prop-header-top { display: flex; justify-content: space-between; align-items: center; }
+  .region-count-badge { background-color: #dbeafe; color: #1d4ed8; padding: 0.125rem 0.5rem; border-radius: 9999px; font-size: 10px; font-weight: 700; }
+  .mode-toggle-group { display: flex; background-color: #e5e7eb; border-radius: 0.25rem; padding: 0.125rem; border: 1px solid #d1d5db; }
+  .mode-button { padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-size: 10px; font-weight: 700; transition: background-color 0.15s; }
+  .mode-button-active { background-color: white; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); color: #2563eb; }
+  .mode-button-inactive { color: #6b7280; }
+  .prop-header-bottom { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #e5e7eb; padding-top: 0.5rem; margin-top: 0.25rem; }
+  .prop-header-tools { display: flex; gap: 0.5rem; }
+  .geometry-inputs { 
+    padding: 1rem; 
+    background-color: #f9fafb; 
+    border-bottom: 1px solid #e5e7eb; 
+    display: grid; 
+    grid-template-columns: repeat(2, minmax(0, 1fr)); 
+    gap: 0.75rem; 
+    font-size: 0.75rem; 
+    user-select: none; 
+    position: relative; 
+    flex-shrink: 0;
+  }
+  .input-label { display: block; color: #9ca3af; font-weight: 700; margin-bottom: 0.25rem; font-size: 10px; }
+  .input-field { width: 100%; background-color: white; border: 1px solid #d1d5db; border-radius: 0.25rem; padding: 0.375rem; font-family: monospace; color: #374151; outline: none; text-align: center; }
+  .mode-status { position: absolute; top: 0.25rem; right: 0.5rem; font-size: 9px; font-weight: 700; letter-spacing: 0.05em; pointer-events: none; color: #60a5fa; }
+  .layer-list-header { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 700; color: #6b7280; border-bottom: 1px solid #e5e7eb; background-color: #f3f4f6; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
   .layer-list-container { flex: 1 1 0%; overflow-y: auto; padding: 0.5rem; background-color: #f3f4f6; border-top: 1px solid #e5e7eb; }
   .sidebar-footer { padding: 0.75rem; border-top: 1px solid #e5e7eb; background-color: #f9fafb; display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: space-between; align-items: center; flex-shrink: 0; }
+
 
   /* --- Canvas Area --- */
   .canvas-view-style { flex: 1 1 0%; height: 100%; display: flex; flex-direction: column; background-color: #e5e7eb; overflow: hidden; position: relative; }
@@ -104,8 +128,18 @@ window.app = (function () {
   .handle-sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
   .handle-w { top: 50%; left: -4px; transform: translateY(-50%); cursor: ew-resize; }
 
-  /* --- Action Bar --- */
-  .region-actions-bar { position: fixed; z-index: 100; background-color: rgba(255, 255, 255, 0.95); padding: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 1px solid #d1d5db; display: flex; gap: 0.5rem; }
+  /* --- Action Bar (Renamed from draft-actions-bar) --- */
+  .region-actions-bar { 
+    position: fixed; 
+    z-index: 100; 
+    background-color: rgba(255, 255, 255, 0.95); 
+    padding: 0.5rem; 
+    border-radius: 0.5rem; 
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); 
+    border: 1px solid #d1d5db; 
+    display: flex; 
+    gap: 0.5rem; 
+  }
   `;
 
   const APP_STRUCTURE = `
@@ -131,44 +165,98 @@ window.app = (function () {
       </div>
       <div class="header-group">
           <span id="ai-status" class="hidden" style="color:#60a5fa; font-size:0.75rem; font-family:monospace;">Processing...</span>
+          <button id="fullscreen-toggle" class="btn btn-secondary" style="font-weight:600; border:1px solid #4b5563;">Full Screen</button>
       </div>
     </header>
 
     <main class="main-content-wrapper">
+      <!-- Tab Bar - Restored -->
+      <div class="header-group" style="background-color:#f9fafb; border-bottom:1px solid #e5e7eb; box-shadow:inset 0 2px 4px 0 rgba(0,0,0,0.06); flex-shrink:0; z-index:20; padding-left:0; padding-right:0;">
+        <button id="tab-overlay" class="tab-button tab-button-active">Compositor</button>
+        <button id="tab-debug" class="tab-button">Debug View</button>
+      </div>
+
+      <!-- Main Workspace -->
       <div id="workspace-container" class="workspace-container hidden">
           <!-- Sidebar -->
           <div class="sidebar-panel">
+              <!-- Property Header - Restored full structure -->
               <div class="prop-header">
-                  <div style="display:flex; justify-content:space-between;">
+                  <div class="prop-header-top">
                       <span class="uppercase">Properties</span>
-                      <span id="region-count" style="background-color:#dbeafe; color:#1d4ed8; padding:0 0.5rem; border-radius:9px; font-size:10px;">0</span>
+                      <div class="header-group" style="gap:0.5rem;">
+                          <div class="mode-toggle-group">
+                              <button id="mode-area" class="mode-button mode-button-active">Area</button>
+                              <button id="mode-content" class="mode-button mode-button-inactive">Content</button>
+                          </div>
+                          <span id="region-count" class="region-count-badge">0</span>
+                      </div>
+                  </div>
+                  <div class="prop-header-bottom">
+                      <span>Geometry Tools:</span>
+                      <div class="prop-header-tools">
+                           <button id="btn-fit-area" class="btn btn-secondary" style="font-size:10px; font-weight:600;">Fit Area</button>
+                           <button id="btn-fit-content" class="btn btn-secondary" style="font-size:10px; font-weight:600;">Fill Content</button>
+                      </div>
                   </div>
               </div>
+              
+              <!-- Geometry Inputs - Restored -->
+              <div class="geometry-inputs">
+                  <div id="mode-label" class="mode-status">Area Mode</div>
+                  <div style="grid-column: span 2; display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                      <div><label id="lbl-x" class="input-label uppercase">Pos X</label><input type="number" id="prop-x" class="input-field" disabled></div>
+                      <div><label id="lbl-y" class="input-label uppercase">Pos Y</label><input type="number" id="prop-y" class="input-field" disabled></div>
+                  </div>
+                  <div style="grid-column: span 2; display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                      <div><label id="lbl-w" class="input-label uppercase">Width</label><input type="number" id="prop-w" class="input-field" disabled></div>
+                      <div><label id="lbl-h" class="input-label uppercase">Height</label><input type="number" id="prop-h" class="input-field" disabled></div>
+                  </div>
+              </div>
+
+              <!-- Layer List Header - Restored -->
+              <div class="layer-list-header">
+                  <span class="uppercase">Region Layers</span>
+                  <button id="btn-add-layer"> + Add</button>
+              </div>
+
               <div id="layer-list" class="layer-list-container">
                   <div style="text-align:center; color:#9ca3af; font-size:10px; margin-top:1rem;">Select a region to view layers</div>
               </div>
+              
+              <!-- Sidebar Footer - Restored full context actions -->
               <div class="sidebar-footer">
-                  <div style="display:flex; gap:0.5rem;">
-                    <button id="btn-export" class="btn btn-secondary">Export SVG</button>
-                    <button id="btn-clear-all" style="color:#ef4444; font-weight:600; font-size:0.75rem; border:none; background:none; cursor:pointer;">Reset</button>
+                  <div class="header-group" style="gap:0.25rem;">
+                    <button id="btn-export" class="action-bar-btn" style="background-color:#047857;">Export SVG</button>
+                    <button id="btn-clear-all" class="action-bar-btn" style="color:#ef4444; background:transparent;">Reset</button>
                   </div>
-                  <div id="context-actions" class="disabled-bar" style="display:flex; gap:0.25rem;">
-                       <button id="btn-delete" class="btn btn-secondary">Del</button>
+                  <div id="context-actions" class="header-group disabled-bar" style="gap:0.5rem;">
+                       <button id="btn-digitize" class="action-bar-btn" style="background-color:#9333ea;">AI Text</button>
+                       <button id="btn-split" class="action-bar-btn" style="background-color:#eef2ff; color:#4338ca; border:1px solid #c7d2fe;">Split</button>
+                       <button id="btn-group" class="action-bar-btn" style="background-color:#0d9488;">Group</button>
+                       <button id="btn-optimize" class="action-bar-btn" style="background-color:#eef2ff; color:#4338ca; border:1px solid #c7d2fe;">Opt</button>
+                       <button id="btn-regen" class="action-bar-btn" style="background-color:#2563eb;">Regen</button>
+                       <button id="btn-delete" class="action-bar-btn" style="background-color:#ef4444;">Del</button>
                   </div>
               </div>
           </div>
+
           <!-- Canvas Viewport -->
           <div id="canvas-view-area" class="canvas-view-style">
               <div id="canvas-scroller" class="canvas-scroller-style">
                   <div id="canvas-wrapper" class="canvas-wrapper-style">
                       <div id="pdf-layer" class="transition"></div> 
                       <div id="svg-layer" class="absolute inset-0 z-10 transition" style="pointer-events:none;"></div> 
-                      <!-- Interaction Layer: Manages Clicks, Drags, and Handles via DrawController -->
                       <div id="interaction-layer" class="absolute inset-0 z-20"></div>
                       <div id="selection-box"></div>
                   </div>
               </div>
           </div>
+      </div>
+      
+      <!-- Debug View Container - Restored (Hidden by default) -->
+      <div id="debug-container" class="workspace-container hidden" style="background-color:#111827; flex-direction:column; padding:1.5rem; overflow-y:auto;">
+           <div style="color:white;">[Debug View Content Goes Here]</div>
       </div>
       
       <!-- Loaders & Empty States -->
@@ -184,7 +272,7 @@ window.app = (function () {
       </div>
     </main>
 
-    <!-- Draft Actions (Floating) -->
+    <!-- Region Actions (Floating) - Renamed from draft-actions-bar -->
     <div id="region-actions-bar" class="region-actions-bar hidden">
       <button data-type="text" class="action-bar-btn" style="background-color:#2563eb;">AI Text</button>
       <button data-type="image" class="action-bar-btn" style="background-color:#d97706;">Image</button>
@@ -211,6 +299,7 @@ window.app = (function () {
     regions: [],
     activeRegionId: null,
     selectedIds: new Set(),
+    editMode: 'area', // Restored
     history: [],
     historyIndex: -1,
     canvas: null,
@@ -227,7 +316,7 @@ window.app = (function () {
     document.head.appendChild(style);
     document.body.insertAdjacentHTML("beforeend", APP_STRUCTURE);
 
-    // Bind DOM
+    // Bind DOM (Restoring missing bindings)
     state.canvas = document.getElementById("processing-canvas");
     els.upload = document.getElementById("pdf-upload");
     els.btnZoomIn = document.getElementById("zoom-in");
@@ -235,7 +324,14 @@ window.app = (function () {
     els.txtZoomLevel = document.getElementById("zoom-level");
     els.btnUndo = document.getElementById("btn-undo");
     els.btnRedo = document.getElementById("btn-redo");
+    
+    // Tabs & Views
+    els.tabOverlay = document.getElementById("tab-overlay"); // NEW
+    els.tabDebug = document.getElementById("tab-debug");     // NEW
+    els.debugContainer = document.getElementById("debug-container"); // NEW
     els.workspace = document.getElementById("workspace-container");
+    
+    // Main UI
     els.emptyState = document.getElementById("empty-state");
     els.loader = document.getElementById("pdf-loader");
     els.wrapper = document.getElementById("canvas-wrapper");
@@ -243,12 +339,38 @@ window.app = (function () {
     els.svgLayer = document.getElementById("svg-layer");
     els.interactionLayer = document.getElementById("interaction-layer");
     els.selectionBox = document.getElementById("selection-box");
+    
+    // Action Bars - Renamed from draft-actions-bar
     els.regionActionsBar = document.getElementById("region-actions-bar");
+    els.btnCancelRegion = document.getElementById("btn-cancel-region"); // NEW
+
+    // Sidebar
     els.layerList = document.getElementById("layer-list");
     els.regionCount = document.getElementById("region-count");
     els.contextActions = document.getElementById("context-actions");
     els.aiStatus = document.getElementById("ai-status");
     els.btnDelete = document.getElementById("btn-delete");
+    els.fullscreenBtn = document.getElementById("fullscreen-toggle");
+    
+    // Sidebar - Geometry & Mode - NEW
+    els.modeArea = document.getElementById("mode-area");
+    els.modeContent = document.getElementById("mode-content");
+    els.modeLabel = document.getElementById("mode-label");
+    els.btnFitArea = document.getElementById("btn-fit-area");
+    els.btnFitContent = document.getElementById("btn-fit-content");
+    els.propX = document.getElementById("prop-x");
+    els.propY = document.getElementById("prop-y");
+    els.propW = document.getElementById("prop-w");
+    els.propH = document.getElementById("prop-h");
+    els.btnAddLayer = document.getElementById("btn-add-layer");
+    
+    // Sidebar - Context Actions - NEW
+    els.btnDigitize = document.getElementById("btn-digitize");
+    els.btnSplit = document.getElementById("btn-split");
+    els.btnGroup = document.getElementById("btn-group");
+    els.btnOptimize = document.getElementById("btn-optimize");
+    els.btnRegen = document.getElementById("btn-regen");
+
 
     app.els = els; // Expose els to modules
 
@@ -272,7 +394,7 @@ window.app = (function () {
           rect: normalizedRect,
           status: 'pending',
           svgContent: `<text x="50%" y="50%" font-size="20" fill="#60a5fa" text-anchor="middle">Awaiting Action</text>`,
-          bpDims: null, // Will be set on generation
+          bpDims: null,
           scale: { x: 1, y: 1 },
           offset: { x: 0, y: 0 }
       };
@@ -287,6 +409,16 @@ window.app = (function () {
   app.getRegion = function(id) {
       return state.regions.find(r => r.id === id);
   };
+  
+  // Restored: denormalizeRect function for properties display
+  app.denormalizeRect = function(r) {
+      return {
+          x: r.x * state.canvas.width,
+          y: r.y * state.canvas.height,
+          w: r.w * state.canvas.width,
+          h: r.h * state.canvas.height
+      };
+  };
 
   app.selectRegion = function(id) {
       state.selectedIds.clear();
@@ -299,6 +431,7 @@ window.app = (function () {
       if (r) {
           regionEditor.renderActiveControls(r);
           renderLayerList(r);
+          updateUIProperties(r); // NEW: Update property inputs
           showRegionActionsBar(r);
       }
       updateUI();
@@ -307,7 +440,11 @@ window.app = (function () {
   app.deselect = function() {
       state.activeRegionId = null;
       state.selectedIds.clear();
-      els.regionActionsBar.classList.add("hidden");
+      els.regionActionsBar.classList.add("hidden"); // Renamed
+      // Hide and clear selection frame
+      const frame = document.getElementById('active-selection-frame');
+      if (frame) frame.remove();
+      
       renderRegions();
       updateUI();
   };
@@ -334,11 +471,10 @@ window.app = (function () {
           svg.setAttribute("height", ph);
           svg.setAttribute("viewBox", `0 0 ${dimW} ${dimH}`);
           svg.setAttribute("preserveAspectRatio", "none");
-          svg.innerHTML = `<g transform="translate(${r.offset.x}, ${r.offset.y}) scale(${r.scale.x}, ${r.scale.y})">${r.svgContent}</g>`;
+          svg.innerHTML = `<g transform="translate(${r.offset.x || 0}, ${r.offset.y || 0}) scale(${r.scale?.x || 1}, ${r.scale?.y || 1})">${r.svgContent || ''}</g>`;
           els.svgLayer.appendChild(svg);
 
-          // Render Interaction Highlight (Used for clicking/selecting via RegionEditor)
-          // We render these into interactionLayer BEHIND the active controls
+          // Render Interaction Highlight
           const highlight = document.createElement("div");
           highlight.className = "absolute region-highlight";
           if (state.selectedIds.has(r.id)) highlight.classList.add("region-selected");
@@ -346,11 +482,7 @@ window.app = (function () {
           highlight.style.top = py + "px";
           highlight.style.width = pw + "px";
           highlight.style.height = ph + "px";
-          
-          // Important: DrawController relies on hit-testing these coordinates logic, 
-          // or we can let the highlight element handle 'mouseover' style changes.
-          // Since DrawController handles logic, these are mostly visual unless hit-testing uses elements.
-          // Our RegionEditor uses coordinate math, so these are purely visual cues.
+          highlight.dataset.id = r.id; // Added for editor hit testing in app.js if needed
           els.interactionLayer.appendChild(highlight);
       });
 
@@ -359,6 +491,9 @@ window.app = (function () {
           const r = app.getRegion(state.activeRegionId);
           if (r) regionEditor.renderActiveControls(r);
       }
+      
+      // Update property inputs if region is active
+      if (state.activeRegionId) updateUIProperties(app.getRegion(state.activeRegionId));
   };
 
   // =========================================================================
@@ -367,7 +502,10 @@ window.app = (function () {
 
   function renderLayerList(r) {
       els.layerList.innerHTML = '';
-      if (!r || !r.svgContent) return;
+      if (!r || !r.svgContent) {
+        els.layerList.innerHTML = '<div style="text-align:center; color:#9ca3af; font-size:10px; margin-top:1rem;">Select a region to view layers</div>';
+        return;
+      }
       
       const parser = new DOMParser();
       const doc = parser.parseFromString(`<svg>${r.svgContent}</svg>`, "image/svg+xml");
@@ -377,7 +515,7 @@ window.app = (function () {
           const div = document.createElement('div');
           div.style.cssText = "background:white; border:1px solid #e5e7eb; border-radius:4px; padding:4px; margin-bottom:4px;";
           div.innerHTML = `<div style="font-size:10px; font-weight:700; color:#3b82f6; margin-bottom:2px;">${child.tagName}</div>
-          <textarea style="width:100%; font-size:10px; border:1px solid #f3f4f6; resize:vertical; font-family:monospace;">${child.outerHTML}</textarea>`;
+          <textarea style="width:100%; height: 60px; font-size:10px; border:1px solid #f3f4f6; resize:vertical; font-family:monospace;">${child.outerHTML}</textarea>`;
           
           const ta = div.querySelector('textarea');
           ta.onchange = () => {
@@ -385,9 +523,29 @@ window.app = (function () {
               child.outerHTML = ta.value;
               r.svgContent = doc.documentElement.innerHTML;
               app.renderRegions();
+              saveState(); // Save after user edits a layer
           };
           els.layerList.appendChild(div);
       });
+  }
+  
+  // Restored: updateUIProperties
+  function updateUIProperties(r) {
+    if (!r) return;
+    const { x, y, w, h } = app.denormalizeRect(r.rect);
+    
+    if (state.editMode === "area") {
+      els.propX.value = x.toFixed(0);
+      els.propY.value = y.toFixed(0);
+      els.propW.value = w.toFixed(0);
+      els.propH.value = h.toFixed(0);
+    } else {
+      // Content mode logic (simplified: show offsets and initial size)
+      els.propX.value = (r.offset?.x || 0).toFixed(2);
+      els.propY.value = (r.offset?.y || 0).toFixed(2);
+      els.propW.value = (r.bpDims?.w || w).toFixed(2);
+      els.propH.value = (r.bpDims?.h || h).toFixed(2);
+    }
   }
 
   function showRegionActionsBar(r) {
@@ -412,6 +570,16 @@ window.app = (function () {
       
       els.btnUndo.disabled = state.historyIndex <= 0;
       els.btnRedo.disabled = state.historyIndex >= state.history.length - 1;
+  }
+  
+  // Restored: switchTab
+  function switchTab(t) {
+    els.workspace.classList.toggle("hidden", t !== "overlay");
+    els.debugContainer.classList.toggle("hidden", t !== "debug");
+    els.debugContainer.classList.toggle("flex", t === "debug");
+    els.tabOverlay.classList.toggle("tab-button-active", t === "overlay");
+    els.tabDebug.classList.toggle("tab-button-active", t === "debug");
+    state.activeTab = t;
   }
 
   function setupEventListeners() {
@@ -439,6 +607,8 @@ window.app = (function () {
           els.loader.classList.add("hidden");
           els.emptyState.classList.add("hidden");
           els.workspace.classList.remove("hidden");
+          els.workspace.classList.add("flex");
+          saveState(true);
       };
 
       // Actions
@@ -447,17 +617,59 @@ window.app = (function () {
           app.deselect();
           saveState();
       };
+      
+      // Full Screen Toggle
+      els.fullscreenBtn.onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
 
+      // Region Actions Bar
       els.regionActionsBar.onclick = (e) => {
           const type = e.target.dataset.type;
           if (type) generateContent(type);
-          else if (e.target.id === 'btn-cancel-region') {
+          else if (e.target.id === 'btn-cancel-region') { // Renamed ID
               state.regions = state.regions.filter(r => r.id !== state.activeRegionId);
               app.deselect();
               saveState();
           }
       };
       
+      // Sidebar Controls - NEW
+      els.tabOverlay.onclick = () => switchTab("overlay");
+      els.tabDebug.onclick = () => switchTab("debug");
+      
+      els.modeArea.onclick = () => { state.editMode = 'area'; updateUIProperties(app.getRegion(state.activeRegionId)); };
+      els.modeContent.onclick = () => { state.editMode = 'content'; updateUIProperties(app.getRegion(state.activeRegionId)); };
+      
+      els.propX.onchange = els.propY.onchange = els.propW.onchange = els.propH.onchange = () => {
+          // This is a minimal implementation, needs proper validation and coordinate conversion
+          const r = app.getRegion(state.activeRegionId);
+          if (!r) return;
+          if (state.editMode === 'area') {
+            const cw = state.canvas.width;
+            const ch = state.canvas.height;
+            r.rect.x = parseFloat(els.propX.value) / cw;
+            r.rect.y = parseFloat(els.propY.value) / ch;
+            r.rect.w = parseFloat(els.propW.value) / cw;
+            r.rect.h = parseFloat(els.propH.value) / ch;
+          }
+          // Note: Content mode handling is complex and omitted for this minimal fix
+          app.renderRegions();
+          saveState();
+      };
+      
+      // Context Actions (Placeholder actions)
+      els.btnDigitize.onclick = () => generateContent('text');
+      els.btnRegen.onclick = () => generateContent('text');
+      // Other context buttons (split, group, optimize, add layer) need complex logic,
+      // so we use a minimal placeholder function for now to prevent errors.
+      [els.btnSplit, els.btnGroup, els.btnOptimize, els.btnAddLayer].forEach(btn => {
+          btn.onclick = () => {
+              els.aiStatus.textContent = `Action "${btn.textContent.trim()}" not implemented yet.`;
+              els.aiStatus.classList.remove("hidden");
+              setTimeout(() => els.aiStatus.classList.add("hidden"), 3000);
+          };
+      });
+
+
       document.getElementById('btn-export').onclick = () => {
           const svg = els.svgLayer.innerHTML; // Simplified export
           const blob = new Blob([`<svg xmlns="http://www.w3.org/2000/svg" width="${state.canvas.width}" height="${state.canvas.height}">${svg}</svg>`], {type: "image/svg+xml"});
@@ -472,6 +684,19 @@ window.app = (function () {
           app.deselect();
           saveState();
       };
+      
+      // Prevent pointer events on the highlight rectangles from blocking clicks on handles
+      els.interactionLayer.addEventListener('click', (e) => {
+          if (e.target.classList.contains('region-highlight')) {
+              e.stopPropagation(); // Stops the event from hitting the layer underneath
+              
+              // Only select if not already interacting via a handle
+              if (regionEditor.interactionMode === 'IDLE') {
+                  const id = e.target.dataset.id;
+                  if (id) app.selectRegion(id);
+              }
+          }
+      });
   }
 
   // =========================================================================
@@ -484,6 +709,8 @@ window.app = (function () {
       const w = state.baseWidth * state.scaleMultiplier;
       els.wrapper.style.width = w + "px";
       els.wrapper.style.height = (w * (state.canvas.height / state.canvas.width)) + "px";
+      // Render regions after zoom to update the controls position
+      app.renderRegions();
   }
 
   function renderPage() {
@@ -496,7 +723,7 @@ window.app = (function () {
       app.renderRegions();
   }
 
-  function saveState() {
+  function saveState(isInitial) {
       if (state.historyIndex < state.history.length - 1) {
           state.history = state.history.slice(0, state.historyIndex + 1);
       }
@@ -523,7 +750,7 @@ window.app = (function () {
 
   function restoreState() {
       state.regions = JSON.parse(JSON.stringify(state.history[state.historyIndex]));
-      app.deselect(); // Clear active state on undo/redo to prevent ghost handles
+      app.deselect(); 
       app.renderRegions();
       updateUI();
   }
@@ -541,7 +768,8 @@ window.app = (function () {
           els.loader.classList.add("hidden");
           els.emptyState.classList.add("hidden");
           els.workspace.classList.remove("hidden");
-          saveState();
+          els.workspace.classList.add("flex");
+          saveState(true);
       };
       img.src = CONFIG.defaultPdfUrl;
   }
@@ -551,7 +779,7 @@ window.app = (function () {
       if (!r) return;
       
       els.aiStatus.classList.remove("hidden");
-      els.regionActionsBar.classList.add("hidden");
+      els.regionActionsBar.classList.add("hidden"); // Renamed
 
       if (type === 'empty') {
           r.svgContent = '';
