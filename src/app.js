@@ -175,12 +175,23 @@ window.app = (function () {
         <button id="tab-overlay" class="tab-button tab-button-active">Compositor</button>
         <button id="tab-debug" class="tab-button">Debug View</button>
       </div>
+      
+      <!-- Empty State & Loader -->
+      <div id="empty-state" class="empty-state-container">
+        <div class="empty-card">
+            <h2>No Document Loaded</h2>
+            <p>Upload a PDF or Image to begin.</p>
+        </div>
+      </div>
+      <div id="pdf-loader" class="loader-overlay hidden">
+          <div class="loader-spinner"></div>
+          <span class="loader-text">Loading...</span>
+      </div>
 
       <!-- Main Workspace -->
       <div id="workspace-container" class="workspace-container hidden">
           <!-- Sidebar -->
           <div class="sidebar-panel">
-              <!-- Property Header - Restored full structure -->
               <div class="prop-header">
                   <div class="prop-header-top">
                       <span class="uppercase">Properties</span>
@@ -200,8 +211,6 @@ window.app = (function () {
                       </div>
                   </div>
               </div>
-              
-              <!-- Geometry Inputs - Restored -->
               <div class="geometry-inputs">
                   <div id="mode-label" class="mode-status">Area Mode</div>
                   <div style="grid-column: span 2; display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
@@ -213,18 +222,13 @@ window.app = (function () {
                       <div><label id="lbl-h" class="input-label uppercase">Height</label><input type="number" id="prop-h" class="input-field" disabled></div>
                   </div>
               </div>
-
-              <!-- Layer List Header - Restored -->
               <div class="layer-list-header">
                   <span class="uppercase">Region Layers</span>
                   <button id="btn-add-layer"> + Add</button>
               </div>
-
               <div id="layer-list" class="layer-list-container">
                   <div style="text-align:center; color:#9ca3af; font-size:10px; margin-top:1rem;">Select a region to view layers</div>
               </div>
-              
-              <!-- Sidebar Footer - Restored full context actions -->
               <div class="sidebar-footer">
                   <div class="header-group" style="gap:0.25rem;">
                     <button id="btn-export" class="action-bar-btn" style="background-color:#047857;">Export SVG</button>
@@ -240,7 +244,6 @@ window.app = (function () {
                   </div>
               </div>
           </div>
-
           <!-- Canvas Viewport -->
           <div id="canvas-view-area" class="canvas-view-style">
               <div id="canvas-scroller" class="canvas-scroller-style">
