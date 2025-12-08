@@ -563,6 +563,10 @@ class UIManager {
             svg.style.left = px + "px";
             svg.style.top  = py + "px";
             svg.style.pointerEvents = "none";
+            // FIX (Color): Ensure default text color is black
+            svg.style.fill = 'black'; 
+            svg.style.color = 'black';
+
 
             const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
             const tx = r.offset?.x ?? 0;
@@ -571,6 +575,10 @@ class UIManager {
             const sy = r.scale?.y ?? 1;
             // Apply transformation to the inner group
             g.setAttribute("transform", `translate(${tx},${ty}) scale(${sx},${sy})`);
+            
+            // FIX (Size): Set a default font size on the group if the content doesn't specify one.
+            // A font size of 32 is a reasonable default for a 2x scaled blueprint.
+            g.setAttribute("font-size", "32");
             
             // Inject sanitized SVG content
             try {
