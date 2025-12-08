@@ -248,7 +248,10 @@ class SciTextModel {
         this.notify();
     }
 
-    updateRegion(id, updates, context) { const r = this.getRegion(id); if (r) Object.assign(r, updates); this.notify(context);
+    updateRegion(id, updates, context) { 
+        const r = this.getRegion(id); 
+        if (r) Object.assign(r, updates); 
+        this.notify(context);
     }
 
     deleteRegion(id) {
@@ -309,6 +312,7 @@ class SciTextModel {
     restore() {
         this.state.regions = JSON.parse(JSON.stringify(this.state.history[this.state.historyIndex]));
         this.deselect();
+        this.notify();
     }
 }
 
@@ -334,7 +338,7 @@ class UIManager {
             'processing-canvas','pdf-upload','zoom-in','zoom-out','zoom-level','btn-undo','btn-redo',
             'tab-overlay','tab-debug','debug-container','debug-log','workspace-container','empty-state',
             'pdf-loader','canvas-wrapper','pdf-layer','svg-layer','interaction-layer','selection-box',
-            'region-actions-bar','layer-list','region-count',
+            'region-actions-bar','layer-list','region-count','layer-items','btn-toggle-visibility-all',
             'ai-status','fullscreen-toggle','prop-x','prop-y','prop-w','prop-h',
             'btn-fit-area','btn-fit-content','btn-split','btn-group','btn-delete','btn-export','btn-clear-all',
             'canvas-scroller'
@@ -346,11 +350,114 @@ class UIManager {
         });
     }
 
+    toggleLoader(show) {
+        this.els.pdfLoader.classList.toggle('hidden', !show);
+    }
+
+    toggleWorkspace(show) {
+        this.els.emptyState.classList.toggle('hidden', show);
+        this.els.workspaceContainer.classList.toggle('hidden', !show);
+    }
+
+    hideRegionActionsBar() {
+        this.els.regionActionsBar.classList.add('hidden');
+    }
+
+    showRegionActionsBar(region, state) {
+        this.els.regionActionsBar.classList.remove('hidden');
+        const scale = state.scaleMultiplier;
+        const physicalCw = state.canvasWidth * scale;
+        const physicalCh = state.canvasHeight * scale;
+        const x = region.rect.x * physicalCw;
+        const y = region.rect.y * physicalCh;
+        const w = region.rect.w * physicalCw;
+        const wrapperRect = this.els.canvasWrapper.getBoundingClientRect();
+        const bar = this.els.regionActionsBar;
+        bar.style.left = `${wrapperRect.left + x + w / 2 - bar.offsetWidth / 2}px`;
+        bar.style.top = `${wrapperRect.top + y - bar.offsetHeight - 10}px`;
+    }
+
+    updatePropertiesInputs(region, state) {
+        if (!region) {
+            this.els.propX.value = this.els.propY.value = this.els.propW.value = this.els.propH.value = '';
+            return;
+        }
+        const cw = state.canvasWidth;
+        const ch = state.canvasHeight;
+        this.els.propX.value = Math.round(region.rect.x * cw);
+        this.els.propY.value = Math.round(region.rect.y * ch);
+        this.els.propW.value = Math.round(region.rect.w * cw);
+        this.els.propH.value = Math.round(region.rect.h * ch);
+    }
+
+    renderActiveControls(region, state) {
+        let frame = document.getElementById('active-selection-frame');
+        if (!frame) {
+            frame = document.createElement('div');
+            frame.id = 'active-selection-frame';
+            frame.className = 'selection-frame';
+            this.els.interactionLayer.appendChild(frame);
+
+            const handles = ['nw','n','ne','e','se','s','sw','w'];
+            handles.forEach(dir => {
+                const h = document.createElement('div');
+                h.className = `resize-handle handle-${dir}`;
+                frame.appendChild(h);
+            });
+        }
+
+        const scale = state.scaleMultiplier;
+        const x = region.rect.x * state.canvasWidth * scale;
+        const y = region.rect.y * state.canvasHeight * scale;
+        const w = region.rect.w * state.canvasWidth * scale;
+        const h = region.rect.h * state.canvasHeight * scale;
+
+        Object.assign(frame.style, { left: x+'px', top: y+'px', width: w+'px', height: h+'px' });
+    }
+
+    switchTab(tab) {
+        if (tab === 'overlay') {
+            this.els.tabOverlay.classList.add('tab-button-active');
+            this.els.tabDebug.classList.remove('tab-button-active');
+            this.els.workspaceContainer.classList.remove('hidden');
+            this.els.debugContainer.classList.add('hidden');
+        } else if (tab === 'debug') {
+            this.els.tabOverlay.classList.remove('tab-button-active');
+            this.els.tabDebug.classList.add('tab-button-active');
+            this.els.workspaceContainer.classList.add('hidden');
+            this.els.debugContainer.classList.remove('hidden');
+        }
+    }
+
+    renderLayerList(activeRegion) {
+        const container = this.els.layerItems;
+        if (!container) return;
+
+        const regions = this.model.state.regions.slice().reverse(); // newest on top
+
+        if (regions.length === 0) {
+            container.innerHTML = '<div style="text-align:center;color:#9ca3af;font-size:0.75rem;padding:1rem;">No regions yet</div>';
+            return;
+        }
+
+        container.innerHTML = regions.map(r => {
+            const isActive = r.id === (activeRegion?.id || this.model.state.activeRegionId);
+            const eye = r.visible !== false ? '◉' : '◯';
+            const label = r.status === 'pending' ? 'Pending' : (r.contentType ? r.contentType.charAt(0).toUpperCase() + r.contentType.slice(1) : 'Region');
+            return `
+<div class="layer-item ${isActive ? 'active' : ''}" data-id="${r.id}">
+    <span class="drag-handle">⋮⋮</span>
+    <span class="visibility-toggle ${r.visible !== false ? '' : 'hidden'}">${eye}</span>
+    <span class="layer-name">${label}</span>
+    <span class="delete-btn">×</span>
+</div>`;
+        }).join('');
+    }
+
     render(state) {
         this.els.regionCount.textContent = state.regions.length;
-        
         this.els.zoomLevel.textContent = Math.round(state.scaleMultiplier * 100) + "%";
-        
+
         if (state.canvasWidth > 0) {
             const w = state.baseWidth * state.scaleMultiplier;
             const h = w * (state.canvasHeight / state.canvasWidth);
@@ -363,13 +470,14 @@ class UIManager {
         const logicalCh = state.canvasHeight;
         const physicalCw = logicalCw * scale;
         const physicalCh = logicalCh * scale;
-        
-        this.els.svgLayer.innerHTML = '';
-        this.els.interactionLayer.innerHTML = ''; 
 
-        // === SVG LAYERS & INTERACTION HIGHLIGHTS ===
         this.els.svgLayer.innerHTML = '';
-        this.els.interactionLayer.innerHTML = ''; 
+        this.els.interactionLayer.innerHTML = '';
+        this.els.selectionBox.style.display = 'none';
+
+        // Remove old active frame if any
+        const oldFrame = document.getElementById('active-selection-frame');
+        if (oldFrame) oldFrame.remove();
 
         state.regions.forEach(r => {
             const px = r.rect.x * physicalCw;
@@ -377,25 +485,22 @@ class UIManager {
             const pw = r.rect.w * physicalCw;
             const ph = r.rect.h * physicalCh;
 
-            // Logical dimensions for viewBox (use bpDims if present – that's the real SVG size)
             const viewW = r.bpDims?.w ?? (r.rect.w * logicalCw);
             const viewH = r.bpDims?.h ?? (r.rect.h * logicalCh);
 
-            // ---- Interaction highlight (always exists, dimmed when hidden) ----
+            // Interaction highlight
             const div = document.createElement("div");
             div.className = "absolute region-highlight";
             if (state.selectedIds.has(r.id)) div.classList.add("region-selected");
             if (r.visible === false) div.style.opacity = "0.3";
-            Object.assign(div.style, {
-                left: px + 'px',
-                top: py + 'px',
-                width: pw + 'px',
-                height: ph + 'px'
-            });
-            div.dataset.id = r.id;
+            div.style.left   = px + "px";
+            div.style.top    = py + "px";
+            div.style.width  = pw + "px";
+            div.style.height = ph + "px";
+            div.dataset.id   = r.id;
             this.els.interactionLayer.appendChild(div);
 
-            // ---- SVG content – only if visible ----
+            // SVG content (only when visible)
             if (r.visible === false) return;
 
             const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -407,291 +512,103 @@ class UIManager {
             svg.setAttribute("preserveAspectRatio", "none");
             svg.style.position = "absolute";
             svg.style.left = px + "px";
-            svg.style.top = py + "px";
+            svg.style.top  = py + "px";
             svg.style.pointerEvents = "none";
-            // No opacity needed here – fully visible
 
-            // Apply any manual offset/scale (from Fit Content / manual tweaks)
             const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
             const tx = r.offset?.x ?? 0;
             const ty = r.offset?.y ?? 0;
             const sx = r.scale?.x ?? 1;
             const sy = r.scale?.y ?? 1;
             g.setAttribute("transform", `translate(${tx},${ty}) scale(${sx},${sy})`);
-            g.innerHTML = r.svgContent || '';
+            g.innerHTML = r.svgContent || "";
             svg.appendChild(g);
 
             this.els.svgLayer.appendChild(svg);
         });
 
-        if (false) {
-            const r = state.regions.find(x => x.id === state.activeRegionId);
-            this.els.debugLog.textContent = JSON.stringify(r, null, 2);
-            this.updatePropertiesInputs(r, state);
-            this.showRegionActionsBar(r, state);
-            this.renderLayerList(r);
-            const previewEl = this.els.previewContent;
-            if (r.inkMapSVG) {
-                previewEl.innerHTML = r.inkMapSVG;
-            } else {
-                previewEl.innerHTML = '<span style="color:#d1d5db; font-size:9px;">No Data</span>';
-            }
+        // Update properties when there is an active region
+        const active = state.activeRegionId ? state.regions.find(r => r.id === state.activeRegionId) : null;
+        this.updatePropertiesInputs(active, state);
+        if (active) {
+            this.renderActiveControls(active, state);
+            this.showRegionActionsBar(active, state);
         } else {
-            this.els.regionActionsBar.classList.add('hidden');
-            this.els.propX.value = ''; this.els.propY.value = '';
-            this.els.propW.value = ''; this.els.propH.value = '';
-            this.els.layerList.innerHTML = '<div style="text-align:center; color:#9ca3af; font-size:10px; margin-top:1rem;">Select a region</div>';
-            const f = document.getElementById('active-selection-frame');
-            if (f) f.remove();
+            this.hideRegionActionsBar();
         }
-    }
+        this.renderLayerList(active);
 
-    updateRegionGeometry(id, state) {
-        const r = state.regions.find(x => x.id === id);
-        if(!r) return;
-        const cw = state.canvasWidth, ch = state.canvasHeight;
-        const x = r.rect.x * cw, y = r.rect.y * ch;
-        const w = r.rect.w * cw, h = r.rect.h * ch;
-
-        // 1. Update SVG Position
-        const svg = this.els.svgLayer.querySelector(`svg[data-id="${id}"]`);
-        if(svg) {
-             svg.setAttribute("x", x); svg.setAttribute("y", y);
-             svg.setAttribute("width", w); svg.setAttribute("height", h);
-             svg.style.left = x + "px"; svg.style.top = y + "px";
+        if (!this.els.debugContainer.classList.contains('hidden')) {
+            this.els.debugLog.textContent = JSON.stringify(state, null, 2);
         }
-
-        // 2. Update Interaction Highlight Div
-        const div = this.els.interactionLayer.querySelector(`div[data-id="${id}"]`);
-        if(div) {
-            Object.assign(div.style, { left: x+'px', top: y+'px', width: w+'px', height: h+'px' });
-        }
-
-        // 3. Update Active Controls (Frame & Handles)
-        if(state.activeRegionId === id) {
-            const frame = document.getElementById("active-selection-frame");
-            if(frame) {
-                Object.assign(frame.style, { left: x+'px', top: y+'px', width: w+'px', height: h+'px' });
-            }
-            
-            const handles = this.els.interactionLayer.querySelectorAll('.resize-handle');
-            handles.forEach(el => {
-                const dir = Array.from(el.classList).find(c => c.startsWith('handle-') && c !== 'handle-size')?.replace('handle-', '');
-                if (!dir) return;
-
-                let hx=0, hy=0;
-                if (dir.includes('e')) hx = x + w; else if (dir.includes('w')) hx = x; else hx = x + w/2;
-                if (dir.includes('s')) hy = y + h; else if (dir.includes('n')) hy = y; else hy = y + h/2;
-                
-                el.style.left = (hx - 4) + "px";
-                el.style.top = (hy - 4) + "px";
-            });
-
-            this.updatePropertiesInputs(r, state);
-            this.showRegionActionsBar(r, state);
-        }
-    }
-
-    renderActiveControls(r, state) {
-        const scale = state.scaleMultiplier;
-        const physicalCw = state.canvasWidth * scale;
-        const physicalCh = state.canvasHeight * scale;
-        const x = r.rect.x * physicalCw;
-        const y = r.rect.y * physicalCh;
-        const w = r.rect.w * physicalCw;
-        const h = r.rect.h * physicalCh;
-
-        // Create the selection frame (the thin blue line)
-        const frame = document.createElement("div");
-        frame.id = "active-selection-frame";
-        frame.className = "selection-frame";
-        frame.style.left = x + "px";
-        frame.style.top = y + "px";
-        frame.style.width = w + "px";
-        frame.style.height = h + "px";
-        this.els.interactionLayer.appendChild(frame);
-
-        // Create the 8 resize handles
-        const handles = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
-        handles.forEach(dir => {
-            const el = document.createElement("div");
-            el.className = `resize-handle handle-${dir}`;
-            
-            // Positioning logic based on direction
-            let hx = 0, hy = 0;
-            if (dir.includes('e')) hx = x + w; else if (dir.includes('w')) hx = x; else hx = x + w / 2;
-            if (dir.includes('s')) hy = y + h; else if (dir.includes('n')) hy = y; else hy = y + h / 2;
-            el.style.left = (hx - 4) + "px";
-            el.style.top = (hy - 4) + "px";
-
-            this.els.interactionLayer.appendChild(el);
-        });
-    }
-
-    updatePropertiesInputs(r, state) {
-        const scale = state.scaleMultiplier;
-        const physicalCw = state.canvasWidth * scale;
-        const physicalCh = state.canvasHeight * scale;
-        this.els.propX.value = Math.round(r.rect.x * physicalCw);
-        this.els.propY.value = Math.round(r.rect.y * physicalCh);
-        this.els.propW.value = Math.round(r.rect.w * physicalCw);
-        this.els.propH.value = Math.round(r.rect.h * physicalCh);
-    }
-
-    showRegionActionsBar(r, state) {
-        const scale = state.scaleMultiplier;
-        const physicalCw = state.canvasWidth * scale;
-        const physicalCh = state.canvasHeight * scale;
-        const x = r.rect.x * physicalCw;
-        const y = r.rect.y * physicalCh;
-        const w = r.rect.w * physicalCw;
-        const bar = this.els.regionActionsBar;
-        bar.style.left = `${x}px`;
-        bar.style.top = `${y - bar.offsetHeight - 8}px`;
-        if (parseFloat(bar.style.top) < 0) {
-            bar.style.top = `${y + physicalCh + 8}px`;
-        }
-        bar.classList.remove('hidden');
-    }
-
-    hideRegionActionsBar() {
-        this.els.regionActionsBar.classList.add('hidden');
-    }
-
-    updateZoomDisplay(scale) {
-        this.els.zoomLevel.textContent = Math.round(scale * 100) + "%";
-    }
-
-    renderLayerList(activeRegion) {
-        const container = this.els.layerItems;
-        if (!container) return;
-
-        const regions = this.model.state.regions.slice().reverse(); // later regions on top
-
-        if (regions.length === 0) {
-            container.innerHTML = '<div style="text-align:center; color:#9ca3af; font-size:10px; padding:1rem;">No layers yet</div>';
-            return;
-        }
-
-        container.innerHTML = regions.map(r => {
-            const isActive = this.model.state.activeRegionId === r.id;
-            const isVisible = r.visible !== false;
-            const icon = r.status === 'scanned' ? '✍' : r.status === 'generated' ? '✓' : '○';
-            return `
-            <div class="layer-item ${isActive ? 'active' : ''}" data-id="${r.id}">
-                <span class="drag-handle">⋮⋮</span>
-                <span class="visibility-toggle ${isVisible ? '' : 'hidden'}">👁</span>
-                <span class="layer-name">${icon} Region ${r.id.slice(1,6)}</span>
-                <span class="delete-btn">×</span>
-            </div>`;
-        }).join('');
-
-        // Event delegation
-        container.onclick = (e) => {
-            const item = e.target.closest('.layer-item');
-            if (!item) return;
-            const id = item.dataset.id;
-
-            if (e.target.classList.contains('visibility-toggle')) {
-                const region = this.model.getRegion(id);
-                if (region) {
-                    region.visible = !region.visible;
-                    this.model.notify();
-                }
-            } else if (e.target.classList.contains('delete-btn')) {
-                this.model.deleteRegion(id);
-            } else {
-                this.model.selectRegion(id);
-            }
-        };
-    }
-
-    toggleLoader(show) {
-        this.els.pdfLoader.classList.toggle('hidden', !show);
-    }
-
-    toggleWorkspace(show) {
-        this.els.workspaceContainer.classList.toggle('hidden', !show);
-        this.els.emptyState.classList.toggle('hidden', show);
-    }
-
-    setDebugLog(data) {
-        this.els.debugLog.textContent = JSON.stringify(data, null, 2);
-    }
-
-    switchTab(tab) {
-        const isOverlay = tab === 'overlay';
-        this.els.tabOverlay.classList.toggle('tab-button-active', isOverlay);
-        this.els.tabDebug.classList.toggle('tab-button-active', !isOverlay);
-        this.els.workspaceContainer.classList.toggle('hidden', !isOverlay);
-        this.els.debugContainer.classList.toggle('hidden', isOverlay);
-    }
-    updateSelectionBox(x, y, w, h) {
-        const box = this.els.selectionBox;
-        box.style.left = x + "px";
-        box.style.top = y + "px";
-        box.style.width = w + "px";
-        box.style.height = h + "px";
-        box.style.display = "block";
     }
 }
+
 // ============================================================================
-// 4. REGION EDITOR (Canvas Interaction Logic)
+// 4. RegionEditor (canvas interaction)
 // ============================================================================
 
 class RegionEditor {
     constructor(controller) {
         this.controller = controller;
-        this.mode = 'IDLE';
+        this.mode = 'IDLE'; // IDLE, CREATE, MOVE, RESIZE
         this.dragStart = null;
         this.initialRect = null;
         this.activeHandle = null;
     }
 
     init() {
-        const layer = this.controller.view.els.interactionLayer;
-        layer.addEventListener('mousedown', this.handleMouseDown.bind(this));
-        window.addEventListener('mousemove', this.handleMouseMove.bind(this));
-        window.addEventListener('mouseup', this.handleMouseUp.bind(this));
-        window.addEventListener('mouseleave', this.handleMouseLeave.bind(this));
-        window.addEventListener('keydown', this.handleKeyDown.bind(this));
+        this.controller.view.els.interactionLayer.addEventListener('mousedown', e => this.handleMouseDown(e));
+        document.addEventListener('mousemove', e => this.handleMouseMove(e));
+        document.addEventListener('mouseup', e => this.handleMouseUp(e));
+        this.controller.view.els.interactionLayer.addEventListener('mouseleave', () => this.handleMouseLeave());
+        document.addEventListener('keydown', e => this.handleKeyDown(e));
     }
 
     getLocalPos(e) {
-        const rect = this.controller.view.els.interactionLayer.getBoundingClientRect();
-        return {
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top
-        };
+        const rect = this.controller.view.els.canvasWrapper.getBoundingClientRect();
+        return { x: e.clientX - rect.left, y: e.clientY - rect.top };
     }
 
     hitDetection(pos) {
-        const layer = this.controller.view.els.interactionLayer;
+        const state = this.controller.model.state;
+        const scale = state.scaleMultiplier;
+        const cw = state.canvasWidth * scale;
+        const ch = state.canvasHeight * scale;
 
-        // Check Handles First (Higher Z)
-        const handles = layer.querySelectorAll('.resize-handle');
-        for (const el of handles) {
-            const hleft = parseFloat(el.style.left);
-            const htop = parseFloat(el.style.top);
-            const hw = el.offsetWidth;
-            const hh = el.offsetHeight;
-            if (pos.x >= hleft && pos.x <= hleft + hw && pos.y >= htop && pos.y <= htop + hh) {
-                const handleClass = Array.from(el.classList).find(c => c.startsWith('handle-'));
-                return { type: 'HANDLE', handle: handleClass ? handleClass.replace('handle-', '') : '' };
+        // Check resize handles first
+        const active = state.activeRegionId ? this.controller.model.getRegion(state.activeRegionId) : null;
+        if (active) {
+            const rx = active.rect.x * cw;
+            const ry = active.rect.y * ch;
+            const rw = active.rect.w * cw;
+            const rh = active.rect.h * ch;
+
+            const handles = [
+                {name:'nw', x:rx-4, y:ry-4}, {name:'n', x:rx+rw/2-4, y:ry-4},
+                {name:'ne', x:rx+rw-4, y:ry-4}, {name:'e', x:rx+rw-4, y:ry+rh/2-4},
+                {name:'se', x:rx+rw-4, y:ry+rh-4}, {name:'s', x:rx+rw/2-4, y:ry+rh-4},
+                {name:'sw', x:rx-4, y:ry+rh-4}, {name:'w', x:rx-4, y:ry+rh/2-4}
+            ];
+
+            for (const h of handles) {
+                if (pos.x >= h.x && pos.x <= h.x+8 && pos.y >= h.y && pos.y <= h.y+8) {
+                    return { type: 'HANDLE', handle: h.name };
+                }
             }
         }
 
-        // Check Region Bodies (All Regions)
-        const regions = layer.querySelectorAll('.region-highlight');
-        for (const el of regions) {
-            const rleft = parseFloat(el.style.left);
-            const rtop = parseFloat(el.style.top);
-            const rw = parseFloat(el.style.width);
-            const rh = parseFloat(el.style.height);
-            if (pos.x >= rleft && pos.x <= rleft + rw && pos.y >= rtop && pos.y <= rtop + rh) {
-                return { type: 'BODY', id: el.dataset.id };
+        // Check region bodies
+        for (const r of state.regions) {
+            const rx = r.rect.x * cw;
+            const ry = r.rect.y * ch;
+            const rw = r.rect.w * cw;
+            const rh = r.rect.h * ch;
+            if (pos.x >= rx && pos.x <= rx+rw && pos.y >= ry && pos.y <= ry+rh) {
+                return { type: 'BODY', id: r.id };
             }
         }
+
         return { type: 'NONE' };
     }
 
@@ -700,42 +617,51 @@ class RegionEditor {
         const pos = this.getLocalPos(e);
         const hit = this.hitDetection(pos);
 
-        if (hit.type === 'HANDLE') {
-            this.mode = 'RESIZE';
-            this.activeHandle = hit.handle;
-            this.initialRect = { ...this.controller.model.getRegion(this.controller.model.state.activeRegionId).rect };
-            this.controller.view.hideRegionActionsBar(); 
-            e.preventDefault(); e.stopPropagation();
-            return;
-        } else if (hit.type === 'BODY') {
+        if (hit.type === 'BODY') {
             if (hit.id !== this.controller.model.state.activeRegionId) {
                 this.controller.model.selectRegion(hit.id);
             }
             this.mode = 'MOVE';
-            this.initialRect = { ...this.controller.model.getRegion(hit.id).rect };
-            this.dragStart = pos;
-            this.controller.view.hideRegionActionsBar();
-            e.preventDefault(); e.stopPropagation();
-            return;
-        } else if (hit.type === 'NONE') {
-            if (this.controller.model.state.activeRegionId) {
-                this.controller.model.deselect();
-            } else {
-                this.mode = 'CREATE';
-                this.dragStart = pos;
-                this.controller.view.updateSelectionBox(pos.x, pos.y, 0, 0);
-            }
+        } else if (hit.type === 'HANDLE') {
+            this.mode = 'RESIZE';
+            this.activeHandle = hit.handle;
+        } else {
+            this.controller.model.deselect();
+            this.mode = 'CREATE';
         }
+
+        this.dragStart = pos;
+        const active = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
+        this.initialRect = active ? { ...active.rect } : null;
     }
 
     handleMouseMove(e) {
         const pos = this.getLocalPos(e);
+        const hit = this.hitDetection(pos);
+        const layer = this.controller.view.els.interactionLayer;
+
+        if (this.mode === 'IDLE') {
+            if (hit.type === 'HANDLE') {
+                layer.style.cursor = hit.handle.includes('n') && hit.handle.includes('s') ? 'ns-resize' : 
+                                     hit.handle.includes('e') && hit.handle.includes('w') ? 'ew-resize' : 
+                                     hit.handle.includes('nw') || hit.handle.includes('se') ? 'nwse-resize' : 'nesw-resize';
+            } else if (hit.type === 'BODY') {
+                layer.style.cursor = 'move';
+            } else {
+                layer.style.cursor = 'default';
+            }
+            return;
+        }
 
         if (this.mode === 'CREATE') {
             const s = this.dragStart;
             const x = Math.min(pos.x, s.x), y = Math.min(pos.y, s.y);
             const w = Math.abs(pos.x - s.x), h = Math.abs(pos.y - s.y);
-            this.controller.view.updateSelectionBox(x, y, w, h);
+            this.controller.view.els.selectionBox.style.display = 'block';
+            this.controller.view.els.selectionBox.style.left = x + 'px';
+            this.controller.view.els.selectionBox.style.top = y + 'px';
+            this.controller.view.els.selectionBox.style.width = w + 'px';
+            this.controller.view.els.selectionBox.style.height = h + 'px';
         } else if (this.mode === 'MOVE') {
             const scale = this.controller.model.state.scaleMultiplier;
             const physicalCw = this.controller.model.state.canvasWidth * scale;
@@ -751,8 +677,6 @@ class RegionEditor {
                     h: this.initialRect.h
                 };
                 this.controller.model.updateRegion(r.id, { rect: newRect });
-                // Immediate UI update
-                this.controller.view.updatePropertiesInputs(r, this.controller.model.state);
             }
         } else if (this.mode === 'RESIZE') {
             const r = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
@@ -762,46 +686,20 @@ class RegionEditor {
                 const physicalCh = this.controller.model.state.canvasHeight * scale;
                 const ix = this.initialRect.x * physicalCw, iy = this.initialRect.y * physicalCh;
                 const iw = this.initialRect.w * physicalCw, ih = this.initialRect.h * physicalCh;
-                
-                let nx=ix, ny=iy, nw=iw, nh=ih;
-                
+
+                let nx = ix, ny = iy, nw = iw, nh = ih;
+
                 if (this.activeHandle.includes('e')) nw = pos.x - ix;
                 if (this.activeHandle.includes('s')) nh = pos.y - iy;
-                if (this.activeHandle.includes('w')) { nw = (ix+iw) - pos.x; nx = pos.x; }
-                if (this.activeHandle.includes('n')) { nh = (iy+ih) - pos.y; ny = pos.y; }
-                
-                if(nw > 5 && nh > 5) {
+                if (this.activeHandle.includes('w')) { nw = (ix + iw) - pos.x; nx = pos.x; }
+                if (this.activeHandle.includes('n')) { nh = (iy + ih) - pos.y; ny = pos.y; }
+
+                if (nw > 5 && nh > 5) {
                     const newRect = { x: nx/physicalCw, y: ny/physicalCh, w: nw/physicalCw, h: nh/physicalCh };
                     this.controller.model.updateRegion(r.id, { rect: newRect });
-                    this.controller.view.updatePropertiesInputs(r, this.controller.model.state);
                 }
             }
         }
-
-        // Cursor Logic
-        const hit = this.hitDetection(pos);
-        const layer = this.controller.view.els.interactionLayer;
-        
-        // Check hover for ANY region to change cursor
-        let hoveringAny = false;
-        if (hit.type === 'NONE') {
-            const scale = this.controller.model.state.scaleMultiplier;
-            const cw = this.controller.model.state.canvasWidth * scale;
-            const ch = this.controller.model.state.canvasHeight * scale;
-            for (const r of this.controller.model.state.regions) {
-                const rx = r.rect.x * cw, ry = r.rect.y * ch;
-                const rw = r.rect.w * cw, rh = r.rect.h * ch;
-                if (pos.x >= rx && pos.x <= rx+rw && pos.y >= ry && pos.y <= ry+rh) {
-                    hoveringAny = true;
-                    break;
-                }
-            }
-        }
-
-        if (hit.type === 'HANDLE') layer.style.cursor = 'crosshair'; 
-        else if (hit.type === 'BODY' || hoveringAny) layer.style.cursor = 'move';
-        else layer.style.cursor = 'default';
-        return;
     }
 
     handleMouseUp(e) {
@@ -822,24 +720,19 @@ class RegionEditor {
                     rect: { x: lx/physicalCw, y: ly/physicalCh, w: w/physicalCw, h: h/physicalCh },
                     status: 'pending', svgContent: ''
                 });
-            } else {
-                this.controller.model.deselect();
             }
             this.controller.view.els.selectionBox.style.display = 'none';
         } else {
-            // End of Move/Resize
             this.controller.model.saveHistory();
-            // Reshow action bar
-            const r = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
-            if(r) this.controller.view.showRegionActionsBar(r, this.controller.model.state);
         }
+
         this.mode = 'IDLE';
+        this.activeHandle = null;
+        this.initialRect = null;
     }
 
     handleMouseLeave() {
-        if (this.mode !== 'IDLE') {
-            this.cancelInteraction();
-        }
+        if (this.mode !== 'IDLE') this.cancelInteraction();
         this.controller.view.els.interactionLayer.style.cursor = 'default';
     }
 
@@ -849,7 +742,7 @@ class RegionEditor {
             this.controller.view.els.selectionBox.style.display = 'none';
         }
     }
-    
+
     cancelInteraction() {
         if (this.mode === 'CREATE') {
             this.controller.view.els.selectionBox.style.display = 'none';
@@ -881,23 +774,21 @@ class SciTextController {
         await this.loadPDFJS();
         
         this.draw.init();
-        
-        this.view.els.pdfUpload.onchange = (e) => this.handleFileUpload(e);
+
+        // Basic UI bindings
+        this.view.els.pdfUpload.onchange = e => this.handleFileUpload(e);
         this.view.els.btnUndo.onclick = () => this.model.undo();
         this.view.els.btnRedo.onclick = () => this.model.redo();
         this.view.els.zoomIn.onclick = () => this.setZoom(this.model.state.scaleMultiplier + 0.25);
         this.view.els.zoomOut.onclick = () => this.setZoom(this.model.state.scaleMultiplier - 0.25);
         this.view.els.btnDelete.onclick = () => {
             Array.from(this.model.state.selectedIds).forEach(id => this.model.deleteRegion(id));
-};
-        this.view.els.btnClearAll.onclick = () => { this.model.setState({regions:[]}); this.model.deselect(); this.model.saveHistory(); };
-        this.view.els.regionActionsBar.onclick = (e) => {
-            const type = e.target.dataset.type;
-            if(type) this.generateContent(type);
-            else if (e.target.id === 'btn-cancel-region') this.model.deleteRegion(this.model.state.activeRegionId);
-        }
-        
-        // Bind UI Elements missing handlers
+        };
+        this.view.els.btnClearAll.onclick = () => { 
+            this.model.setState({regions:[]}); 
+            this.model.deselect(); 
+            this.model.saveHistory(); 
+        };
         this.view.els.fullscreenToggle.onclick = () => this.toggleFullscreen();
         this.view.els.tabOverlay.onclick = () => this.switchTab('overlay');
         this.view.els.tabDebug.onclick = () => this.switchTab('debug');
@@ -906,62 +797,47 @@ class SciTextController {
         this.view.els.btnFitContent.onclick = () => this.fitContent();
         this.view.els.btnSplit.onclick = () => this.splitRegion();
         this.view.els.btnGroup.onclick = () => this.groupSelectedRegions();
-        
+
+        // Property inputs
         ['propX','propY','propW','propH'].forEach(k => {
-             if(this.view.els[k]) this.view.els[k].onchange = () => this.updateRegionFromProps();
+            if(this.view.els[k]) this.view.els[k].onchange = () => this.updateRegionFromProps();
         });
+
+        // Region actions bar
+        this.view.els.regionActionsBar.onclick = (e) => {
+            const type = e.target.dataset.type;
+            if (type) this.generateContent(type);
+        };
+
+        // Layer list interactions
+        this.view.els.layerItems?.addEventListener('click', (e) => {
+            const item = e.target.closest('.layer-item');
+            if (!item) return;
+            const id = item.dataset.id;
+
+            if (e.target.classList.contains('visibility-toggle')) {
+                const r = this.model.getRegion(id);
+                if (r) this.model.updateRegion(id, { visible: !r.visible });
+            } else if (e.target.classList.contains('delete-btn')) {
+                this.model.deleteRegion(id);
+            } else {
+                this.model.selectRegion(id);
+            }
+        });
+
+        // Toggle all visibility
+        this.view.els.btnToggleVisibilityAll.onclick = () => {
+            const anyHidden = this.model.state.regions.some(r => !r.visible);
+            this.model.state.regions.forEach(r => this.model.updateRegion(r.id, { visible: !anyHidden }));
+        };
 
         this.loadDefaultImage();
     }
-    splitRegion() {
-        const id = this.model.state.activeRegionId;
-        if (!id) return;
-        
-        const r = this.model.getRegion(id);
-        const cw = this.model.state.canvasWidth;
-        const ch = this.model.state.canvasHeight;
-        
-        // Determine split direction based on aspect ratio
-        // If wider than tall, split vertically (Left/Right). Otherwise horizontally (Top/Bottom)
-        const isHorizontalSplit = (r.rect.w * cw) > (r.rect.h * ch);
-        
-        const r1Rect = { ...r.rect };
-        const r2Rect = { ...r.rect };
-        
-        if (isHorizontalSplit) {
-            r1Rect.w /= 2;
-            r2Rect.w /= 2;
-            r2Rect.x += r1Rect.w;
-        } else {
-            r1Rect.h /= 2;
-            r2Rect.h /= 2;
-            r2Rect.y += r1Rect.h;
-        }
-        
-        // Create two new regions
-        const r1 = {
-            id: `r${Date.now()}_1`,
-            rect: r1Rect,
-            status: 'pending', svgContent: '', 
-            scale: {x:1, y:1}, offset: {x:0, y:0}
-        };
-        
-        const r2 = {
-            id: `r${Date.now()}_2`,
-            rect: r2Rect,
-            status: 'pending', svgContent: '',
-            scale: {x:1, y:1}, offset: {x:0, y:0}
-        };
 
-        // Remove old, add news
-        this.model.deleteRegion(id);
-        this.model.state.regions.push(r1);
-        this.model.state.regions.push(r2);
-        
-        // Select the first new region
-        this.model.selectRegion(r1.id);
-        this.model.saveHistory();
+    switchTab(t) {
+        this.view.switchTab(t);
     }
+
     async loadPDFJS() {
         if (!window.pdfjsLib) {
             await this.loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js');
@@ -978,42 +854,36 @@ class SciTextController {
     setZoom(s) {
         this.model.setState({ scaleMultiplier: Math.max(0.25, Math.min(5.0, s)) });
     }
-    
+
     toggleFullscreen() {
         document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
-    }
-    
-    switchTab(t) {
-        this.view.switchTab(t);
     }
 
     async handleFileUpload(e) {
         const file = e.target.files[0];
         if (!file) return;
         this.view.toggleLoader(true);
-        
-        // 1. Prepare the Processing Canvas
+
         const canvas = this.model.state.canvas;
         const ctx = canvas.getContext("2d");
-        
+
         if (file.type === "application/pdf" && window.pdfjsLib) {
             const ab = await file.arrayBuffer();
             const pdf = await pdfjsLib.getDocument(ab).promise;
             const page = await pdf.getPage(1);
             const vp = page.getViewport({ scale: 2.0 });
-            
+
             this.model.setCanvasDimensions(vp.width, vp.height, vp.width);
             canvas.width = vp.width;
             canvas.height = vp.height;
-            
+
             await page.render({ canvasContext: ctx, viewport: vp }).promise;
         } else {
-            // IMAGE LOGIC
             const img = new Image();
             const loaded = new Promise(resolve => img.onload = resolve);
             img.src = URL.createObjectURL(file);
             await loaded;
-            
+
             this.model.setCanvasDimensions(img.width, img.height, img.width);
             canvas.width = img.width;
             canvas.height = img.height;
@@ -1030,43 +900,41 @@ class SciTextController {
     }
 
     loadDefaultImage() {
-      this.view.els.pdfLoader.classList.remove("hidden");
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
+        this.view.toggleLoader(true);
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
             this.model.setCanvasDimensions(img.width, img.height, img.width);
-            
-            // Prepare Processing Canvas
+
             const canvas = this.model.state.canvas;
             canvas.width = img.width;
             canvas.height = img.height;
             canvas.getContext("2d").drawImage(img, 0, 0);
-            
-            // UPDATE VIEW: Set the visible layer background
+
             this.view.els.pdfLayer.style.backgroundImage = `url(${img.src})`;
             this.view.els.pdfLayer.style.backgroundSize = "100% 100%";
-            
+
             this.view.toggleLoader(false);
             this.view.toggleWorkspace(true);
             this.model.saveHistory();
-      };
-      img.onerror = () => {
-          console.error("Failed to load default image");
-          this.view.els.pdfLoader.classList.add("hidden");
-      }
-      img.src = CONFIG.defaultImgUrl;
+        };
+        img.onerror = () => {
+            console.error("Failed to load default image");
+            this.view.toggleLoader(false);
+        };
+        img.src = CONFIG.defaultImgUrl;
     }
-    
+
     updateRegionFromProps() {
         const id = this.model.state.activeRegionId;
         if (!id) return;
         const cw = this.model.state.canvasWidth;
         const ch = this.model.state.canvasHeight;
         const r = {
-            x: parseFloat(this.view.els.propX.value) / cw,
-            y: parseFloat(this.view.els.propY.value) / ch,
-            w: parseFloat(this.view.els.propW.value) / cw,
-            h: parseFloat(this.view.els.propH.value) / ch
+            x: parseFloat(this.view.els.propX.value) / cw || 0,
+            y: parseFloat(this.view.els.propY.value) / ch || 0,
+            w: parseFloat(this.view.els.propW.value) / cw || 0,
+            h: parseFloat(this.view.els.propH.value) / ch || 0
         };
         this.model.updateRegion(id, { rect: r });
         this.model.saveHistory();
@@ -1077,28 +945,25 @@ class SciTextController {
         const r = this.model.getRegion(id);
         if (!r) return;
 
-        // 1. Setup Scan (Using 2x scale to match blueprint precision)
         const s = this.model.state;
         const pw = Math.floor(r.rect.w * s.canvasWidth);
         const ph = Math.floor(r.rect.h * s.canvasHeight);
-        
+
         if (pw < 1 || ph < 1) return;
 
         const tmp = document.createElement("canvas");
         tmp.width = pw * 2; tmp.height = ph * 2;
         const ctx = tmp.getContext("2d");
         ctx.drawImage(s.canvas, r.rect.x * s.canvasWidth, r.rect.y * s.canvasHeight, pw, ph, 0, 0, pw * 2, ph * 2);
-        
+
         const data = ctx.getImageData(0, 0, pw * 2, ph * 2).data;
-        
-        // 2. Find Bounds of Ink
+
         let minX = pw * 2, minY = ph * 2, maxX = 0, maxY = 0;
         let found = false;
 
         for (let y = 0; y < ph * 2; y++) {
             for (let x = 0; x < pw * 2; x++) {
                 const i = (y * (pw * 2) + x) * 4;
-                // Threshold matches your RLE logic (Dark < 128)
                 if (data[i + 3] > 128 && data[i] < 128) {
                     if (x < minX) minX = x;
                     if (x > maxX) maxX = x;
@@ -1109,46 +974,84 @@ class SciTextController {
             }
         }
 
-        if (!found) return; // No ink found, do nothing
+        if (!found) return;
 
-        // 3. Add Padding (4px at 2x scale = 2px visual padding)
         const pad = 4;
         minX = Math.max(0, minX - pad);
         minY = Math.max(0, minY - pad);
         maxX = Math.min(pw * 2, maxX + pad);
         maxY = Math.min(ph * 2, maxY + pad);
 
-        // 4. Calculate New Global Rect (Converting 2x coords back to global 0-1)
         const globalX = r.rect.x + (minX / 2) / s.canvasWidth;
         const globalY = r.rect.y + (minY / 2) / s.canvasHeight;
         const globalW = ((maxX - minX) / 2) / s.canvasWidth;
         const globalH = ((maxY - minY) / 2) / s.canvasHeight;
 
-        // 5. Update Region
         this.model.updateRegion(id, {
             rect: { x: globalX, y: globalY, w: globalW, h: globalH },
-            scale: { x: 1, y: 1 },  // Reset transforms
+            scale: { x: 1, y: 1 },
             offset: { x: 0, y: 0 }
         });
 
-        // 6. Regenerate Blueprint for the new tight box
         await this.generateContent('blueprint');
     }
-    
+
     fitContent() {
         const id = this.model.state.activeRegionId;
         if (!id) return;
-        // Reset transform but keep the box
-        this.model.updateRegion(id, { 
-            scale: {x: 1, y: 1}, 
-            offset: {x: 0, y: 0} 
-        });
+        this.model.updateRegion(id, { scale: {x: 1, y: 1}, offset: {x: 0, y: 0} });
         this.model.saveHistory();
     }
-    
+
+    splitRegion() {
+        const id = this.model.state.activeRegionId;
+        if (!id) return;
+
+        const r = this.model.getRegion(id);
+        const cw = this.model.state.canvasWidth;
+        const ch = this.model.state.canvasHeight;
+
+        const isHorizontalSplit = (r.rect.w * cw) > (r.rect.h * ch);
+
+        const r1Rect = { ...r.rect };
+        const r2Rect = { ...r.rect };
+
+        if (isHorizontalSplit) {
+            r1Rect.w /= 2;
+            r2Rect.w /= 2;
+            r2Rect.x += r1Rect.w;
+        } else {
+            r1Rect.h /= 2;
+            r2Rect.h /= 2;
+            r2Rect.y += r1Rect.h;
+        }
+
+        const r1 = {
+            id: `r${Date.now()}_1`,
+            rect: r1Rect,
+            status: 'pending', svgContent: '',
+            scale: {x:1, y:1}, offset: {x:0, y:0}
+        };
+
+        const r2 = {
+            id: `r${Date.now()}_2`,
+            rect: r2Rect,
+            status: 'pending', svgContent: '',
+            scale: {x:1, y:1}, offset: {x:0, y:0}
+        };
+
+        this.model.deleteRegion(id);
+        this.model.state.regions.push(r1);
+        this.model.state.regions.push(r2);
+
+        this.model.selectRegion(r1.id);
+        this.model.saveHistory();
+    }
+
     groupSelectedRegions() {
         const selected = this.model.state.regions.filter(r => this.model.state.selectedIds.has(r.id));
         if (selected.length < 2) return;
+
         let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
         selected.forEach(r => {
             minX = Math.min(minX, r.rect.x);
@@ -1156,107 +1059,104 @@ class SciTextController {
             maxX = Math.max(maxX, r.rect.x + r.rect.w);
             maxY = Math.max(maxY, r.rect.y + r.rect.h);
         });
+
         const groupW = maxX - minX;
         const groupH = maxY - minY;
         const cw = this.model.state.canvasWidth;
         const ch = this.model.state.canvasHeight;
         const bpW = groupW * cw;
         const bpH = groupH * ch;
+
         let svgContent = '';
         selected.forEach(r => {
             const offX = (r.rect.x - minX) * cw;
             const offY = (r.rect.y - minY) * ch;
             svgContent += `<g transform="translate(${offX},${offY})">${r.svgContent}</g>`;
         });
+
         const newRegion = {
-                id: `r${Date.now()}`,
-                rect: { x: minX, y: minY, w: groupW, h: groupH },
-                svgContent,
-                bpDims: { w: bpW, h: bpH },
-                scale: {x:1, y:1}, offset: {x:0, y:0}
-            };
-            this.model.state.regions = this.model.state.regions.filter(r => !this.model.state.selectedIds.has(r.id));
-            this.model.addRegion(newRegion);
-        }
-        exportSVG() {
-            const cw = this.model.state.canvasWidth;
-            const ch = this.model.state.canvasHeight;
-            let out = `<svg xmlns="http://www.w3.org/2000/svg" width="${cw}" height="${ch}" viewBox="0 0 ${cw} ${ch}">\n`;
-            this.model.state.regions.forEach(r => {
-                const x = r.rect.x * cw;
-                const y = r.rect.y * ch;
-                const w = r.rect.w * cw;
-                const h = r.rect.h * ch;
-                 out += `<svg x="${x}" y="${y}" width="${w}" height="${h}" viewBox="0 0 ${r.bpDims?.w||w} ${r.bpDims?.h||h}" preserveAspectRatio="none"><g transform="translate(${r.offset?.x||0},${r.offset?.y||0}) scale(${r.scale?.x||1},${r.scale?.y||1})">${r.svgContent}</g></svg>\n`;
-            });
-            out += `</svg>`;
-            
-            const blob = new Blob([out], {type: "image/svg+xml"});
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = "scitext_export.svg";
-            a.click();
-        }
+            id: `r${Date.now()}`,
+            rect: { x: minX, y: minY, w: groupW, h: groupH },
+            svgContent,
+            bpDims: { w: bpW, h: bpH },
+            scale: {x:1, y:1}, offset: {x:0, y:0}
+        };
+
+        this.model.state.regions = this.model.state.regions.filter(r => !this.model.state.selectedIds.has(r.id));
+        this.model.addRegion(newRegion);
+    }
+
+    exportSVG() {
+        const cw = this.model.state.canvasWidth;
+        const ch = this.model.state.canvasHeight;
+        let out = `<svg xmlns="http://www.w3.org/2000/svg" width="${cw}" height="${ch}" viewBox="0 0 ${cw} ${ch}">\n`;
+        this.model.state.regions.forEach(r => {
+            const x = r.rect.x * cw;
+            const y = r.rect.y * ch;
+            const w = r.rect.w * cw;
+            const h = r.rect.h * ch;
+            out += `<svg x="${x}" y="${y}" width="${w}" height="${h}" viewBox="0 0 ${r.bpDims?.w||w} ${r.bpDims?.h||h}" preserveAspectRatio="none"><g transform="translate(${r.offset?.x||0},${r.offset?.y||0}) scale(${r.scale?.x||1},${r.scale?.y||1})">${r.svgContent}</g></svg>\n`;
+        });
+        out += `</svg>`;
+
+        const blob = new Blob([out], {type: "image/svg+xml"});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = "scitext_export.svg";
+        a.click();
+    }
 
     async generateContent(type) {
         const r = this.model.getRegion(this.model.state.activeRegionId);
         if (!r) return;
-    
+
         this.view.els.aiStatus.classList.remove('hidden');
         this.view.hideRegionActionsBar();
 
-        // 1. Handle Empty/Clear
         if (type === 'empty') {
-            r.svgContent = ''; 
+            r.svgContent = '';
             r.status = 'done';
+            r.contentType = 'empty';
             this.model.notify();
             this.view.els.aiStatus.classList.add("hidden");
             this.model.saveHistory();
             return;
         }
 
-        // 2. Prepare Image Data & RLE
-        this.view.els.aiStatus.textContent = `Processing...`;
         const s = this.model.state;
         const pw = Math.floor(r.rect.w * s.canvasWidth);
         const ph = Math.floor(r.rect.h * s.canvasHeight);
 
-        // Create 2x scale canvas for better resolution
         const tmp = document.createElement("canvas");
         tmp.width = pw * 2; tmp.height = ph * 2;
         const ctx = tmp.getContext("2d");
         ctx.drawImage(s.canvas, r.rect.x*s.canvasWidth, r.rect.y*s.canvasHeight, pw, ph, 0, 0, pw*2, ph*2);
-        
-        // RLE Logic
+
         let rle = "";
         const data = ctx.getImageData(0,0,pw*2,ph*2).data;
-        // Basic RLE loop (Threshold < 128 is dark/ink)
         for (let y=0; y<ph*2; y+=2) {
             let sx = -1;
             for (let x=0; x<pw*2; x++) {
                 const i = (y*pw*2 + x)*4;
-                // Check if pixel is dark enough (using alpha > 128 and red channel < 128 as proxy)
-                if(data[i+3]>128 && data[i]<128) { 
-                    if(sx===-1) sx=x; 
-                } else { 
-                    if(sx!==-1) { 
-                        rle+=`M${sx} ${y}h${x-sx}v2h-${x-sx}z`; 
-                        sx=-1; 
-                    } 
+                if(data[i+3]>128 && data[i]<128) {
+                    if(sx===-1) sx=x;
+                } else {
+                    if(sx!==-1) {
+                        rle+=`M${sx} ${y}h${x-sx}v2h-${x-sx}z`;
+                        sx=-1;
+                    }
                 }
             }
             if(sx!==-1) rle+=`M${sx} ${y}h${pw*2-sx}v2h-${pw*2-sx}z`;
         }
 
-        // 3. Handle Local Blueprint (NO AI)
         if (type === 'blueprint') {
             r.svgContent = `<path d="${rle}" fill="black" />`;
             r.status = 'scanned';
+            r.contentType = 'scan';
             r.bpDims = { w: pw * 2, h: ph * 2 };
-            
             r.scale = { x: 1, y: 1 };
             r.offset = { x: 0, y: 0 };
-            // -----------------------------
 
             this.model.saveHistory();
             this.model.notify();
@@ -1264,25 +1164,25 @@ class SciTextController {
             return;
         }
 
-        // 4. Handle AI Generation
         this.view.els.aiStatus.textContent = `Generating ${type}...`;
         const base64 = tmp.toDataURL("image/png").split(",")[1];
         const promptType = type === 'image' ? 'SVG Graphic' : 'SVG Text';
         const prompt = `You are a precision SVG Typesetter.\nINPUT: 2x scale scan.\nTASK: Generate ${promptType}.\nViewBox: 0 0 ${pw} ${ph}.\nOutput only <svg> code.\nRLE: ${rle.substring(0,500)}...`;
 
         try {
-            const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+            const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${apiKey}`, {
                 method: "POST", headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: base64 } }] }] })
             });
             const json = await resp.json();
             let text = json.candidates?.[0]?.content?.parts?.[0]?.text;
             if (!text) throw new Error("No SVG");
-            
+
             r.svgContent = text.replace(/```svg/g, "").replace(/```/g, "").trim();
             r.status = 'generated';
-            r.bpDims = { w: pw, h: ph }; // AI usually returns 1x scale coordinates
-            
+            r.contentType = type;
+            r.bpDims = { w: pw, h: ph };
+
             this.model.saveHistory();
             this.model.notify();
         } catch(e) {
@@ -1294,6 +1194,7 @@ class SciTextController {
         }
     }
 }
+
 // ============================================================================
 // 6. BOOTSTRAP
 // ============================================================================
@@ -1302,15 +1203,10 @@ window.app = (function() {
     const model = new SciTextModel();
     const view = new UIManager();
     const controller = new SciTextController(model, view);
+    view.model = model;
 
-    // Wire Observer
-    model.subscribe((state, context) => {
-        view.render(state, context);
-        if (state.activeRegionId && (!context || context.type !== 'GEOMETRY')) {
-            const r = model.getRegion(state.activeRegionId);
-            if (r) view.renderActiveControls(r, state);
-        }
-        view.renderLayerList(state.activeRegionId ? model.getRegion(state.activeRegionId) : null);
+    model.subscribe((state) => {
+        view.render(state);
     });
 
     return {
