@@ -150,12 +150,6 @@ const APP_STRUCTURE = `
                     <button id="btn-export" class="action-bar-btn" style="background:#047857;">Export</button>
                     <button id="btn-clear-all" class="action-bar-btn" style="color:#ef4444; background:transparent;">Reset</button>
                   </div>
-                  <div id="context-actions" class="disabled-bar" style="display:flex; gap:0.5rem;">
-                       <button id="btn-digitize" class="action-bar-btn" style="background:#9333ea;">AI Text</button>
-                       <button id="btn-split" class="action-bar-btn" style="background:#4338ca;">Split</button>
-                       <button id="btn-group" class="action-bar-btn" style="background:#0d9488;">Group</button>
-                       <button id="btn-delete" class="action-bar-btn" style="background:#ef4444;">Del</button>
-                  </div>
               </div>
           </div>
 
@@ -193,7 +187,9 @@ const APP_STRUCTURE = `
       <button data-type="blueprint" class="action-bar-btn" style="background:#059669;">Scan</button> 
       <button data-type="empty" class="action-bar-btn" style="background:#4b5563;">Empty</button>
       <div style="width:1px;height:1.5rem;background:#d1d5db;"></div>
-      <button id="btn-cancel-region" class="action-bar-btn" style="color:#ef4444;background:transparent;border:1px solid #d1d5db;">Cancel</button>
+      <button id="btn-split" class="action-bar-btn" style="background:#4338ca;">Split</button>
+      <button id="btn-group" class="action-bar-btn" style="background:#0d9488;">Group</button>
+      <button id="btn-delete" class="action-bar-btn" style="background:#ef4444;">Del</button>
     </div>
     
     <canvas id="processing-canvas" style="display:none;"></canvas>
@@ -321,10 +317,10 @@ class UIManager {
             'processing-canvas','pdf-upload','zoom-in','zoom-out','zoom-level','btn-undo','btn-redo',
             'tab-overlay','tab-debug','debug-container','debug-log','workspace-container','empty-state',
             'pdf-loader','canvas-wrapper','pdf-layer','svg-layer','interaction-layer','selection-box',
-            'region-actions-bar','btn-cancel-region','layer-list','region-count','context-actions',
-            'ai-status','btn-delete','fullscreen-toggle','prop-x','prop-y','prop-w','prop-h',
-            'btn-fit-area','btn-fit-content','btn-digitize','btn-split','btn-group','btn-export','btn-clear-all',
-            'preview-content'
+            'region-actions-bar','layer-list','region-count',
+            'ai-status','fullscreen-toggle','prop-x','prop-y','prop-w','prop-h',
+            'btn-fit-area','btn-fit-content','btn-split','btn-group','btn-delete','btn-export','btn-clear-all',
+            'preview-content','canvas-scroller'
         ];
         const camelCase = (s) => s.replace(/-./g, x=>x[1].toUpperCase());
         ids.forEach(id => {
@@ -349,22 +345,19 @@ class UIManager {
         this.els.zoomLevel.textContent = Math.round(state.scaleMultiplier * 100) + "%";
         
         if (state.canvasWidth > 0) {
-            const w = state.baseWidth * state.scaleMultiplier;
-            const h = w * (state.canvasHeight / state.canvasWidth);
-            this.els.canvasWrapper.style.width = w + "px";
-            this.els.canvasWrapper.style.height = h + "px";
+            const logicalCw = state.canvasWidth;
+            const logicalCh = state.canvasHeight;
+            const physicalCw = logicalCw * scale;
+            const physicalCh = logicalCh * scale;
         }
 
-        const cw = state.canvasWidth;
-        const ch = state.canvasHeight;
-        
         this.els.svgLayer.innerHTML = '';
         this.els.interactionLayer.innerHTML = ''; 
 
         state.regions.forEach(r => {
-            const px = r.rect.x * cw, py = r.rect.y * ch;
-            const pw = r.rect.w * cw, ph = r.rect.h * ch;
-            const dimW = r.bpDims?.w || pw, dimH = r.bpDims?.h || ph;
+            const px = r.rect.x * physicalCw, py = r.rect.y * physicalCh;
+            const pw = r.rect.w * physicalCw, ph = r.rect.h * physicalCh;
+            const dimW = r.bpDims?.w || (r.rect.w * logicalCw), dimH = r.bpDims?.h || (r.rect.h * logicalCh);
 
             const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
             svg.dataset.id = r.id; 
@@ -458,14 +451,13 @@ class UIManager {
     }
 
     renderActiveControls(r, state) {
-        const cw = state.canvasWidth;
-        const ch = state.canvasHeight;
-        
-        // Calculate pixel coordinates
-        const x = r.rect.x * cw;
-        const y = r.rect.y * ch;
-        const w = r.rect.w * cw;
-        const h = r.rect.h * ch;
+        const scale = state.scaleMultiplier;
+        const physicalCw = state.canvasWidth * scale;
+        const physicalCh = state.canvasHeight * scale;
+        const x = r.rect.x * physicalCw;
+        const y = r.rect.y * physicalCh;
+        const w = r.rect.w * physicalCw;
+        const h = r.rect.h * physicalCh;
 
         // Create the selection frame (the thin blue line)
         const frame = document.createElement("div");
@@ -640,28 +632,28 @@ class RegionEditor {
     }
 
     hitTest(pos) {
-        const id = this.controller.model.state.activeRegionId;
-        if (!id) return { type: 'NONE' };
-        
-        const r = this.controller.model.getRegion(id);
-        const s = this.controller.model.state;
-        const x = r.rect.x * s.canvasWidth;
-        const y = r.rect.y * s.canvasHeight;
-        const w = r.rect.w * s.canvasWidth;
-        const h = r.rect.h * s.canvasHeight;
-        const th = 10 * s.scaleMultiplier;
+        const handles = document.querySelectorAll('.resize-handle');
+        for (let h of handles) {
+            const r = h.getBoundingClientRect();
+            const layerRect = this.controller.view.els.interactionLayer.getBoundingClientRect();
+            const hx = r.left - layerRect.left;
+            const hy = r.top - layerRect.top;
+            if (pos.x >= hx && pos.x <= hx + r.width && pos.y >= hy && pos.y <= hy + r.height) {
+                return { type: 'HANDLE', dir: h.className.match(/handle-(\w+)/)[1] };
+            }
+        }
 
-        // Handles
-        if (Math.abs(pos.x - x) < th && Math.abs(pos.y - y) < th) return { type: 'HANDLE', handle: 'nw' };
-        if (Math.abs(pos.x - (x+w)) < th && Math.abs(pos.y - (y+h)) < th) return { type: 'HANDLE', handle: 'se' };
-        if (Math.abs(pos.x - (x+w)) < th && Math.abs(pos.y - y) < th) return { type: 'HANDLE', handle: 'ne' };
-        if (Math.abs(pos.x - x) < th && Math.abs(pos.y - (y+h)) < th) return { type: 'HANDLE', handle: 'sw' };
-        if (Math.abs(pos.x - (x+w/2)) < th && Math.abs(pos.y - y) < th) return { type: 'HANDLE', handle: 'n' };
-        if (Math.abs(pos.x - (x+w/2)) < th && Math.abs(pos.y - (y+h)) < th) return { type: 'HANDLE', handle: 's' };
-        if (Math.abs(pos.x - x) < th && Math.abs(pos.y - (y+h/2)) < th) return { type: 'HANDLE', handle: 'w' };
-        if (Math.abs(pos.x - (x+w)) < th && Math.abs(pos.y - (y+h/2)) < th) return { type: 'HANDLE', handle: 'e' };
-
-        if (pos.x >= x && pos.x <= x+w && pos.y >= y && pos.y <= y+h) return { type: 'BODY' };
+        const r = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
+        if (r) {
+            const scale = this.controller.model.state.scaleMultiplier;
+            const cw = this.controller.model.state.canvasWidth * scale;
+            const ch = this.controller.model.state.canvasHeight * scale;
+            const rx = r.rect.x * cw, ry = r.rect.y * ch;
+            const rw = r.rect.w * cw, rh = r.rect.h * ch;
+            if (pos.x >= rx && pos.x <= rx + rw && pos.y >= ry && pos.y <= ry + rh) {
+                return { type: 'BODY' };
+            }
+        }
         return { type: 'NONE' };
     }
 
@@ -721,8 +713,9 @@ class RegionEditor {
             // Check hover for ANY region to change cursor
             let hoveringAny = false;
             if (hit.type === 'NONE') {
-                const cw = this.controller.model.state.canvasWidth;
-                const ch = this.controller.model.state.canvasHeight;
+                const scale = this.controller.model.state.scaleMultiplier;
+                const cw = this.controller.model.state.canvasWidth * scale;
+                const ch = this.controller.model.state.canvasHeight * scale;
                 for (const r of this.controller.model.state.regions) {
                     const rx = r.rect.x * cw, ry = r.rect.y * ch;
                     const rw = r.rect.w * cw, rh = r.rect.h * ch;
@@ -747,8 +740,11 @@ class RegionEditor {
             const w = Math.abs(pos.x - s.x), h = Math.abs(pos.y - s.y);
             this.controller.view.updateSelectionBox(x, y, w, h, this.controller.model.state);
         } else if (this.mode === 'MOVE') {
-            const dx = (pos.x - this.dragStart.x) / this.controller.model.state.canvasWidth;
-            const dy = (pos.y - this.dragStart.y) / this.controller.model.state.canvasHeight;
+            const scale = this.controller.model.state.scaleMultiplier;
+            const physicalCw = this.controller.model.state.canvasWidth * scale;
+            const physicalCh = this.controller.model.state.canvasHeight * scale;
+            const dx = (pos.x - this.dragStart.x) / physicalCw;
+            const dy = (pos.y - this.dragStart.y) / physicalCh;
             const r = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
             if (r && this.initialRect) {
                 const newRect = {
@@ -757,16 +753,18 @@ class RegionEditor {
                     w: this.initialRect.w,
                     h: this.initialRect.h
                 };
-                // Pass GEOMETRY context
-                this.controller.model.updateRegion(r.id, { rect: newRect }, { type: 'GEOMETRY', id: r.id });
+                this.controller.model.updateRegion(r.id, { rect: newRect });
+                // Immediate UI update
+                this.controller.view.updatePropertiesInputs(r, this.controller.model.state);
             }
         } else if (this.mode === 'RESIZE') {
             const r = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
             if (r && this.initialRect) {
-                const cw = this.controller.model.state.canvasWidth;
-                const ch = this.controller.model.state.canvasHeight;
-                const ix = this.initialRect.x * cw, iy = this.initialRect.y * ch;
-                const iw = this.initialRect.w * cw, ih = this.initialRect.h * ch;
+                const scale = this.controller.model.state.scaleMultiplier;
+                const physicalCw = this.controller.model.state.canvasWidth * scale;
+                const physicalCh = this.controller.model.state.canvasHeight * scale;
+                const ix = this.initialRect.x * physicalCw, iy = this.initialRect.y * physicalCh;
+                const iw = this.initialRect.w * physicalCw, ih = this.initialRect.h * physicalCh;
                 
                 let nx=ix, ny=iy, nw=iw, nh=ih;
                 
@@ -776,8 +774,9 @@ class RegionEditor {
                 if (this.activeHandle.includes('n')) { nh = (iy+ih) - pos.y; ny = pos.y; }
                 
                 if(nw > 5 && nh > 5) {
-                    const newRect = { x: nx/cw, y: ny/ch, w: nw/cw, h: nh/ch };
-                    this.controller.model.updateRegion(r.id, { rect: newRect }, { type: 'GEOMETRY', id: r.id });
+                    const newRect = { x: nx/physicalCw, y: ny/physicalCh, w: nw/physicalCw, h: nh/physicalCh };
+                    this.controller.model.updateRegion(r.id, { rect: newRect });
+                    this.controller.view.updatePropertiesInputs(r, this.controller.model.state);
                 }
             }
         }
@@ -793,11 +792,12 @@ class RegionEditor {
             if (w > 5 && h > 5) {
                 const lx = Math.min(pos.x, this.dragStart.x);
                 const ly = Math.min(pos.y, this.dragStart.y);
-                const cw = this.controller.model.state.canvasWidth;
-                const ch = this.controller.model.state.canvasHeight;
+                const scale = this.controller.model.state.scaleMultiplier;
+                const physicalCw = this.controller.model.state.canvasWidth * scale;
+                const physicalCh = this.controller.model.state.canvasHeight * scale;
                 this.controller.model.addRegion({
                     id: `r${Date.now()}`,
-                    rect: { x: lx/cw, y: ly/ch, w: w/cw, h: h/ch },
+                    rect: { x: lx/physicalCw, y: ly/physicalCh, w: w/physicalCw, h: h/physicalCh },
                     status: 'pending', svgContent: ''
                 });
             } else {
