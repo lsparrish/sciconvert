@@ -978,6 +978,117 @@ class RegionEditor {
 }
 
 // ============================================================================
+// 4.5. ImageProcessor (Image & Coordinate Utilities) - NEW
+// ============================================================================
+
+class ImageProcessor {
+    constructor(model) {
+        this.model = model;
+        this.canvas = model.state.canvas;
+        this.scaleFactor = 2; // Fixed 2x scale for processing
+    }
+
+    /**
+     * Helper to check for non-white/non-transparent pixels.
+     */
+    isDark(data, index) {
+        const i = index * 4;
+        // Check for non-transparent (alpha > 128) AND non-white (RGB < 200)
+        return data[i + 3] > 128 && data[i] < 200 && data[i + 1] < 200 && data[i + 2] < 200;
+    }
+
+    /**
+     * Converts a normalized rect (0-1) into an image data object (2x scale), 
+     * tightly crops it, and generates the RLE blueprint and new normalized rect.
+     * @param {object} normalizedRect - {x, y, w, h} normalized to canvas dimensions (0-1).
+     * @param {number} [pad=4] - Pixel padding around the tight crop (at 2x scale).
+     * @returns {object|null} - { rle, bpDims, newRect } or null if empty.
+     */
+    processRegion(normalizedRect, pad = 4) {
+        const r = normalizedRect;
+        const s = this.model.state;
+        const pw = Math.floor(r.w * s.canvasWidth);
+        const ph = Math.floor(r.h * s.canvasHeight);
+        
+        if (pw < 1 || ph < 1) return null;
+
+        // 1. Draw 2x scaled image data to a temporary canvas
+        const tmp = document.createElement("canvas");
+        tmp.width = pw * this.scaleFactor; 
+        tmp.height = ph * this.scaleFactor;
+        const ctx = tmp.getContext("2d");
+        ctx.drawImage(
+            this.canvas, 
+            r.x * s.canvasWidth, r.y * s.canvasHeight, pw, ph, 
+            0, 0, pw * this.scaleFactor, ph * this.scaleFactor
+        );
+
+        const tData = ctx.getImageData(0, 0, tmp.width, tmp.height).data;
+        const tW = tmp.width;
+        const tH = tmp.height;
+
+        // 2. Tight Crop Search
+        let tMinX = tW, tMinY = tH, tMaxX = 0, tMaxY = 0;
+        let tFound = false;
+
+        for (let ty = 0; ty < tH; ty++) {
+            for (let tx = 0; tx < tW; tx++) {
+                const index = ty * tW + tx;
+                if (this.isDark(tData, index)) { 
+                    tMinX = Math.min(tMinX, tx);
+                    tMaxX = Math.max(tMaxX, tx);
+                    tMinY = Math.min(tMinY, ty);
+                    tMaxY = Math.max(tMaxY, ty);
+                    tFound = true;
+                }
+            }
+        }
+        
+        if (!tFound) return null;
+
+        // Apply padding and clamp
+        tMinX = Math.max(0, tMinX - pad);
+        tMinY = Math.max(0, tMinY - pad);
+        tMaxX = Math.min(tW, tMaxX + pad);
+        tMaxY = Math.min(tH, tMaxY + pad);
+        
+        const bpW = tMaxX - tMinX;
+        const bpH = tMaxY - tMinY;
+        
+        // 3. RLE Blueprint Generation
+        let rle = "";
+        for (let ty = tMinY; ty < tMaxY; ty += this.scaleFactor) {
+            let sx = -1;
+            for (let tx = tMinX; tx < tMaxX; tx++) {
+                const index = ty * tW + tx;
+                if (this.isDark(tData, index)) {
+                    if(sx === -1) sx = tx;
+                } else {
+                    if(sx !== -1) {
+                        rle += `M${sx} ${ty}h${tx - sx}v${this.scaleFactor}h-${tx - sx}z`;
+                        sx = -1;
+                    }
+                }
+            }
+            if(sx !== -1) rle += `M${sx} ${ty}h${tMaxX - sx}v${this.scaleFactor}h-${tMaxX - sx}z`;
+        }
+
+        // 4. Calculate final normalized coordinates (relative to original canvas)
+        const globalX = r.x + (tMinX / this.scaleFactor) / s.canvasWidth;
+        const globalY = r.y + (tMinY / this.scaleFactor) / s.canvasHeight;
+        const globalW = ((tMaxX - tMinX) / this.scaleFactor) / s.canvasWidth;
+        const globalH = ((tMaxY - tMinY) / this.scaleFactor) / s.canvasHeight;
+        
+        return {
+            rle,
+            bpDims: { w: bpW, h: bpH },
+            newRect: { x: globalX, y: globalY, w: globalW, h: globalH },
+            imageData: tmp.toDataURL("image/png").split(",")[1] // Base64 data for AI
+        };
+    }
+}
+
+// ============================================================================
 // 5. CONTROLLER
 // ============================================================================
 
@@ -1000,7 +1111,7 @@ class SciTextController {
         
         this.draw.init();
 
-        // Basic UI bindings
+// Basic UI bindings
         this.view.els.pdfUpload.onchange = e => this.handleFileUpload(e);
         this.view.els.svgImport.onchange = e => this.handleSvgImport(e.target.files[0]);
         this.view.els.btnUndo.onclick = () => this.model.undo();
