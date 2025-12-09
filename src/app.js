@@ -177,6 +177,7 @@ const APP_STRUCTURE = `
               
               <div class="sidebar-footer">
                   <div style="display:flex; gap:0.25rem;">
+                    <button id="btn-auto-segment" class="action-bar-btn" style="background:#dc2626;">Auto Segment</button>
                     <button id="btn-export" class="action-bar-btn" style="background:#047857;">Export</button>
                     <input type="file" id="svg-import" accept=".svg" class="hidden" />
                     <label for="svg-import" class="btn btn-primary">Import</label>
@@ -383,7 +384,8 @@ class UIManager {
             'btn-fit-area','btn-fit-content','btn-split','btn-group','btn-delete','btn-export','btn-clear-all',
             'canvas-scroller',
             'svg-raw-editor-panel', 'svg-raw-content', 'btn-save-raw-svg',
-            'canvas-view-area'
+            'canvas-view-area',
+            'btn-auto-segment'
         ];
         const camelCase = (s) => s.replace(/-./g, x=>x[1].toUpperCase());
         ids.forEach(id => {
@@ -870,6 +872,7 @@ class SciTextController {
         this.view.els.btnRedo.onclick = () => this.model.redo();
         this.view.els.zoomIn.onclick = () => this.setZoom(this.model.state.scaleMultiplier + 0.25);
         this.view.els.zoomOut.onclick = () => this.setZoom(this.model.state.scaleMultiplier - 0.25);
+        this.view.els.btnAutoSegment.onclick = () => this.autoSegment();
         this.view.els.btnDelete.onclick = () => {
             Array.from(this.model.state.selectedIds).forEach(id => this.model.deleteRegion(id));
         };
@@ -1159,6 +1162,165 @@ class SciTextController {
 
         // Re-run scan to update the blueprint to the new tighter bounds
         await this.generateContent('blueprint');
+    }
+    
+    async autoSegment() {
+        const s = this.model.state;
+        if (s.canvasWidth === 0) return;
+
+        this.view.toggleLoader(true);
+        this.view.els.aiStatus.classList.remove('hidden');
+        this.view.els.aiStatus.textContent = 'Analyzing content for dense text blocks...';
+
+        // Clear existing regions
+        this.model.setState({ regions: [], history: [] });
+        this.model.saveHistory();
+        this.model.deselect();
+
+        const canvas = s.canvas;
+        const width = canvas.width;
+        const height = canvas.height;
+        const ctx = canvas.getContext('2d');
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const data = imageData.data;
+        const visited = new Array(width * height).fill(false);
+        const newRegions = [];
+        
+        // Define the neighborhood radius for connecting close pixels (1=8-direction, 2=5x5 square)
+        const CONNECTION_RADIUS = 10; // Check area around the current pixel
+
+        // Helper to check if a pixel is 'dark' (non-white/non-transparent)
+        const isDark = (index) => {
+            const i = index * 4;
+            // Check for non-transparent (alpha > 128) AND non-white (RGB < 200)
+            return data[i + 3] > 128 && data[i] < 200 && data[i + 1] < 200 && data[i + 2] < 200;
+        };
+
+        const segmentMinSize = 250; // Minimum area of pixels for a region
+
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const index = y * width + x;
+                if (!visited[index] && isDark(index)) {
+                    // Start of a new unvisited dark area
+                    let minX = width, minY = height, maxX = 0, maxY = 0;
+                    let queue = [{ x, y }];
+                    visited[index] = true;
+                    let pixelCount = 0;
+
+                    // BFS to find contiguous block with neighborhood check
+                    while (queue.length > 0) {
+                        const { x: cx, y: cy } = queue.shift();
+                        
+                        if (cx < minX) minX = cx;
+                        if (cx > maxX) maxX = cx;
+                        if (cy < minY) minY = cy;
+                        if (cy > maxY) maxY = cy;
+                        pixelCount++;
+
+                        // Check neighbors within the defined radius
+                        for (let dy = -CONNECTION_RADIUS; dy <= CONNECTION_RADIUS; dy++) {
+                            for (let dx = -CONNECTION_RADIUS; dx <= CONNECTION_RADIUS; dx++) {
+                                if (dx === 0 && dy === 0) continue;
+                                const nx = cx + dx;
+                                const ny = cy + dy;
+
+                                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                                    const nIndex = ny * width + nx;
+                                    if (!visited[nIndex] && isDark(nIndex)) {
+                                        visited[nIndex] = true;
+                                        queue.push({ x: nx, y: ny });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Only process components large enough to be meaningful text blocks
+                    if (pixelCount >= segmentMinSize) {
+                        const pad = 2; // small padding
+                        let initialMinX = Math.max(0, minX - pad);
+                        let initialMinY = Math.max(0, minY - pad);
+                        let initialMaxX = Math.min(width - 1, maxX + pad);
+                        let initialMaxY = Math.min(height - 1, maxY + pad);
+                        
+                        // === START TIGHT CROP LOGIC (Simplified for 1x Canvas) ===
+                        const px = initialMinX;
+                        const py = initialMinY;
+                        const pw = initialMaxX - initialMinX;
+                        const ph = initialMaxY - initialMinY;
+
+                        // Use 2x scale canvas for precision tight-crop detection
+                        const tmp = document.createElement("canvas");
+                        tmp.width = pw * 2; tmp.height = ph * 2;
+                        const tCtx = tmp.getContext("2d");
+                        tCtx.drawImage(s.canvas, px, py, pw, ph, 0, 0, pw * 2, ph * 2);
+
+                        const tData = tCtx.getImageData(0, 0, pw * 2, ph * 2).data;
+
+                        let tMinX = pw * 2, tMinY = ph * 2, tMaxX = 0, tMaxY = 0;
+                        let tFound = false;
+
+                        for (let ty = 0; ty < ph * 2; ty++) {
+                            for (let tx = 0; tx < pw * 2; tx++) {
+                                const i = (ty * (pw * 2) + tx) * 4;
+                                if (tData[i + 3] > 128 && tData[i] < 200 && tData[i+1] < 200 && tData[i+2] < 200) { 
+                                    if (tx < tMinX) tMinX = tx;
+                                    if (tx > tMaxX) tMaxX = tx;
+                                    if (ty < tMinY) tMinY = ty;
+                                    if (ty > tMaxY) tMaxY = ty;
+                                    tFound = true;
+                                }
+                            }
+                        }
+                        
+                        if (!tFound) continue;
+
+                        const cropPad = 4;
+                        tMinX = Math.max(0, tMinX - cropPad);
+                        tMinY = Math.max(0, tMinY - cropPad);
+                        tMaxX = Math.min(pw * 2, tMaxX + cropPad);
+                        tMaxY = Math.min(ph * 2, tMaxY + cropPad);
+
+                        // Calculate final normalized coordinates
+                        const globalX = px / width + (tMinX / 2) / width;
+                        const globalY = py / height + (tMinY / 2) / height;
+                        const globalW = ((tMaxX - tMinX) / 2) / width;
+                        const globalH = ((tMaxY - tMinY) / 2) / height;
+                        // === END TIGHT CROP LOGIC ===
+
+                        const newRegion = {
+                            id: `r${Date.now()}_${newRegions.length}`,
+                            rect: { 
+                                x: globalX, 
+                                y: globalY, 
+                                w: globalW, 
+                                h: globalH
+                            }, 
+                            status: 'segmented',
+                            svgContent: '',
+                            contentType: 'text',
+                            scale: {x: 1, y: 1}, 
+                            offset: {x: 0, y: 0}
+                        };
+
+                        this.model.state.regions.push(newRegion);
+                        newRegions.push(newRegion.id);
+                    }
+                }
+            }
+        }
+
+        // Must update the regions in a batch, select the last one, and save history
+        if (newRegions.length > 0) {
+            this.model.selectRegion(newRegions[newRegions.length - 1]);
+        } else {
+            this.model.deselect();
+        }
+        
+        this.model.saveHistory();
+        this.view.toggleLoader(false);
+        this.view.els.aiStatus.classList.add('hidden');
     }
 
     fitContent() {
