@@ -1412,7 +1412,7 @@ class SciTextController {
             }
         };
         try {
-            img.src = CONFIG.localImgPath;
+            img.src = window.embeddedDefaultImage;
         }
         catch {
             img.src = CONFIG.defaultImgUrl;
@@ -1899,9 +1899,12 @@ const appObject = (function() {
     model.subscribe((state) => {
         view.render(state);
     });
-
     return {
-        bootstrap: () => controller.init(),
+        bootstrap: async () => {
+            const mod = await import(`./appTest.js?v=${Date.now()}`);
+            window.embeddedDefaultImage = mod.default;
+            controller.init();
+        },
         model, view, controller
     };
 })();
