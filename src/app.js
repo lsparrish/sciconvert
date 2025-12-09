@@ -102,6 +102,9 @@ body { font-family: "Segoe UI", sans-serif; background-color: #111827; min-heigh
 .region-actions-bar { position: fixed; z-index: 100; background: rgba(255,255,255,0.95); padding: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #d1d5db; display: flex; gap: 0.5rem; }
 .tab-button { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; color: #6b7280; border-bottom: 2px solid transparent; cursor: pointer; }
 .tab-button-active { color: #2563eb; border-bottom-color: #2563eb; }
+
+#split-bar { position: absolute; z-index: 50; background: #ef4444; opacity: 0.8; pointer-events: none; box-shadow: 0 0 0 1px #dc2626; }
+#split-bar-label { position: absolute; background: #ef4444; color: white; font-size: 10px; font-weight: 700; padding: 2px 4px; border-radius: 3px; pointer-events: none; white-space: nowrap; }
 `;
 
 const APP_STRUCTURE = `
@@ -193,6 +196,7 @@ const APP_STRUCTURE = `
                       <div id="svg-layer" class="absolute inset-0 z-10" style="pointer-events:none;"></div> 
                       <div id="interaction-layer" class="absolute inset-0 z-20"></div>
                       <div id="selection-box"></div>
+                      <div id="split-bar" class="hidden"></div>
                   </div>
               </div>
           </div>
@@ -392,6 +396,7 @@ class UIManager {
             const el = document.getElementById(id);
             if(el) this.els[camelCase(id)] = el;
         });
+        this.els.splitBar = document.getElementById('split-bar');
     }
 
     toggleLoader(show) {
@@ -477,6 +482,71 @@ class UIManager {
         Object.assign(frame.style, { left: x+'px', top: y+'px', width: w+'px', height: h+'px' });
     }
 
+    renderSplitBar(region, state, splitType, splitPosition) {
+        const { physicalCw, physicalCh } = this.model.controller.draw.getPhysicalDims();
+        const rx = region.rect.x * physicalCw;
+        const ry = region.rect.y * physicalCh;
+        const rw = region.rect.w * physicalCw;
+        const rh = region.rect.h * physicalCh;
+        
+        const bar = this.els.splitBar;
+        bar.classList.remove('hidden');
+
+        if (splitType === 'horizontal') {
+            const py = ry + rh * splitPosition;
+            Object.assign(bar.style, {
+                left: rx + 'px', top: py - 1 + 'px', 
+                width: rw + 'px', height: '2px', 
+                cursor: 'ns-resize'
+            });
+            // Label for split bar
+            this.renderSplitLabel(bar, 'Horizontal (TAB to switch)');
+        } else { // vertical
+            const px = rx + rw * splitPosition;
+            Object.assign(bar.style, {
+                left: px - 1 + 'px', top: ry + 'px', 
+                width: '2px', height: rh + 'px', 
+                cursor: 'ew-resize'
+            });
+            // Label for split bar
+            this.renderSplitLabel(bar, 'Vertical (TAB to switch)');
+        }
+    }
+    
+    renderSplitLabel(bar, text) {
+        let label = document.getElementById('split-bar-label');
+        if (!label) {
+            label = document.createElement('div');
+            label.id = 'split-bar-label';
+            this.els.canvasWrapper.appendChild(label);
+        }
+        
+        const barRect = bar.getBoundingClientRect();
+        const wrapperRect = this.els.canvasWrapper.getBoundingClientRect();
+
+        label.textContent = text;
+        
+        if (this.model.controller.splitType === 'horizontal') {
+            Object.assign(label.style, {
+                left: `${barRect.left - wrapperRect.left + 5}px`,
+                top: `${barRect.top - wrapperRect.top - label.offsetHeight - 5}px`,
+                transform: 'none'
+            });
+        } else {
+             Object.assign(label.style, {
+                left: `${barRect.left - wrapperRect.left - label.offsetWidth - 5}px`,
+                top: `${barRect.top - wrapperRect.top + 5}px`,
+                transform: 'none'
+            });
+        }
+    }
+
+    hideSplitBar() {
+        this.els.splitBar.classList.add('hidden');
+        const label = document.getElementById('split-bar-label');
+        if (label) label.remove();
+    }
+
     switchTab(tab) {
         if (tab === 'overlay') {
             this.els.tabOverlay.classList.add('tab-button-active');
@@ -517,6 +587,7 @@ class UIManager {
     }
 
     render(state) {
+        const controller = this.model.controller;
         this.els.regionCount.textContent = state.regions.length;
         this.els.zoomLevel.textContent = Math.round(state.scaleMultiplier * 100) + "%";
 
@@ -541,6 +612,7 @@ class UIManager {
         this.els.svgLayer.innerHTML = '';
         this.els.interactionLayer.innerHTML = '';
         this.els.selectionBox.style.display = 'none';
+        this.hideSplitBar();
 
         // Remove old active frame if any
         const oldFrame = document.getElementById('active-selection-frame');
@@ -615,8 +687,13 @@ class UIManager {
         // --- END NEW LOGIC ---
 
         if (active) {
-            this.renderActiveControls(active, state);
-            this.showRegionActionsBar(active, state);
+            if (controller.splitMode) {
+                this.renderSplitBar(active, state, controller.splitType, controller.splitPosition);
+                this.hideRegionActionsBar();
+            } else {
+                this.renderActiveControls(active, state);
+                this.showRegionActionsBar(active, state);
+            }
         } else {
             this.hideRegionActionsBar();
         }
@@ -704,6 +781,12 @@ class RegionEditor {
 
     handleMouseDown(e) {
         if (e.button !== 0) return;
+        // If in split mode, just track position but don't change modes
+        if (this.controller.splitMode) {
+             const pos = this.getLocalPos(e);
+             this.dragStart = pos; // Start position for moving the split bar
+             return;
+        }
 
         const pos = this.getLocalPos(e);
         const hit = this.hitDetection(pos);
@@ -730,7 +813,33 @@ class RegionEditor {
         const pos = this.getLocalPos(e);
         const hit = this.hitDetection(pos);
         const layer = this.controller.view.els.interactionLayer;
+        const state = this.controller.model.state;
+        const active = state.activeRegionId ? state.regions.find(r => r.id === state.activeRegionId) : null;
+        const { physicalCw, physicalCh } = this.getPhysicalDims();
 
+        if (this.controller.splitMode && active) {
+            const rx = active.rect.x * physicalCw;
+            const ry = active.rect.y * physicalCh;
+            const rw = active.rect.w * physicalCw;
+            const rh = active.rect.h * physicalCh;
+            
+            let normalizedPos;
+
+            if (this.controller.splitType === 'horizontal') {
+                const relativeY = Math.min(Math.max(pos.y, ry), ry + rh);
+                normalizedPos = (relativeY - ry) / rh;
+                layer.style.cursor = 'ns-resize';
+            } else { // vertical
+                const relativeX = Math.min(Math.max(pos.x, rx), rx + rw);
+                normalizedPos = (relativeX - rx) / rw;
+                layer.style.cursor = 'ew-resize';
+            }
+            // Clamp position between 0.1 and 0.9 to prevent zero-size regions
+            this.controller.splitPosition = Math.min(0.9, Math.max(0.1, normalizedPos));
+            this.controller.model.notify({ noHistory: true });
+            return;
+        }
+        
         if (this.mode === 'IDLE') {
             if (hit.type === 'HANDLE') {
                 layer.style.cursor = hit.handle.includes('n') && hit.handle.includes('s') ? 'ns-resize' : 
@@ -743,7 +852,6 @@ class RegionEditor {
             }
             return;
         }
-        const { physicalCw, physicalCh } = this.getPhysicalDims();
 
         if (this.mode === 'CREATE') {
             const s = this.dragStart;
@@ -791,6 +899,17 @@ class RegionEditor {
     }
 
     handleMouseUp(e) {
+        if (this.controller.splitMode) {
+            // In split mode, mouseup cancels drag and confirms if the mouse hasn't moved much
+            if (this.dragStart.x === this.getLocalPos(e).x && this.dragStart.y === this.getLocalPos(e).y) {
+                 // Do nothing if it was a click without movement
+            } else {
+                 // If dragging occurred, the split position is updated via mousemove. No further action needed here.
+            }
+             this.dragStart = null;
+             return;
+        }
+        
         if (this.mode === 'IDLE') return;
 
         if (this.mode === 'CREATE') {
@@ -821,14 +940,26 @@ class RegionEditor {
     }
 
     handleMouseLeave() {
-        if (this.mode !== 'IDLE') this.cancelInteraction();
+        if (this.mode !== 'IDLE' && !this.controller.splitMode) this.cancelInteraction();
         this.controller.view.els.interactionLayer.style.cursor = 'default';
     }
 
     handleKeyDown(e) {
         if (e.key === 'Escape') {
-            this.mode = 'IDLE';
-            this.controller.view.els.selectionBox.style.display = 'none';
+            if (this.controller.splitMode) {
+                this.controller.exitSplitMode();
+            } else {
+                this.mode = 'IDLE';
+                this.controller.view.els.selectionBox.style.display = 'none';
+            }
+        } else if (this.controller.splitMode) {
+            if (e.key === 'Tab') {
+                e.preventDefault(); // Prevent tab switching focus
+                this.controller.toggleSplitType();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                this.controller.confirmSplit();
+            }
         }
     }
 
@@ -855,6 +986,9 @@ class SciTextController {
         this.model = model;
         this.view = view;
         this.draw = new RegionEditor(this);
+        this.splitMode = false;
+        this.splitType = 'horizontal'; // 'horizontal' or 'vertical'
+        this.splitPosition = 0.5; // Normalized position (0 to 1)
     }
 
     async init() {
@@ -887,7 +1021,7 @@ class SciTextController {
         this.view.els.btnExport.onclick = () => this.exportSVG();
         this.view.els.btnFitArea.onclick = () => this.fitArea();
         this.view.els.btnFitContent.onclick = () => this.fitContent();
-        this.view.els.btnSplit.onclick = () => this.splitRegion();
+        this.view.els.btnSplit.onclick = () => this.enterSplitMode(); // Call new enterSplitMode
         this.view.els.btnGroup.onclick = () => this.groupSelectedRegions();
         
         // NEW SVG Editor Bindings (Simplified)
@@ -938,6 +1072,79 @@ class SciTextController {
         window.addEventListener('resize', handleResize);
         this.loadDefaultImage();
     }
+    enterSplitMode() {
+        if (!this.model.state.activeRegionId) return;
+        this.splitMode = true;
+        
+        const r = this.model.getRegion(this.model.state.activeRegionId);
+        const cw = this.model.state.canvasWidth;
+        const ch = this.model.state.canvasHeight;
+        
+        // Default split type based on region aspect ratio
+        this.splitType = (r.rect.w * cw) > (r.rect.h * ch) ? 'vertical' : 'horizontal';
+        this.splitPosition = 0.5; // Start in the middle
+
+        this.model.notify();
+    }
+    
+    exitSplitMode() {
+        this.splitMode = false;
+        this.model.notify();
+    }
+    
+    toggleSplitType() {
+        this.splitType = this.splitType === 'horizontal' ? 'vertical' : 'horizontal';
+        this.model.notify();
+    }
+
+    confirmSplit() {
+        const id = this.model.state.activeRegionId;
+        if (!id) return this.exitSplitMode();
+
+        const r = this.model.getRegion(id);
+        
+        const r1Rect = { ...r.rect };
+        const r2Rect = { ...r.rect };
+        const splitPos = this.splitPosition;
+
+        if (this.splitType === 'horizontal') {
+            // Split by Y: r1 is top, r2 is bottom
+            r1Rect.h *= splitPos;
+            
+            r2Rect.h *= (1 - splitPos);
+            r2Rect.y += r1Rect.h;
+        } else { // vertical
+            // Split by X: r1 is left, r2 is right
+            r1Rect.w *= splitPos;
+            
+            r2Rect.w *= (1 - splitPos);
+            r2Rect.x += r1Rect.w;
+        }
+
+        const createNewRegion = (rect, baseRegion) => ({
+            id: `r${Date.now()}_${Math.random()}`,
+            rect: rect,
+            // Preserve content/status/dims if possible, but reset transform/offset
+            svgContent: baseRegion.svgContent, 
+            status: baseRegion.status,
+            contentType: baseRegion.contentType,
+            bpDims: baseRegion.bpDims,
+            scale: {x:1, y:1}, 
+            offset: {x:0, y:0}
+        });
+
+        const r1 = createNewRegion(r1Rect, r);
+        const r2 = createNewRegion(r2Rect, r);
+
+        this.model.deleteRegion(id);
+        this.model.state.regions.push(r1);
+        this.model.state.regions.push(r2);
+
+        this.model.selectRegion(r1.id);
+        this.model.saveHistory();
+        this.exitSplitMode();
+    }
+
     updateBaseWidth() {
         if (this.model.state.canvasWidth === 0) return;
         const scroller = this.view.els.canvasScroller;
@@ -1285,9 +1492,9 @@ class SciTextController {
                         // --- START INTEGRATED RLE BLUEPRINT GENERATION ---
                         let rle = "";
                         // tData is the 2x scale image data of the tight crop (pw*2 x ph*2)
-                        for (let ty = 0; ty < ph * 2; ty += 2) {
+                        for (let ty = tMinY; ty < tMaxY; ty += 2) {
                             let sx = -1;
-                            for (let tx = 0; tx < pw * 2; tx++) {
+                            for (let tx = tMinX; tx < tMaxX; tx++) {
                                 const i = (ty * (pw * 2) + tx) * 4;
                                 // Check for non-white/non-transparent pixels (same check as isDark but on the tData)
                                 if (tData[i + 3] > 128 && tData[i] < 200 && tData[i + 1] < 200 && tData[i + 2] < 200) {
@@ -1299,17 +1506,19 @@ class SciTextController {
                                     }
                                 }
                             }
-                            if(sx !== -1) rle += `M${sx} ${ty}h${pw * 2 - sx}v2h-${pw * 2 - sx}z`;
+                            if(sx !== -1) rle += `M${sx} ${ty}h${tMaxX - sx}v2h-${tMaxX - sx}z`;
                         }
                         // --- END INTEGRATED RLE BLUEPRINT GENERATION ---
-                        
+
                         // Calculate final normalized coordinates
                         const globalX = px / width + (tMinX / 2) / width;
                         const globalY = py / height + (tMinY / 2) / height;
                         const globalW = ((tMaxX - tMinX) / 2) / width;
                         const globalH = ((tMaxY - tMinY) / 2) / height;
-                        // === END TIGHT CROP LOGIC ===
-
+                        // The Blueprint's dimensions are based on the final cropped area in 2x scale
+                        const bpW = tMaxX - tMinX;
+                        const bpH = tMaxY - tMinY;
+                        
                         const newRegion = {
                             id: `r${Date.now()}_${newRegions.length}`,
                             rect: { 
@@ -1320,7 +1529,7 @@ class SciTextController {
                             }, 
                             status: 'scanned',
                             svgContent: `<path d="${rle}" fill="black" />`,
-                            bpDims: { w: pw * 2, h: ph * 2 },
+                            bpDims: { w: bpW, h: bpH },
                             contentType: 'scan',
                             scale: {x: 1, y: 1}, 
                             offset: {x: 0, y: 0}
@@ -1350,51 +1559,6 @@ class SciTextController {
         const id = this.model.state.activeRegionId;
         if (!id) return;
         this.model.updateRegion(id, { scale: {x: 1, y: 1}, offset: {x: 0, y: 0} });
-        this.model.saveHistory();
-    }
-
-    splitRegion() {
-        const id = this.model.state.activeRegionId;
-        if (!id) return;
-
-        const r = this.model.getRegion(id);
-        const cw = this.model.state.canvasWidth;
-        const ch = this.model.state.canvasHeight;
-
-        const isHorizontalSplit = (r.rect.w * cw) > (r.rect.h * ch);
-
-        const r1Rect = { ...r.rect };
-        const r2Rect = { ...r.rect };
-
-        if (isHorizontalSplit) {
-            r1Rect.w /= 2;
-            r2Rect.w /= 2;
-            r2Rect.x += r1Rect.w;
-        } else {
-            r1Rect.h /= 2;
-            r2Rect.h /= 2;
-            r2Rect.y += r1Rect.h;
-        }
-
-        const r1 = {
-            id: `r${Date.now()}_1`,
-            rect: r1Rect,
-            status: 'pending', svgContent: '',
-            scale: {x:1, y:1}, offset: {x:0, y:0}
-        };
-
-        const r2 = {
-            id: `r${Date.now()}_2`,
-            rect: r2Rect,
-            status: 'pending', svgContent: '',
-            scale: {x:1, y:1}, offset: {x:0, y:0}
-        };
-
-        this.model.deleteRegion(id);
-        this.model.state.regions.push(r1);
-        this.model.state.regions.push(r2);
-
-        this.model.selectRegion(r1.id);
         this.model.saveHistory();
     }
 
@@ -1694,6 +1858,7 @@ window.app = (function() {
     const view = new UIManager();
     const controller = new SciTextController(model, view);
     view.model = model;
+    view.model.controller = controller; 
 
     model.subscribe((state) => {
         // Only save history when explicitly told (e.g., after mouseup, after generation)
