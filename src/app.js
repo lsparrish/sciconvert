@@ -1,4 +1,4 @@
-
+/*
  * SciText Digitizer - Single File Architecture
  * Contains:
  * 1. Config, Styles, HTML.
