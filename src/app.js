@@ -1293,7 +1293,7 @@ class SciTextController {
 
         // Official ESM builds – these are served with correct application/javascript MIME
         const remoteScript = 'https://unpkg.com/pdfjs-dist@5.4.449/build/pdf.min.mjs';
-        const remoteWorker = 'https://unpkg.com/pdfjs-dist@5.4.449/build/pdf-worker.min.mjs';
+        const remoteWorker = 'https://unpkg.com/pdfjs-dist@5.4.449/build/pdf.worker.min.mjs';
 
         // Local fallbacks (if you ever bundle them yourself)
         const localScript    = './src/pdf.min.mjs';
