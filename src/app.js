@@ -986,9 +986,10 @@ class SciTextController {
         this.model = model;
         this.view = view;
         this.draw = new RegionEditor(this);
+        this.imageProcessor = new ImageProcessor(model);
         this.splitMode = false;
-        this.splitType = 'horizontal'; // 'horizontal' or 'vertical'
-        this.splitPosition = 0.5; // Normalized position (0 to 1)
+        this.splitType = 'horizontal'; 
+        this.splitPosition = 0.5; 
     }
 
     async init() {
@@ -1122,26 +1123,23 @@ class SciTextController {
         this.view.els.aiStatus.classList.remove('hidden');
         this.view.els.aiStatus.textContent = 'Splitting and scanning new regions...';
 
-        // 1. Get tight scan for the first area (top/left)
-        const scan1 = await this.getAreaScan(r1Rect);
-        
-        // 2. Get tight scan for the second area (bottom/right)
-        const scan2 = await this.getAreaScan(r2Rect);
+        const scan1 = this.imageProcessor.processRegion(r1Rect);
+        const scan2 = this.imageProcessor.processRegion(r2Rect);
 
         const createNewRegion = (scan) => ({
             id: `r${Date.now()}_${Math.random()}`,
             rect: scan.newRect,
-            svgContent: scan.svgContent, 
-            status: scan.status,
-            contentType: scan.contentType,
+            svgContent: `<path d="${scan.rle}" fill="black" />`, 
+            status: 'scanned',
+            contentType: 'scan',
             bpDims: scan.bpDims,
             scale: {x:1, y:1}, 
             offset: {x:0, y:0}
         });
 
         const newRegions = [];
-        if (scan1.status !== 'empty') newRegions.push(createNewRegion(scan1));
-        if (scan2.status !== 'empty') newRegions.push(createNewRegion(scan2));
+        if (scan1) newRegions.push(createNewRegion(scan1));
+        if (scan2) newRegions.push(createNewRegion(scan2));
 
         if (newRegions.length > 0) {
             this.model.deleteRegion(id);
@@ -1156,98 +1154,6 @@ class SciTextController {
         this.exitSplitMode();
     }
     
-    // NEW HELPER FUNCTION
-    async getAreaScan(normalizedRect) {
-        const r = normalizedRect;
-        const s = this.model.state;
-
-        const pw = Math.floor(r.w * s.canvasWidth);
-        const ph = Math.floor(r.h * s.canvasHeight);
-
-        if (pw < 1 || ph < 1) {
-            return {
-                svgContent: '', status: 'scanned', contentType: 'scan',
-                bpDims: { w: 0, h: 0 },
-                newRect: r // Return original rect if area is too small
-            };
-        }
-
-        const tmp = document.createElement("canvas");
-        tmp.width = pw * 2; tmp.height = ph * 2;
-        const ctx = tmp.getContext("2d");
-        // Draw the image data of the rect area into the temp canvas at 2x scale
-        ctx.drawImage(s.canvas, r.x * s.canvasWidth, r.y * s.canvasHeight, pw, ph, 0, 0, pw * 2, ph * 2);
-
-        const tData = ctx.getImageData(0, 0, pw * 2, ph * 2).data;
-
-        let tMinX = pw * 2, tMinY = ph * 2, tMaxX = 0, tMaxY = 0;
-        let tFound = false;
-
-        // --- TIGHT CROP SEARCH ---
-        for (let ty = 0; ty < ph * 2; ty++) {
-            for (let tx = 0; tx < pw * 2; tx++) {
-                const i = (ty * (pw * 2) + tx) * 4;
-                // Check for non-white/non-transparent pixels
-                if (tData[i + 3] > 128 && tData[i] < 200 && tData[i + 1] < 200 && tData[i + 2] < 200) { 
-                    if (tx < tMinX) tMinX = tx;
-                    if (tx > tMaxX) tMaxX = tx;
-                    if (ty < tMinY) tMinY = ty;
-                    if (ty > tMaxY) tMaxY = ty;
-                    tFound = true;
-                }
-            }
-        }
-        
-        if (!tFound) {
-             return {
-                svgContent: '', status: 'empty', contentType: 'empty',
-                bpDims: { w: 0, h: 0 },
-                newRect: r 
-            };
-        }
-
-        const cropPad = 4;
-        tMinX = Math.max(0, tMinX - cropPad);
-        tMinY = Math.max(0, tMinY - cropPad);
-        tMaxX = Math.min(pw * 2, tMaxX + cropPad);
-        tMaxY = Math.min(ph * 2, tMaxY + cropPad);
-
-        // --- RLE BLUEPRINT GENERATION ---
-        let rle = "";
-        for (let ty = tMinY; ty < tMaxY; ty += 2) {
-            let sx = -1;
-            for (let tx = tMinX; tx < tMaxX; tx++) {
-                const i = (ty * (pw * 2) + tx) * 4;
-                if (tData[i + 3] > 128 && tData[i] < 200 && tData[i + 1] < 200 && tData[i + 2] < 200) {
-                    if(sx === -1) sx = tx;
-                } else {
-                    if(sx !== -1) {
-                        rle += `M${sx} ${ty}h${tx - sx}v2h-${tx - sx}z`;
-                        sx = -1;
-                    }
-                }
-            }
-            if(sx !== -1) rle += `M${sx} ${ty}h${tMaxX - sx}v2h-${tMaxX - sx}z`;
-        }
-
-        // Calculate final normalized coordinates (tight crop relative to original canvas)
-        const globalX = r.x + (tMinX / 2) / s.canvasWidth;
-        const globalY = r.y + (tMinY / 2) / s.canvasHeight;
-        const globalW = ((tMaxX - tMinX) / 2) / s.canvasWidth;
-        const globalH = ((tMaxY - tMinY) / 2) / s.canvasHeight;
-        
-        const bpW = tMaxX - tMinX;
-        const bpH = tMaxY - tMinY;
-        
-        return {
-            svgContent: `<path d="${rle}" fill="black" />`,
-            status: 'scanned',
-            contentType: 'scan',
-            bpDims: { w: bpW, h: bpH },
-            newRect: { x: globalX, y: globalY, w: globalW, h: globalH }
-        };
-    }
-    // ======== END SPLIT MODE LOGIC ========
 
     updateBaseWidth() {
         if (this.model.state.canvasWidth === 0) return;
@@ -1420,59 +1326,22 @@ class SciTextController {
         const r = this.model.getRegion(id);
         if (!r) return;
 
-        const s = this.model.state;
-        const pw = Math.floor(r.rect.w * s.canvasWidth);
-        const ph = Math.floor(r.rect.h * s.canvasHeight);
+        // Use the refactored image processor
+        const scan = this.imageProcessor.processRegion(r.rect);
 
-        if (pw < 1 || ph < 1) return;
-
-        const tmp = document.createElement("canvas");
-        tmp.width = pw * 2; tmp.height = ph * 2;
-        const ctx = tmp.getContext("2d");
-        ctx.drawImage(s.canvas, r.rect.x * s.canvasWidth, r.rect.y * s.canvasHeight, pw, ph, 0, 0, pw * 2, ph * 2);
-
-        const data = ctx.getImageData(0, 0, pw * 2, ph * 2).data;
-
-        let minX = pw * 2, minY = ph * 2, maxX = 0, maxY = 0;
-        let found = false;
-
-        for (let y = 0; y < ph * 2; y++) {
-            for (let x = 0; x < pw * 2; x++) {
-                const i = (y * (pw * 2) + x) * 4;
-                // Check for non-white/non-transparent pixels (text is usually black/dark)
-                if (data[i + 3] > 128 && data[i] < 200 && data[i+1] < 200 && data[i+2] < 200) { 
-                    if (x < minX) minX = x;
-                    if (x > maxX) maxX = x;
-                    if (y < minY) minY = y;
-                    if (y > maxY) maxY = y;
-                    found = true;
-                }
-            }
-        }
-
-        if (!found) return;
-
-        const pad = 4;
-        minX = Math.max(0, minX - pad);
-        minY = Math.max(0, minY - pad);
-        maxX = Math.min(pw * 2, maxX + pad);
-        maxY = Math.min(ph * 2, maxY + pad);
-
-        // Adjust bounds to be relative to the original canvas dimensions
-        const globalX = r.rect.x + (minX / 2) / s.canvasWidth;
-        const globalY = r.rect.y + (minY / 2) / s.canvasHeight;
-        const globalW = ((maxX - minX) / 2) / s.canvasWidth;
-        const globalH = ((maxY - minY) / 2) / s.canvasHeight;
+        if (!scan) return;
 
         this.model.updateRegion(id, {
-            rect: { x: globalX, y: globalY, w: globalW, h: globalH },
-            // Reset scale/offset since we've resized the bounding box
+            rect: scan.newRect,
+            svgContent: `<path d="${scan.rle}" fill="black" />`,
+            bpDims: scan.bpDims,
             scale: { x: 1, y: 1 }, 
-            offset: { x: 0, y: 0 }
+            offset: { x: 0, y: 0 },
+            status: 'scanned',
+            contentType: 'scan'
         });
 
-        // Re-run scan to update the blueprint to the new tighter bounds
-        await this.generateContent('blueprint');
+        this.model.saveHistory();
     }
     
     async autoSegment() {
@@ -1497,23 +1366,16 @@ class SciTextController {
         const visited = new Array(width * height).fill(false);
         const newRegions = [];
         
-        // Define the neighborhood radius for connecting close pixels (1=8-direction, 2=5x5 square)
-        const CONNECTION_RADIUS = 10; // Check area around the current pixel
+        const CONNECTION_RADIUS = 10; 
+        const segmentMinSize = 250; 
 
         // Helper to check if a pixel is 'dark' (non-white/non-transparent)
-        const isDark = (index) => {
-            const i = index * 4;
-            // Check for non-transparent (alpha > 128) AND non-white (RGB < 200)
-            return data[i + 3] > 128 && data[i] < 200 && data[i + 1] < 200 && data[i + 2] < 200;
-        };
-
-        const segmentMinSize = 250; // Minimum area of pixels for a region
+        const isDark = (index) => this.imageProcessor.isDark(data, index);
 
         for (let y = 0; y < height; y++) {
             for (let x = 0; x < width; x++) {
                 const index = y * width + x;
                 if (!visited[index] && isDark(index)) {
-                    // Start of a new unvisited dark area
                     let minX = width, minY = height, maxX = 0, maxY = 0;
                     let queue = [{ x, y }];
                     visited[index] = true;
@@ -1523,13 +1385,12 @@ class SciTextController {
                     while (queue.length > 0) {
                         const { x: cx, y: cy } = queue.shift();
                         
-                        if (cx < minX) minX = cx;
-                        if (cx > maxX) maxX = cx;
-                        if (cy < minY) minY = cy;
-                        if (cy > maxY) maxY = cy;
+                        minX = Math.min(minX, cx);
+                        maxX = Math.max(maxX, cx);
+                        minY = Math.min(minY, cy);
+                        maxY = Math.max(maxY, cy);
                         pixelCount++;
 
-                        // Check neighbors within the defined radius
                         for (let dy = -CONNECTION_RADIUS; dy <= CONNECTION_RADIUS; dy++) {
                             for (let dx = -CONNECTION_RADIUS; dx <= CONNECTION_RADIUS; dx++) {
                                 if (dx === 0 && dy === 0) continue;
@@ -1547,93 +1408,25 @@ class SciTextController {
                         }
                     }
 
-                    // Only process components large enough to be meaningful text blocks
                     if (pixelCount >= segmentMinSize) {
                         const pad = 2; // small padding
-                        let initialMinX = Math.max(0, minX - pad);
-                        let initialMinY = Math.max(0, minY - pad);
-                        let initialMaxX = Math.min(width - 1, maxX + pad);
-                        let initialMaxY = Math.min(height - 1, maxY + pad);
+                        let initialRect = {
+                            x: Math.max(0, minX - pad) / width,
+                            y: Math.max(0, minY - pad) / height,
+                            w: (Math.min(width - 1, maxX + pad) - Math.max(0, minX - pad)) / width,
+                            h: (Math.min(height - 1, maxY + pad) - Math.max(0, minY - pad)) / height
+                        };
                         
-                        // === START TIGHT CROP LOGIC (Simplified for 1x Canvas) ===
-                        const px = initialMinX;
-                        const py = initialMinY;
-                        const pw = initialMaxX - initialMinX;
-                        const ph = initialMaxY - initialMinY;
-
-                        // Use 2x scale canvas for precision tight-crop detection
-                        const tmp = document.createElement("canvas");
-                        tmp.width = pw * 2; tmp.height = ph * 2;
-                        const tCtx = tmp.getContext("2d");
-                        tCtx.drawImage(s.canvas, px, py, pw, ph, 0, 0, pw * 2, ph * 2);
-
-                        const tData = tCtx.getImageData(0, 0, pw * 2, ph * 2).data;
-
-                        let tMinX = pw * 2, tMinY = ph * 2, tMaxX = 0, tMaxY = 0;
-                        let tFound = false;
-
-                        for (let ty = 0; ty < ph * 2; ty++) {
-                            for (let tx = 0; tx < pw * 2; tx++) {
-                                const i = (ty * (pw * 2) + tx) * 4;
-                                if (tData[i + 3] > 128 && tData[i] < 200 && tData[i+1] < 200 && tData[i+2] < 200) { 
-                                    if (tx < tMinX) tMinX = tx;
-                                    if (tx > tMaxX) tMaxX = tx;
-                                    if (ty < tMinY) tMinY = ty;
-                                    if (ty > tMaxY) tMaxY = ty;
-                                    tFound = true;
-                                }
-                            }
-                        }
+                        const scan = this.imageProcessor.processRegion(initialRect);
                         
-                        if (!tFound) continue;
+                        if (!scan) continue;
 
-                        const cropPad = 4;
-                        tMinX = Math.max(0, tMinX - cropPad);
-                        tMinY = Math.max(0, tMinY - cropPad);
-                        tMaxX = Math.min(pw * 2, tMaxX + cropPad);
-                        tMaxY = Math.min(ph * 2, tMaxY + cropPad);
-
-                        // --- START INTEGRATED RLE BLUEPRINT GENERATION ---
-                        let rle = "";
-                        // tData is the 2x scale image data of the tight crop (pw*2 x ph*2)
-                        for (let ty = tMinY; ty < tMaxY; ty += 2) {
-                            let sx = -1;
-                            for (let tx = tMinX; tx < tMaxX; tx++) {
-                                const i = (ty * (pw * 2) + tx) * 4;
-                                // Check for non-white/non-transparent pixels (same check as isDark but on the tData)
-                                if (tData[i + 3] > 128 && tData[i] < 200 && tData[i + 1] < 200 && tData[i + 2] < 200) {
-                                    if(sx === -1) sx = tx;
-                                } else {
-                                    if(sx !== -1) {
-                                        rle += `M${sx} ${ty}h${tx - sx}v2h-${tx - sx}z`;
-                                        sx = -1;
-                                    }
-                                }
-                            }
-                            if(sx !== -1) rle += `M${sx} ${ty}h${tMaxX - sx}v2h-${tMaxX - sx}z`;
-                        }
-                        // --- END INTEGRATED RLE BLUEPRINT GENERATION ---
-
-                        // Calculate final normalized coordinates
-                        const globalX = px / width + (tMinX / 2) / width;
-                        const globalY = py / height + (tMinY / 2) / height;
-                        const globalW = ((tMaxX - tMinX) / 2) / width;
-                        const globalH = ((tMaxY - tMinY) / 2) / height;
-                        // The Blueprint's dimensions are based on the final cropped area in 2x scale
-                        const bpW = tMaxX - tMinX;
-                        const bpH = tMaxY - tMinY;
-                        
                         const newRegion = {
                             id: `r${Date.now()}_${newRegions.length}`,
-                            rect: { 
-                                x: globalX, 
-                                y: globalY, 
-                                w: globalW, 
-                                h: globalH
-                            }, 
+                            rect: scan.newRect, 
                             status: 'scanned',
-                            svgContent: `<path d="${rle}" fill="black" />`,
-                            bpDims: { w: bpW, h: bpH },
+                            svgContent: `<path d="${scan.rle}" fill="black" />`,
+                            bpDims: scan.bpDims,
                             contentType: 'scan',
                             scale: {x: 1, y: 1}, 
                             offset: {x: 0, y: 0}
@@ -1778,42 +1571,25 @@ class SciTextController {
             this.view.els.aiStatus.classList.add("hidden");
             return;
         }
-
-        const s = this.model.state;
-        const pw = Math.floor(r.rect.w * s.canvasWidth);
-        const ph = Math.floor(r.rect.h * s.canvasHeight);
-
-        const tmp = document.createElement("canvas");
-        tmp.width = pw * 2; tmp.height = ph * 2;
-        const ctx = tmp.getContext("2d");
-        ctx.drawImage(s.canvas, r.rect.x*s.canvasWidth, r.rect.y*s.canvasHeight, pw, ph, 0, 0, pw*2, ph*2);
-
-        // --- RLE Blueprint Generation (2x scale) ---
-        let rle = "";
-        const data = ctx.getImageData(0, 0, pw * 2, ph * 2).data;
-        for (let y=0; y<ph*2; y+=2) {
-            let sx = -1;
-            for (let x=0; x<pw*2; x++) {
-                const i = (y*pw*2 + x)*4;
-                // Check for non-white/non-transparent pixels (text is usually black/dark)
-                if (data[i+3] > 128 && data[i] < 200 && data[i+1] < 200 && data[i+2] < 200) {
-                    if(sx===-1) sx=x;
-                } else {
-                    if(sx!==-1) {
-                        rle+=`M${sx} ${y}h${x-sx}v2h-${x-sx}z`;
-                        sx=-1;
-                    }
-                }
-            }
-            if(sx!==-1) rle+=`M${sx} ${y}h${pw*2-sx}v2h-${pw*2-sx}z`;
+        
+        // Use refactored logic to get the data
+        // NOTE: A no-padding process is used here for the full bounding box scan
+        const scan = this.imageProcessor.processRegion(r.rect, 0); 
+        
+        if (!scan) {
+            this.view.els.aiStatus.classList.add('hidden');
+            return;
         }
+
+        const pw2 = scan.bpDims.w;
+        const ph2 = scan.bpDims.h;
 
         if (type === 'blueprint') {
             const updates = {
-                svgContent: `<path d="${rle}" fill="black" />`,
+                svgContent: `<path d="${scan.rle}" fill="black" />`,
                 status: 'scanned',
                 contentType: 'scan',
-                bpDims: { w: pw * 2, h: ph * 2 },
+                bpDims: scan.bpDims,
                 scale: { x: 1, y: 1 },
                 offset: { x: 0, y: 0 }
             };
@@ -1824,9 +1600,9 @@ class SciTextController {
         }
 
         this.view.els.aiStatus.textContent = `Generating ${type}...`;
-        const base64 = tmp.toDataURL("image/png").split(",")[1];
+        const base64 = scan.imageData;
         const promptType = type === 'image' ? 'SVG Graphic' : 'SVG Text';
-        const prompt = `You are a precision SVG Typesetter.\nINPUT: 2x scale scan.\nTASK: Generate ${promptType}.\nViewBox: 0 0 ${pw * 2} ${ph * 2}.\nOutput **ONLY** raw SVG code. Do not include markdown fences or any commentary. If the original content contains mathematical equations, render them using only SVG primitives, not KaTeX. RLE: ${rle.substring(0,500)}...`;
+        const prompt = `You are a precision SVG Typesetter.\nINPUT: 2x scale scan.\nTASK: Generate ${promptType}.\nViewBox: 0 0 ${pw2} ${ph2}.\nOutput **ONLY** raw SVG code. Do not include markdown fences or any commentary. If the original content contains mathematical equations, render them using only SVG primitives, not KaTeX. RLE: ${scan.rle.substring(0,500)}...`;
 
         try {
             const payload = { 
@@ -1861,7 +1637,7 @@ class SciTextController {
                 svgContent: cleanSVG,
                 status: 'generated',
                 contentType: type,
-                bpDims: { w: pw * 2, h: ph * 2 }, // Set viewBox to the 2x scale dimensions
+                bpDims: { w: pw2, h: ph2 }, // Set viewBox to the 2x scale dimensions
                 scale: { x: 1, y: 1 },
                 offset: { x: 0, y: 0 }
             };
