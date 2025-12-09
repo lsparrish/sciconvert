@@ -1282,27 +1282,38 @@ class SciTextController {
     switchTab(t) {
         this.view.switchTab(t);
     }
-
     async loadPDFJS() {
-        if (!window.pdfjsLib) {
-            const isRemote = location.href.startsWith('http') || (document.baseURI && document.baseURI.startsWith('http'));
-            const localScript = './src/pdf.min.js';
-            const localWorker = './src/pdf.worker.min.js';
-            const remoteScript = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.4.449/pdf.min.js';
-            const remoteWorker = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.4.449/pdf.worker.min.js';
+        if (window.pdfjsLib) return;
 
-            if (isRemote) {
-                await this.loadScript(remoteScript);
-                window.pdfjsLib.GlobalWorkerOptions.workerSrc = remoteWorker;
-            } else {
-                try {
-                    await this.loadScript(localScript);
-                    window.pdfjsLib.GlobalWorkerOptions.workerSrc = localWorker;
-                } catch (e) {
-                    console.warn('Local pdf.js load failed. Using CDN fallback.', e);
-                    await this.loadScript(remoteScript);
-                    window.pdfjsLib.GlobalWorkerOptions.workerSrc = remoteWorker;
-                }
+        const isRemoteOrSandbox = 
+            /^blob:/.test(location.href) || 
+            /^blob:/.test(document.baseURI || '') || 
+            /^https?:/.test(location.href) || 
+            /^https?:/.test(document.baseURI || '');
+
+        // Official ESM builds – these are served with correct application/javascript MIME
+        const remoteScript = 'https://unpkg.com/pdfjs-dist@5.4.449/build/pdf.min.mjs';
+        const remoteWorker = 'https://unpkg.com/pdfjs-dist@5.4.449/build/pdf-worker.min.mjs';
+
+        // Local fallbacks (if you ever bundle them yourself)
+        const localScript    = './src/pdf.min.mjs';
+        const localWorker    = './src/pdf.worker.min.mjs';
+
+        const load = async (scriptUrl, workerUrl) => {
+            // pdf.js exposes the library on window.pdfjsLib when using the .mjs build
+            await import(scriptUrl);                     // dynamic import → proper module
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+        };
+
+        if (isRemoteOrSandbox) {
+            // In strict sandboxes (Gemini Canvas, etc.) we skip local attempts completely
+            await load(remoteScript, remoteWorker);
+        } else {
+            try {
+                await load(localScript, localWorker);
+            } catch (e) {
+                console.warn('Local pdf.js (.mjs) load failed – falling back to CDN', e);
+                await load(remoteScript, remoteWorker);
             }
         }
     }
