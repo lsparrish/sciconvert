@@ -15,6 +15,7 @@
 
 const CONFIG = {
     defaultImgUrl: "https://lsparrish.github.io/sciconvert/sample.png",
+    localImgPath: "./sample.png",
     aiScale: 2.0
 };
 
@@ -984,7 +985,6 @@ class RegionEditor {
 class ImageProcessor {
     constructor(model) {
         this.model = model;
-        this.canvas = model.state.canvas;
         this.scaleFactor = 2; // Fixed 2x scale for processing
     }
 
@@ -1007,6 +1007,8 @@ class ImageProcessor {
     processRegion(normalizedRect, pad = 4) {
         const r = normalizedRect;
         const s = this.model.state;
+        const canvas = s.canvas;
+        if (!canvas) return null;
         const pw = Math.floor(r.w * s.canvasWidth);
         const ph = Math.floor(r.h * s.canvasHeight);
         
@@ -1018,7 +1020,7 @@ class ImageProcessor {
         tmp.height = ph * this.scaleFactor;
         const ctx = tmp.getContext("2d");
         ctx.drawImage(
-            this.canvas, 
+            canvas, 
             r.x * s.canvasWidth, r.y * s.canvasHeight, pw, ph, 
             0, 0, pw * this.scaleFactor, ph * this.scaleFactor
         );
@@ -1097,7 +1099,6 @@ class SciTextController {
         this.model = model;
         this.view = view;
         this.draw = new RegionEditor(this);
-        this.imageProcessor = new ImageProcessor(model);
         this.splitMode = false;
         this.splitType = 'horizontal'; 
         this.splitPosition = 0.5; 
@@ -1107,11 +1108,12 @@ class SciTextController {
         this.view.init();
 
         this.model.state.canvas = this.view.els.processingCanvas;
+        this.imageProcessor = new ImageProcessor(this.model);
         await this.loadPDFJS();
         
         this.draw.init();
 
-// Basic UI bindings
+        // Basic UI bindings
         this.view.els.pdfUpload.onchange = e => this.handleFileUpload(e);
         this.view.els.svgImport.onchange = e => this.handleSvgImport(e.target.files[0]);
         this.view.els.btnUndo.onclick = () => this.model.undo();
@@ -1282,8 +1284,14 @@ class SciTextController {
 
     async loadPDFJS() {
         if (!window.pdfjsLib) {
-            await this.loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js');
-            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+            try {
+                await this.loadScript('./src/pdf.min.js');
+                window.pdfjsLib.GlobalWorkerOptions.workerSrc = './src/pdf.worker.min.js';
+            } catch (e) {
+                console.warn('Local pdf.js load failed. Using CDN fallback.', e);
+                await this.loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js');
+                window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+            }
         }
     }
 
@@ -1360,7 +1368,8 @@ class SciTextController {
             canvas.width = initialWidth;
             canvas.height = initialHeight;
             canvas.getContext("2d").drawImage(img, 0, 0);
-            this.view.els.pdfLayer.style.backgroundImage = `url(${img.src})`;
+            const dataUrl = canvas.toDataURL();
+            this.view.els.pdfLayer.style.backgroundImage = `url(${dataUrl})`;
             this.view.els.pdfLayer.style.backgroundSize = "100% 100%";
             this.view.toggleLoader(false);
             this.view.toggleWorkspace(true);
@@ -1371,8 +1380,21 @@ class SciTextController {
         img.onerror = () => {
             console.error("Failed to load default image");
             this.view.toggleLoader(false);
+            if (img.src.endsWith(CONFIG.localImgPath)) {
+                console.warn(`Local image failed to load: ${CONFIG.localImgPath}. Trying remote fallback.`);
+                img.src = CONFIG.defaultImgUrl;
+            } else {
+                console.error("Failed to load default image from both local and remote sources.");
+                this.view.toggleLoader(false);
+            }
         };
-        img.src = CONFIG.defaultImgUrl;
+        try {
+            img.src = CONFIG.localImgPath;
+        }
+        catch {
+            img.src = CONFIG.defaultImgUrl;
+            console.error("Error setting image source:", e);
+        }
     }
 
     updateRegionFromProps(type) {
@@ -1844,7 +1866,7 @@ class SciTextController {
 // 6. BOOTSTRAP
 // ============================================================================
 
-window.app = (function() {
+const appObject = (function() {
     const model = new SciTextModel();
     const view = new UIManager();
     const controller = new SciTextController(model, view);
@@ -1852,9 +1874,6 @@ window.app = (function() {
     view.model.controller = controller; 
 
     model.subscribe((state) => {
-        // Only save history when explicitly told (e.g., after mouseup, after generation)
-        // OR when noHistory is not set in the context
-        // if (context?.noHistory !== true) model.saveHistory(); 
         view.render(state);
     });
 
@@ -1863,3 +1882,4 @@ window.app = (function() {
         model, view, controller
     };
 })();
+export default appObject;
