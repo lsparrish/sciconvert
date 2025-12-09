@@ -1285,13 +1285,13 @@ class SciTextController {
 
     async loadPDFJS() {
         if (!window.pdfjsLib) {
-            const isSandbox = location.href.startsWith('blob:') || (document.baseURI && document.baseURI.startsWith('blob:'));
+            const isRemote = location.href.startsWith('http') || (document.baseURI && document.baseURI.startsWith('http'));
             const localScript = './src/pdf.min.js';
             const localWorker = './src/pdf.worker.min.js';
             const remoteScript = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.4.149/pdf.min.js';
             const remoteWorker = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.4.149/pdf.worker.min.js';
 
-            if (isSandbox) {
+            if (isRemote) {
                 await this.loadScript(remoteScript);
                 window.pdfjsLib.GlobalWorkerOptions.workerSrc = remoteWorker;
             } else {
