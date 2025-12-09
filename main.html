@@ -1,8 +1,24 @@
 <!doctype html>
 <script type="module">
-  await import('./src/app.js')
-    .catch(() => import('https://lsparrish.github.io/sciconvert/src/app.js'));
-  window.app.bootstrap();
+/*
+    const appModule = await (async () => {
+        try {
+            return await import('./src/app.js');
+        } catch (e) {
+            console.warn('Local app.js import failed. Using remote fallback.', e);
+            return await import('https://lsparrish.github.io/sciconvert/src/app.js');
+        }
+    })();
+    */
+    const appModule = await (async () => {
+        try {
+            return import(`./src/app.js?v=${Date.now()}`).
+        } catch (e) {
+            console.warn('Local app.js import failed. Using remote fallback.', e); 
+            return await import(`https://lsparrish.github.io/sciconvert/src/app.js?v=${Date.now()}`);
+        }
+    })();
+    appModule.default.bootstrap();
 
   // Developer Note:
   // To add custom UI extensions without modifying app.js, use the window.app.insertElementBefore API.
