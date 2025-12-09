@@ -359,6 +359,7 @@ class SciTextModel {
 class UIManager {
     constructor() {
         this.els = {};
+        this.model = null; 
     }
 
     init() {
@@ -379,7 +380,8 @@ class UIManager {
             'prop-offset-x','prop-offset-y','prop-scale-x','prop-scale-y', // NEW PROP INPUTS
             'btn-fit-area','btn-fit-content','btn-split','btn-group','btn-delete','btn-export','btn-clear-all',
             'canvas-scroller',
-            'svg-raw-editor-panel', 'svg-raw-content', 'btn-save-raw-svg' 
+            'svg-raw-editor-panel', 'svg-raw-content', 'btn-save-raw-svg',
+            'canvas-view-area'
         ];
         const camelCase = (s) => s.replace(/-./g, x=>x[1].toUpperCase());
         ids.forEach(id => {
@@ -404,15 +406,21 @@ class UIManager {
     showRegionActionsBar(region, state) {
         this.els.regionActionsBar.classList.remove('hidden');
         const scale = state.scaleMultiplier;
-        const physicalCw = state.canvasWidth * scale;
-        const physicalCh = state.canvasHeight * scale;
+        const aspectRatio = state.canvasHeight / state.canvasWidth;
+        const physicalCw = state.baseWidth * scale;
+        const physicalCh = physicalCw * aspectRatio;
         const x = region.rect.x * physicalCw;
         const y = region.rect.y * physicalCh;
         const w = region.rect.w * physicalCw;
         const wrapperRect = this.els.canvasWrapper.getBoundingClientRect();
         const bar = this.els.regionActionsBar;
-        bar.style.left = `${wrapperRect.left + x + w / 2 - bar.offsetWidth / 2}px`;
-        bar.style.top = `${wrapperRect.top + y - bar.offsetHeight - 10}px`;
+        const scroller = this.els.canvasScroller;
+        const scrollX = scroller.scrollLeft;
+        const scrollY = scroller.scrollTop;
+        const barLeft = wrapperRect.left + x + w / 2 - bar.offsetWidth / 2 - scrollX;
+        const barTop = wrapperRect.top + y - bar.offsetHeight - 10 - scrollY;
+        bar.style.left = `${barLeft}px`;
+        bar.style.top = `${barTop}px`;
     }
 
     updatePropertiesInputs(region, state) {
@@ -422,7 +430,7 @@ class UIManager {
             });
             return;
         }
-        const cw = state.canvasWidth;
+        const cw = state.canvasWidth; 
         const ch = state.canvasHeight;
         this.els.propX.value = Math.round(region.rect.x * cw);
         this.els.propY.value = Math.round(region.rect.y * ch);
@@ -453,10 +461,14 @@ class UIManager {
         }
 
         const scale = state.scaleMultiplier;
-        const x = region.rect.x * state.canvasWidth * scale;
-        const y = region.rect.y * state.canvasHeight * scale;
-        const w = region.rect.w * state.canvasWidth * scale;
-        const h = region.rect.h * state.canvasHeight * scale;
+        const aspectRatio = state.canvasHeight / state.canvasWidth;
+        const physicalCw = state.baseWidth * scale;
+        const physicalCh = physicalCw * aspectRatio;
+
+        const x = region.rect.x * physicalCw;
+        const y = region.rect.y * physicalCh;
+        const w = region.rect.w * physicalCw;
+        const h = region.rect.h * physicalCh;
 
         Object.assign(frame.style, { left: x+'px', top: y+'px', width: w+'px', height: h+'px' });
     }
@@ -504,18 +516,23 @@ class UIManager {
         this.els.regionCount.textContent = state.regions.length;
         this.els.zoomLevel.textContent = Math.round(state.scaleMultiplier * 100) + "%";
 
-        if (state.canvasWidth > 0) {
-            const w = state.baseWidth * state.scaleMultiplier;
-            const h = w * (state.canvasHeight / state.canvasWidth);
-            this.els.canvasWrapper.style.width = w + "px";
-            this.els.canvasWrapper.style.height = h + "px";
+        const scale = state.scaleMultiplier;
+        const aspectRatio = state.canvasHeight / state.canvasWidth;
+        let physicalCw = 0;
+        let physicalCh = 0;
+        
+        if (state.canvasWidth > 0 && state.baseWidth > 0) {
+            physicalCw = state.baseWidth * scale;
+            physicalCh = physicalCw * aspectRatio;
+            
+            this.els.canvasWrapper.style.width = physicalCw + "px";
+            this.els.canvasWrapper.style.height = physicalCh + "px";
+        } else {
+             // Use original logical dimensions as fallback if baseWidth isn't set yet
+            physicalCw = state.canvasWidth * scale;
+            physicalCh = state.canvasHeight * scale;
         }
 
-        const scale = state.scaleMultiplier;
-        const logicalCw = state.canvasWidth;
-        const logicalCh = state.canvasHeight;
-        const physicalCw = logicalCw * scale;
-        const physicalCh = logicalCh * scale;
 
         this.els.svgLayer.innerHTML = '';
         this.els.interactionLayer.innerHTML = '';
@@ -531,8 +548,20 @@ class UIManager {
             const pw = r.rect.w * physicalCw;
             const ph = r.rect.h * physicalCh;
 
-            const viewW = r.bpDims?.w ?? (r.rect.w * logicalCw * 2); // Default to 2x canvas size if bpDims missing
-            const viewH = r.bpDims?.h ?? (r.rect.h * logicalCh * 2);
+            const tx = r.offset?.x ?? 0;
+            const ty = r.offset?.y ?? 0;
+            const sx = r.scale?.x ?? 1;
+            const sy = r.scale?.y ?? 1;
+            
+            const bpW = r.bpDims?.w ?? (r.rect.w * state.canvasWidth * 2); 
+            const bpH = r.bpDims?.h ?? (r.rect.h * state.canvasHeight * 2); 
+            
+            // Calculate transformed viewBox:
+            const viewBoxX = -(tx / sx);
+            const viewBoxY = -(ty / sy);
+            const viewBoxW = bpW / sx;
+            const viewBoxH = bpH / sy;
+            const transformedViewBox = `${viewBoxX} ${viewBoxY} ${viewBoxW} ${viewBoxH}`;
 
             // Interaction highlight
             const div = document.createElement("div");
@@ -555,8 +584,7 @@ class UIManager {
             svg.setAttribute("y", py);
             svg.setAttribute("width", pw);
             svg.setAttribute("height", ph);
-            // viewBox is set to the logical dimensions of the AI-generated content (usually 2x scaled original canvas pixels)
-            svg.setAttribute("viewBox", `0 0 ${viewW} ${viewH}`);
+            svg.setAttribute("viewBox", transformedViewBox);
             svg.setAttribute("preserveAspectRatio", "none");
             svg.style.position = "absolute";
             svg.style.left = px + "px";
@@ -616,6 +644,13 @@ class RegionEditor {
         this.controller.view.els.interactionLayer.addEventListener('mouseleave', () => this.handleMouseLeave());
         document.addEventListener('keydown', e => this.handleKeyDown(e));
     }
+    getPhysicalDims() {
+        const state = this.controller.model.state;
+        const scale = state.scaleMultiplier;
+        const physicalCw = state.baseWidth * scale; // Use baseWidth
+        const physicalCh = physicalCw * (state.canvasHeight / state.canvasWidth);
+        return { physicalCw, physicalCh };
+    }
 
     getLocalPos(e) {
         const rect = this.controller.view.els.canvasWrapper.getBoundingClientRect();
@@ -624,17 +659,15 @@ class RegionEditor {
 
     hitDetection(pos) {
         const state = this.controller.model.state;
-        const scale = state.scaleMultiplier;
-        const cw = state.canvasWidth * scale;
-        const ch = state.canvasHeight * scale;
+        const { physicalCw, physicalCh } = this.getPhysicalDims();
 
         // Check resize handles first
         const active = state.activeRegionId ? this.controller.model.getRegion(state.activeRegionId) : null;
         if (active) {
-            const rx = active.rect.x * cw;
-            const ry = active.rect.y * ch;
-            const rw = active.rect.w * cw;
-            const rh = active.rect.h * ch;
+            const rx = active.rect.x * physicalCw;
+            const ry = active.rect.y * physicalCh;
+            const rw = active.rect.w * physicalCw;
+            const rh = active.rect.h * physicalCh;
 
             const handles = [
                 {name:'nw', x:rx-4, y:ry-4}, {name:'n', x:rx+rw/2-4, y:ry-4},
@@ -653,10 +686,10 @@ class RegionEditor {
         // Check region bodies
         // Reverse order so newest regions (on top visually) are checked first
         for (const r of state.regions.slice().reverse()) {
-            const rx = r.rect.x * cw;
-            const ry = r.rect.y * ch;
-            const rw = r.rect.w * cw;
-            const rh = r.rect.h * ch;
+            const rx = r.rect.x * physicalCw;
+            const ry = r.rect.y * physicalCh;
+            const rw = r.rect.w * physicalCw;
+            const rh = r.rect.h * physicalCh;
             if (pos.x >= rx && pos.x <= rx+rw && pos.y >= ry && pos.y <= ry+rh) {
                 return { type: 'BODY', id: r.id };
             }
@@ -706,6 +739,7 @@ class RegionEditor {
             }
             return;
         }
+        const { physicalCw, physicalCh } = this.getPhysicalDims();
 
         if (this.mode === 'CREATE') {
             const s = this.dragStart;
@@ -717,9 +751,6 @@ class RegionEditor {
             this.controller.view.els.selectionBox.style.width = w + 'px';
             this.controller.view.els.selectionBox.style.height = h + 'px';
         } else if (this.mode === 'MOVE') {
-            const scale = this.controller.model.state.scaleMultiplier;
-            const physicalCw = this.controller.model.state.canvasWidth * scale;
-            const physicalCh = this.controller.model.state.canvasHeight * scale;
             const dx = (pos.x - this.dragStart.x) / physicalCw;
             const dy = (pos.y - this.dragStart.y) / physicalCh;
             const r = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
@@ -736,9 +767,6 @@ class RegionEditor {
         } else if (this.mode === 'RESIZE') {
             const r = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
             if (r && this.initialRect && this.activeHandle) {
-                const scale = this.controller.model.state.scaleMultiplier;
-                const physicalCw = this.controller.model.state.canvasWidth * scale;
-                const physicalCh = this.controller.model.state.canvasHeight * scale;
                 const ix = this.initialRect.x * physicalCw, iy = this.initialRect.y * physicalCh;
                 const iw = this.initialRect.w * physicalCw, ih = this.initialRect.h * physicalCh;
 
@@ -768,12 +796,10 @@ class RegionEditor {
             if (w > 5 && h > 5) {
                 const lx = Math.min(pos.x, this.dragStart.x);
                 const ly = Math.min(pos.y, this.dragStart.y);
-                const scale = this.controller.model.state.scaleMultiplier;
-                const physicalCw = this.controller.model.state.canvasWidth * scale;
-                const physicalCh = this.controller.model.state.canvasHeight * scale;
+                const { physicalCw, physicalCh } = this.getPhysicalDims();
                 this.controller.model.addRegion({
                     id: `r${Date.now()}`,
-                    rect: { x: lx/physicalCw, y: ly/physicalCh, w: w/physicalCw, h: h/physicalCh },
+                    rect: { x: lx/physicalCw, y: ly/physicalCh, w: w/physicalCw, h: h/physicalCh }, 
                     status: 'pending', svgContent: ''
                 });
             }
@@ -825,7 +851,6 @@ class SciTextController {
         this.model = model;
         this.view = view;
         this.draw = new RegionEditor(this);
-        // Removed activeSvgDom and activeElementMap as they are no longer needed for the raw editor.
     }
 
     async init() {
@@ -899,8 +924,22 @@ class SciTextController {
             const anyHidden = this.model.state.regions.some(r => !r.visible);
             this.model.state.regions.forEach(r => this.model.updateRegion(r.id, { visible: !anyHidden }));
         };
-
+        const handleResize = () => {
+            this.updateBaseWidth();
+            this.model.notify(); 
+        };
+        document.addEventListener('fullscreenchange', handleResize);
+        window.addEventListener('resize', handleResize);
         this.loadDefaultImage();
+    }
+    updateBaseWidth() {
+        if (this.model.state.canvasWidth === 0) return;
+        const scroller = this.view.els.canvasScroller;
+        const availableWidth = scroller.clientWidth - 32; 
+        const newBaseWidth = Math.min(this.model.state.canvasWidth, availableWidth);
+        if (newBaseWidth > 0 && Math.abs(newBaseWidth - this.model.state.baseWidth) > 1) {
+             this.model.setState({ baseWidth: newBaseWidth });
+        }
     }
 
     switchTab(t) {
@@ -935,6 +974,8 @@ class SciTextController {
 
         const canvas = this.model.state.canvas;
         const ctx = canvas.getContext("2d");
+        let initialWidth;
+        let initialHeight;
 
         if (file.type === "application/pdf" && window.pdfjsLib) {
             const ab = await file.arrayBuffer();
@@ -942,9 +983,11 @@ class SciTextController {
             const page = await pdf.getPage(1);
             const vp = page.getViewport({ scale: 2.0 });
 
-            this.model.setCanvasDimensions(vp.width, vp.height, vp.width);
-            canvas.width = vp.width;
-            canvas.height = vp.height;
+            initialWidth = vp.width;
+            initialHeight = vp.height;
+
+            canvas.width = initialWidth;
+            canvas.height = initialHeight;
 
             await page.render({ canvasContext: ctx, viewport: vp }).promise;
         } else {
@@ -952,10 +995,12 @@ class SciTextController {
             const loaded = new Promise(resolve => img.onload = resolve);
             img.src = URL.createObjectURL(file);
             await loaded;
-
-            this.model.setCanvasDimensions(img.width, img.height, img.width);
-            canvas.width = img.width;
-            canvas.height = img.height;
+            
+            initialWidth = img.width;
+            initialHeight = img.height;
+            
+            canvas.width = initialWidth;
+            canvas.height = initialHeight;
             ctx.drawImage(img, 0, 0);
         }
 
@@ -966,6 +1011,8 @@ class SciTextController {
         this.view.toggleWorkspace(true);
         this.model.setState({ regions: [], history: [] });
         this.model.saveHistory();
+        this.model.setCanvasDimensions(initialWidth, initialHeight, initialWidth);
+        this.updateBaseWidth(); // Will reset baseWidth to fit screen if needed
     }
 
     loadDefaultImage() {
@@ -973,18 +1020,18 @@ class SciTextController {
         const img = new Image();
         img.crossOrigin = "anonymous";
         img.onload = () => {
-            this.model.setCanvasDimensions(img.width, img.height, img.width);
-
+            const initialWidth = img.width;
+            const initialHeight = img.height;
             const canvas = this.model.state.canvas;
-            canvas.width = img.width;
-            canvas.height = img.height;
+            canvas.width = initialWidth;
+            canvas.height = initialHeight;
             canvas.getContext("2d").drawImage(img, 0, 0);
-
             this.view.els.pdfLayer.style.backgroundImage = `url(${img.src})`;
             this.view.els.pdfLayer.style.backgroundSize = "100% 100%";
-
             this.view.toggleLoader(false);
             this.view.toggleWorkspace(true);
+            this.model.setCanvasDimensions(initialWidth, initialHeight, initialWidth);
+            this.updateBaseWidth();
             this.model.saveHistory();
         };
         img.onerror = () => {
@@ -1188,20 +1235,20 @@ class SciTextController {
             // Calculate offset relative to the new group's top-left corner (in original canvas units)
             const x = (r.rect.x - minX) * cw; 
             const y = (r.rect.y - minY) * ch; 
-            
-            // Apply the individual region's existing transform to its content before wrapping in group translate
             const tx = r.offset?.x ?? 0;
             const ty = r.offset?.y ?? 0;
             const sx = r.scale?.x ?? 1;
             const sy = r.scale?.y ?? 1;
-            
-            // Group content at 2x scale coordinates (since we assume bpDims are 2x)
-            const contentX = x * 2; 
-            const contentY = y * 2; 
-
-            // Wrap in an outer SVG for positioning and scoping the viewBox
-            svgContent += `<svg x="${contentX}" y="${contentY}" width="${r.rect.w * cw * 2}" height="${r.rect.h * ch * 2}" viewBox="0 0 ${r.bpDims?.w || (r.rect.w * cw * 2)} ${r.bpDims?.h || (r.rect.h * ch * 2)}" preserveAspectRatio="none">
-                <g transform="translate(${tx},${ty}) scale(${sx},${sy})">${r.svgContent}</g>
+            const origBpW = r.bpDims?.w || (r.rect.w * cw * 2);
+            const origBpH = r.bpDims?.h || (r.rect.h * ch * 2);
+            const viewBoxX = -(tx / sx);
+            const viewBoxY = -(ty / sy);
+            const viewBoxW = origBpW / sx;
+            const viewBoxH = origBpH / sy;
+            const transformedViewBox = `${viewBoxX} ${viewBoxY} ${viewBoxW} ${viewBoxH}`;
+            // x and y here are in 2x canvas pixels relative to the group's top-left corner
+            svgContent += `<svg x="${x * 2}" y="${y * 2}" width="${r.rect.w * cw * 2}" height="${r.rect.h * ch * 2}" viewBox="${transformedViewBox}" preserveAspectRatio="none">
+                ${r.svgContent}
             </svg>`;
         });
 
@@ -1239,12 +1286,14 @@ class SciTextController {
             const ty = r.offset?.y ?? 0;
             const sx = r.scale?.x ?? 1;
             const sy = r.scale?.y ?? 1;
-
-            out += `  <svg x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" height="${h.toFixed(2)}" viewBox="0 0 ${bpW.toFixed(2)} ${bpH.toFixed(2)}" preserveAspectRatio="none">\n`;
-            out += `    <g transform="translate(${tx.toFixed(2)},${ty.toFixed(2)}) scale(${sx.toFixed(2)},${sy.toFixed(2)})">\n`;
+            const viewBoxX = -(tx / sx);
+            const viewBoxY = -(ty / sy);
+            const viewBoxW = bpW / sx;
+            const viewBoxH = bpH / sy;
+            const transformedViewBox = `${viewBoxX.toFixed(2)} ${viewBoxY.toFixed(2)} ${viewBoxW.toFixed(2)} ${viewBoxH.toFixed(2)}`;
+            out += `  <svg x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" height="${h.toFixed(2)}" viewBox="${transformedViewBox}" preserveAspectRatio="none">\n`;
             // Inject content after stripping any wrapping tags if present
             out += r.svgContent.replace(/<svg[^>]*?>/g, '').replace(/<\/svg>/g, '').split('\n').map(line => `      ${line}`).join('\n').trim() + '\n';
-            out += `    </g>\n`;
             out += `  </svg>\n`;
         });
         out += `</svg>`;
