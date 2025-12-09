@@ -1,18 +1,9 @@
 <!doctype html>
 <script type="module">
-/*
+    // Should load the module without caching.
     const appModule = await (async () => {
         try {
-            return await import('./src/app.js');
-        } catch (e) {
-            console.warn('Local app.js import failed. Using remote fallback.', e);
-            return await import('https://lsparrish.github.io/sciconvert/src/app.js');
-        }
-    })();
-    */
-    const appModule = await (async () => {
-        try {
-            return import(`./src/app.js?v=${Date.now()}`).
+            return await import(`./src/app.js?v=${Date.now()}`);
         } catch (e) {
             console.warn('Local app.js import failed. Using remote fallback.', e); 
             return await import(`https://lsparrish.github.io/sciconvert/src/app.js?v=${Date.now()}`);
