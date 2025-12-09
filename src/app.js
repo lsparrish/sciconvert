@@ -1304,18 +1304,7 @@ class SciTextController {
             await import(scriptUrl);                     // dynamic import → proper module
             window.pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
         };
-
-        if (isRemoteOrSandbox) {
-            // In strict sandboxes (Gemini Canvas, etc.) we skip local attempts completely
-            await load(remoteScript, remoteWorker);
-        } else {
-            try {
-                await load(localScript, localWorker);
-            } catch (e) {
-                console.warn('Local pdf.js (.mjs) load failed – falling back to CDN', e);
-                await load(remoteScript, remoteWorker);
-            }
-        }
+        load(remoteScript, remoteWorker);
     }
 
     loadScript(src) {
