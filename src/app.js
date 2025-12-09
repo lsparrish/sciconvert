@@ -563,7 +563,7 @@ class UIManager {
             svg.style.left = px + "px";
             svg.style.top  = py + "px";
             svg.style.pointerEvents = "none";
-            // FIX (Color): Ensure default text color is black
+            // Defensive Fix 1: Ensure default text color is black
             svg.style.fill = 'black'; 
             svg.style.color = 'black';
 
@@ -576,25 +576,33 @@ class UIManager {
             // Apply transformation to the inner group
             g.setAttribute("transform", `translate(${tx},${ty}) scale(${sx},${sy})`);
             
-            // FIX (Size): Set a default font size on the group if the content doesn't specify one.
-            // A font size of 32 is a reasonable default for a 2x scaled blueprint.
+            // Defensive Fix 2: Set a default font size if the content doesn't specify one.
             g.setAttribute("font-size", "32");
             
-            // Inject sanitized SVG content
+            // FIX: Robustly inject SVG content
             try {
-                // We use DOMParser to safely inject the inner HTML
+                // 1. Parse the SVG content string into a DocumentFragment
+                // We wrap the content in a temporary <svg> to ensure correct parsing via DOMParser
                 const parser = new DOMParser();
-                // Ensure r.svgContent is wrapped for correct parsing if it only contains elements like <path>
                 const doc = parser.parseFromString(`<svg>${r.svgContent}</svg>`, "image/svg+xml");
                 const generatedSvg = doc.querySelector('svg');
+
                 if (generatedSvg) {
-                    while (generatedSvg.firstChild) g.appendChild(generatedSvg.firstChild);
+                    // 2. Safely append all child nodes to the inner SVG group
+                    const fragment = document.createDocumentFragment();
+                    while (generatedSvg.firstChild) {
+                        fragment.appendChild(generatedSvg.firstChild);
+                    }
+                    g.appendChild(fragment);
                 } else {
-                    // Fallback if parsing failed but content exists
+                    console.error(`[SVG Parse Error] Patch ${r.id}: DOMParser failed to find SVG root in content: ${r.svgContent.substring(0, 50)}...`);
+                    // If parsing failed, revert to an error SVG (which should have been set in generateContent)
                     g.innerHTML = r.svgContent; 
                 }
             } catch (e) {
-                 console.error("Failed to parse or inject SVG content for patch:", r.id, e);
+                 console.error(`[SVG Injection Error] Patch ${r.id}:`, e);
+                 // If injection failed, trust the error message was set by the controller
+                 g.innerHTML = r.svgContent; 
             }
 
             svg.appendChild(g);
