@@ -5,6 +5,7 @@
  * 2. SciTextModel (State & Data)
  * 3. UIManager (View & DOM)
  * 4. SciTextController (Logic & Events)
+ * 4.5. ImageProcessor (Image & Coordinate Utilities)
  * 5. RegionEditor (Canvas Interaction Logic)
  * * NOTE: The SVG editor has been simplified to an in-panel raw text editor for the selected region.
  */
@@ -979,7 +980,7 @@ class RegionEditor {
 }
 
 // ============================================================================
-// 4.5. ImageProcessor (Image & Coordinate Utilities) - NEW
+// 4.5. ImageProcessor (Image & Coordinate Utilities)
 // ============================================================================
 
 class ImageProcessor {
@@ -1284,13 +1285,24 @@ class SciTextController {
 
     async loadPDFJS() {
         if (!window.pdfjsLib) {
-            try {
-                await this.loadScript('./src/pdf.min.js');
-                window.pdfjsLib.GlobalWorkerOptions.workerSrc = './src/pdf.worker.min.js';
-            } catch (e) {
-                console.warn('Local pdf.js load failed. Using CDN fallback.', e);
-                await this.loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js');
-                window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+            const isSandbox = location.href.startsWith('blob:') || (document.baseURI && document.baseURI.startsWith('blob:'));
+            const localScript = './src/pdf.min.js';
+            const localWorker = './src/pdf.worker.min.js';
+            const remoteScript = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.4.149/pdf.min.js';
+            const remoteWorker = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.4.149/pdf.worker.min.js';
+
+            if (isSandbox) {
+                await this.loadScript(remoteScript);
+                window.pdfjsLib.GlobalWorkerOptions.workerSrc = remoteWorker;
+            } else {
+                try {
+                    await this.loadScript(localScript);
+                    window.pdfjsLib.GlobalWorkerOptions.workerSrc = localWorker;
+                } catch (e) {
+                    console.warn('Local pdf.js load failed. Using CDN fallback.', e);
+                    await this.loadScript(remoteScript);
+                    window.pdfjsLib.GlobalWorkerOptions.workerSrc = remoteWorker;
+                }
             }
         }
     }
