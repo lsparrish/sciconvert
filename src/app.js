@@ -23,7 +23,7 @@ const apiKey = ""; // Injected by environment
 const APP_STYLES = `
 /* --- Base --- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: "Segoe UI", sans-serif; background-color: #111827; height: 100vh; overflow: hidden; display: flex; flex-direction: column; color: #1f2937; font-size: 14px; }
+body { font-family: "Segoe UI", sans-serif; background-color: #111827; min-height: 100vh; display: flex; flex-direction: column; color: #1f2937; font-size: 14px; }
 .hidden { display: none !important; }
 .relative { position: relative; }
 .absolute { position: absolute; }
@@ -1282,6 +1282,27 @@ class SciTextController {
                         tMaxX = Math.min(pw * 2, tMaxX + cropPad);
                         tMaxY = Math.min(ph * 2, tMaxY + cropPad);
 
+                        // --- START INTEGRATED RLE BLUEPRINT GENERATION ---
+                        let rle = "";
+                        // tData is the 2x scale image data of the tight crop (pw*2 x ph*2)
+                        for (let ty = 0; ty < ph * 2; ty += 2) {
+                            let sx = -1;
+                            for (let tx = 0; tx < pw * 2; tx++) {
+                                const i = (ty * (pw * 2) + tx) * 4;
+                                // Check for non-white/non-transparent pixels (same check as isDark but on the tData)
+                                if (tData[i + 3] > 128 && tData[i] < 200 && tData[i + 1] < 200 && tData[i + 2] < 200) {
+                                    if(sx === -1) sx = tx;
+                                } else {
+                                    if(sx !== -1) {
+                                        rle += `M${sx} ${ty}h${tx - sx}v2h-${tx - sx}z`;
+                                        sx = -1;
+                                    }
+                                }
+                            }
+                            if(sx !== -1) rle += `M${sx} ${ty}h${pw * 2 - sx}v2h-${pw * 2 - sx}z`;
+                        }
+                        // --- END INTEGRATED RLE BLUEPRINT GENERATION ---
+                        
                         // Calculate final normalized coordinates
                         const globalX = px / width + (tMinX / 2) / width;
                         const globalY = py / height + (tMinY / 2) / height;
@@ -1297,9 +1318,10 @@ class SciTextController {
                                 w: globalW, 
                                 h: globalH
                             }, 
-                            status: 'segmented',
-                            svgContent: '',
-                            contentType: 'text',
+                            status: 'scanned',
+                            svgContent: `<path d="${rle}" fill="black" />`,
+                            bpDims: { w: pw * 2, h: ph * 2 },
+                            contentType: 'scan',
                             scale: {x: 1, y: 1}, 
                             offset: {x: 0, y: 0}
                         };
