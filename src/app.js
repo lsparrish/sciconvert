@@ -1094,8 +1094,8 @@ class SciTextController {
     
     toggleSplitType() {
         const splitType = this.splitType; // store value for toggle
-        this.splitType = splitType === 'horizontal' ? 'vertical';
-        this.splitType = splitType === 'vertical' ? 'horizontal';
+        this.splitType = splitType === 'horizontal' ? 'vertical' : 'horizontal';
+        this.splitType = splitType === 'vertical' ? 'horizontal' : 'vertical';
         this.model.notify();
     }
 
