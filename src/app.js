@@ -258,7 +258,6 @@ class SciTextModel {
     }
 
     addRegion(region) {
-        // Ensure new regions have default offset/scale
         const newRegion = { 
             ...region, 
             visible: true,
@@ -563,49 +562,7 @@ class UIManager {
             svg.style.left = px + "px";
             svg.style.top  = py + "px";
             svg.style.pointerEvents = "none";
-            // Defensive Fix 1: Ensure default text color is black
-            svg.style.fill = 'black'; 
-            svg.style.color = 'black';
-
-
-            const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-            const tx = r.offset?.x ?? 0;
-            const ty = r.offset?.y ?? 0;
-            const sx = r.scale?.x ?? 1;
-            const sy = r.scale?.y ?? 1;
-            // Apply transformation to the inner group
-            g.setAttribute("transform", `translate(${tx},${ty}) scale(${sx},${sy})`);
-            
-            // Defensive Fix 2: Set a default font size if the content doesn't specify one.
-            g.setAttribute("font-size", "32");
-            
-            // FIX: Robustly inject SVG content
-            try {
-                // 1. Parse the SVG content string into a DocumentFragment
-                // We wrap the content in a temporary <svg> to ensure correct parsing via DOMParser
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(`<svg>${r.svgContent}</svg>`, "image/svg+xml");
-                const generatedSvg = doc.querySelector('svg');
-
-                if (generatedSvg) {
-                    // 2. Safely append all child nodes to the inner SVG group
-                    const fragment = document.createDocumentFragment();
-                    while (generatedSvg.firstChild) {
-                        fragment.appendChild(generatedSvg.firstChild);
-                    }
-                    g.appendChild(fragment);
-                } else {
-                    console.error(`[SVG Parse Error] Patch ${r.id}: DOMParser failed to find SVG root in content: ${r.svgContent.substring(0, 50)}...`);
-                    // If parsing failed, revert to an error SVG (which should have been set in generateContent)
-                    g.innerHTML = r.svgContent; 
-                }
-            } catch (e) {
-                 console.error(`[SVG Injection Error] Patch ${r.id}:`, e);
-                 // If injection failed, trust the error message was set by the controller
-                 g.innerHTML = r.svgContent; 
-            }
-
-            svg.appendChild(g);
+            svg.innerHTML=r.svgContent;
             this.els.svgLayer.appendChild(svg);
         });
 
@@ -613,7 +570,6 @@ class UIManager {
         const active = state.activeRegionId ? state.regions.find(r => r.id === state.activeRegionId) : null;
         this.updatePropertiesInputs(active, state);
         
-        // --- NEW LOGIC FOR IN-PANEL SVG EDITOR ---
         if (active && (active.svgContent !== undefined) ) {
             this.els.svgRawEditorPanel.classList.remove('hidden');
             // Only update the textarea if the controller isn't actively editing it
