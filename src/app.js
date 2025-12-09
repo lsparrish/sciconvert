@@ -1,4 +1,4 @@
-/*
+
  * SciText Digitizer - Single File Architecture
  * Contains:
  * 1. Config, Styles, HTML.
@@ -178,6 +178,8 @@ const APP_STRUCTURE = `
               <div class="sidebar-footer">
                   <div style="display:flex; gap:0.25rem;">
                     <button id="btn-export" class="action-bar-btn" style="background:#047857;">Export</button>
+                    <input type="file" id="svg-import" accept=".svg" class="hidden" />
+                    <label for="svg-import" class="btn btn-primary">Import</label>
                     <button id="btn-clear-all" class="action-bar-btn" style="color:#ef4444; background:transparent;">Reset</button>
                   </div>
               </div>
@@ -352,7 +354,7 @@ class SciTextModel {
     }
 }
 
-// ============================================================================
+// ===========================================// ============================================================================
 // 3. VIEW (UI Manager)
 // ============================================================================
 
@@ -372,12 +374,12 @@ class UIManager {
 
     bindElements() {
         const ids = [
-            'processing-canvas','pdf-upload','zoom-in','zoom-out','zoom-level','btn-undo','btn-redo',
+            'processing-canvas','pdf-upload','svg-import','zoom-in','zoom-out','zoom-level','btn-undo','btn-redo',
             'tab-overlay','tab-debug','debug-container','debug-log','workspace-container','empty-state',
             'pdf-loader','canvas-wrapper','pdf-layer','svg-layer','interaction-layer','selection-box',
             'region-actions-bar','layer-list','region-count','layer-items','btn-toggle-visibility-all',
             'ai-status','fullscreen-toggle','prop-x','prop-y','prop-w','prop-h',
-            'prop-offset-x','prop-offset-y','prop-scale-x','prop-scale-y', // NEW PROP INPUTS
+            'prop-offset-x','prop-offset-y','prop-scale-x','prop-scale-y',
             'btn-fit-area','btn-fit-content','btn-split','btn-group','btn-delete','btn-export','btn-clear-all',
             'canvas-scroller',
             'svg-raw-editor-panel', 'svg-raw-content', 'btn-save-raw-svg',
@@ -863,6 +865,7 @@ class SciTextController {
 
         // Basic UI bindings
         this.view.els.pdfUpload.onchange = e => this.handleFileUpload(e);
+        this.view.els.svgImport.onchange = e => this.handleSvgImport(e.target.files[0]);
         this.view.els.btnUndo.onclick = () => this.model.undo();
         this.view.els.btnRedo.onclick = () => this.model.redo();
         this.view.els.zoomIn.onclick = () => this.setZoom(this.model.state.scaleMultiplier + 0.25);
@@ -1419,6 +1422,81 @@ class SciTextController {
             this.model.updateRegion(r.id, { svgContent: errorSvg });
         } finally {
             this.view.els.aiStatus.classList.add('hidden');
+        }
+    }
+    async handleSvgImport(file) {
+        if (!file) return;
+        this.view.toggleLoader(true);
+        try {
+            const text = await file.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(text, "image/svg+xml");
+            if (doc.querySelector("parsererror")) {
+                throw new Error("Invalid SVG file");
+            }
+            const root = doc.documentElement;
+            const viewBox = root.getAttribute("viewBox")?.split(/\s+/).map(parseFloat) || [0, 0, parseFloat(root.getAttribute("width") || "0"), parseFloat(root.getAttribute("height") || "0")];
+            const cw = viewBox[2];
+            const ch = viewBox[3];
+            if (cw <= 0 || ch <= 0) {
+                throw new Error("Invalid SVG dimensions");
+            }
+            // Set canvas dimensions if no document is loaded
+            if (this.model.state.canvasWidth === 0) {
+                this.model.setCanvasDimensions(cw, ch, cw);
+                this.view.els.pdfLayer.style.backgroundColor = "white";
+                this.view.els.pdfLayer.style.backgroundImage = "none";
+                this.updateBaseWidth();
+                this.view.toggleWorkspace(true);
+            } else if (Math.abs(this.model.state.canvasWidth - cw) > 1 || Math.abs(this.model.state.canvasHeight - ch) > 1) {
+                alert("SVG dimensions do not match the loaded document. Layers may not align properly.");
+            }
+            // Clear existing regions
+            this.model.setState({ regions: [], selectedIds: new Set(), activeRegionId: null });
+
+            // Extract nested <svg> elements (regions)
+            const nestedSvgs = Array.from(root.children).filter(child => child.tagName.toLowerCase() === "svg");
+            for (const svgEl of nestedSvgs) {
+                const x = parseFloat(svgEl.getAttribute("x") || "0");
+                const y = parseFloat(svgEl.getAttribute("y") || "0");
+                const width = parseFloat(svgEl.getAttribute("width") || "0");
+                const height = parseFloat(svgEl.getAttribute("height") || "0");
+                const viewBoxStr = svgEl.getAttribute("viewBox");
+                const [vx, vy, vw, vh] = viewBoxStr ? viewBoxStr.split(/\s+/).map(parseFloat) : [0, 0, width, height];
+                const svgContent = svgEl.innerHTML.trim();
+
+                const bpW = width * CONFIG.aiScale;
+                const bpH = height * CONFIG.aiScale;
+                const sx = vw > 0 ? bpW / vw : 1;
+                const sy = vh > 0 ? bpH / vh : 1;
+                const offsetX = -vx * sx;
+                const offsetY = -vy * sy;
+
+                const rect = {
+                    x: cw > 0 ? x / cw : 0,
+                    y: ch > 0 ? y / ch : 0,
+                    w: cw > 0 ? width / cw : 0,
+                    h: ch > 0 ? height / ch : 0
+                };
+                const newRegion = {
+                    id: `r${Date.now()}`,
+                    rect,
+                    svgContent,
+                    bpDims: { w: bpW, h: bpH },
+                    offset: { x: offsetX, y: offsetY },
+                    scale: { x: sx, y: sy },
+                    visible: true,
+                    status: 'imported',
+                    contentType: 'imported'
+                };
+                this.model.addRegion(newRegion);
+            }
+            this.model.saveHistory();
+        } catch (e) {
+            console.error("SVG Import Error:", e);
+            alert(`Failed to import SVG: ${e.message}`);
+        } finally {
+            this.view.toggleLoader(false);
         }
     }
 }
