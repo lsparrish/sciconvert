@@ -1288,8 +1288,8 @@ class SciTextController {
             const isRemote = location.href.startsWith('http') || (document.baseURI && document.baseURI.startsWith('http'));
             const localScript = './src/pdf.min.js';
             const localWorker = './src/pdf.worker.min.js';
-            const remoteScript = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.4.149/pdf.min.js';
-            const remoteWorker = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.4.149/pdf.worker.min.js';
+            const remoteScript = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.4.449/pdf.min.js';
+            const remoteWorker = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.4.449/pdf.worker.min.js';
 
             if (isRemote) {
                 await this.loadScript(remoteScript);
