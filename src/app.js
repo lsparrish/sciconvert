@@ -1021,7 +1021,7 @@ class SciTextController {
         this.view.els.btnExport.onclick = () => this.exportSVG();
         this.view.els.btnFitArea.onclick = () => this.fitArea();
         this.view.els.btnFitContent.onclick = () => this.fitContent();
-        this.view.els.btnSplit.onclick = () => this.enterSplitMode(); // Call new enterSplitMode
+        this.view.els.btnSplit.onclick = () => this.enterSplitMode(); 
         this.view.els.btnGroup.onclick = () => this.groupSelectedRegions();
         
         // NEW SVG Editor Bindings (Simplified)
@@ -1093,57 +1093,161 @@ class SciTextController {
     }
     
     toggleSplitType() {
-        this.splitType = this.splitType === 'horizontal' ? 'vertical' : 'horizontal';
+        const splitType = this.splitType; // store value for toggle
+        this.splitType = splitType === 'horizontal' ? 'vertical';
+        this.splitType = splitType === 'vertical' ? 'horizontal';
         this.model.notify();
     }
 
-    confirmSplit() {
+    async confirmSplit() {
         const id = this.model.state.activeRegionId;
         if (!id) return this.exitSplitMode();
 
         const r = this.model.getRegion(id);
         
-        const r1Rect = { ...r.rect };
-        const r2Rect = { ...r.rect };
+        let r1Rect = { ...r.rect };
+        let r2Rect = { ...r.rect };
         const splitPos = this.splitPosition;
 
         if (this.splitType === 'horizontal') {
-            // Split by Y: r1 is top, r2 is bottom
             r1Rect.h *= splitPos;
-            
             r2Rect.h *= (1 - splitPos);
             r2Rect.y += r1Rect.h;
         } else { // vertical
-            // Split by X: r1 is left, r2 is right
             r1Rect.w *= splitPos;
-            
             r2Rect.w *= (1 - splitPos);
             r2Rect.x += r1Rect.w;
         }
 
-        const createNewRegion = (rect, baseRegion) => ({
+        this.view.els.aiStatus.classList.remove('hidden');
+        this.view.els.aiStatus.textContent = 'Splitting and scanning new regions...';
+
+        // 1. Get tight scan for the first area (top/left)
+        const scan1 = await this.getAreaScan(r1Rect);
+        
+        // 2. Get tight scan for the second area (bottom/right)
+        const scan2 = await this.getAreaScan(r2Rect);
+
+        const createNewRegion = (scan) => ({
             id: `r${Date.now()}_${Math.random()}`,
-            rect: rect,
-            // Preserve content/status/dims if possible, but reset transform/offset
-            svgContent: baseRegion.svgContent, 
-            status: baseRegion.status,
-            contentType: baseRegion.contentType,
-            bpDims: baseRegion.bpDims,
+            rect: scan.newRect,
+            svgContent: scan.svgContent, 
+            status: scan.status,
+            contentType: scan.contentType,
+            bpDims: scan.bpDims,
             scale: {x:1, y:1}, 
             offset: {x:0, y:0}
         });
 
-        const r1 = createNewRegion(r1Rect, r);
-        const r2 = createNewRegion(r2Rect, r);
+        const newRegions = [];
+        if (scan1.status !== 'empty') newRegions.push(createNewRegion(scan1));
+        if (scan2.status !== 'empty') newRegions.push(createNewRegion(scan2));
 
-        this.model.deleteRegion(id);
-        this.model.state.regions.push(r1);
-        this.model.state.regions.push(r2);
-
-        this.model.selectRegion(r1.id);
-        this.model.saveHistory();
+        if (newRegions.length > 0) {
+            this.model.deleteRegion(id);
+            newRegions.forEach(nr => this.model.state.regions.push(nr));
+            this.model.selectRegion(newRegions[0].id);
+            this.model.saveHistory();
+        } else {
+            console.log("Split resulted in two empty regions, keeping original.");
+        }
+        
+        this.view.els.aiStatus.classList.add('hidden');
         this.exitSplitMode();
     }
+    
+    // NEW HELPER FUNCTION
+    async getAreaScan(normalizedRect) {
+        const r = normalizedRect;
+        const s = this.model.state;
+
+        const pw = Math.floor(r.w * s.canvasWidth);
+        const ph = Math.floor(r.h * s.canvasHeight);
+
+        if (pw < 1 || ph < 1) {
+            return {
+                svgContent: '', status: 'scanned', contentType: 'scan',
+                bpDims: { w: 0, h: 0 },
+                newRect: r // Return original rect if area is too small
+            };
+        }
+
+        const tmp = document.createElement("canvas");
+        tmp.width = pw * 2; tmp.height = ph * 2;
+        const ctx = tmp.getContext("2d");
+        // Draw the image data of the rect area into the temp canvas at 2x scale
+        ctx.drawImage(s.canvas, r.x * s.canvasWidth, r.y * s.canvasHeight, pw, ph, 0, 0, pw * 2, ph * 2);
+
+        const tData = ctx.getImageData(0, 0, pw * 2, ph * 2).data;
+
+        let tMinX = pw * 2, tMinY = ph * 2, tMaxX = 0, tMaxY = 0;
+        let tFound = false;
+
+        // --- TIGHT CROP SEARCH ---
+        for (let ty = 0; ty < ph * 2; ty++) {
+            for (let tx = 0; tx < pw * 2; tx++) {
+                const i = (ty * (pw * 2) + tx) * 4;
+                // Check for non-white/non-transparent pixels
+                if (tData[i + 3] > 128 && tData[i] < 200 && tData[i + 1] < 200 && tData[i + 2] < 200) { 
+                    if (tx < tMinX) tMinX = tx;
+                    if (tx > tMaxX) tMaxX = tx;
+                    if (ty < tMinY) tMinY = ty;
+                    if (ty > tMaxY) tMaxY = ty;
+                    tFound = true;
+                }
+            }
+        }
+        
+        if (!tFound) {
+             return {
+                svgContent: '', status: 'empty', contentType: 'empty',
+                bpDims: { w: 0, h: 0 },
+                newRect: r 
+            };
+        }
+
+        const cropPad = 4;
+        tMinX = Math.max(0, tMinX - cropPad);
+        tMinY = Math.max(0, tMinY - cropPad);
+        tMaxX = Math.min(pw * 2, tMaxX + cropPad);
+        tMaxY = Math.min(ph * 2, tMaxY + cropPad);
+
+        // --- RLE BLUEPRINT GENERATION ---
+        let rle = "";
+        for (let ty = tMinY; ty < tMaxY; ty += 2) {
+            let sx = -1;
+            for (let tx = tMinX; tx < tMaxX; tx++) {
+                const i = (ty * (pw * 2) + tx) * 4;
+                if (tData[i + 3] > 128 && tData[i] < 200 && tData[i + 1] < 200 && tData[i + 2] < 200) {
+                    if(sx === -1) sx = tx;
+                } else {
+                    if(sx !== -1) {
+                        rle += `M${sx} ${ty}h${tx - sx}v2h-${tx - sx}z`;
+                        sx = -1;
+                    }
+                }
+            }
+            if(sx !== -1) rle += `M${sx} ${ty}h${tMaxX - sx}v2h-${tMaxX - sx}z`;
+        }
+
+        // Calculate final normalized coordinates (tight crop relative to original canvas)
+        const globalX = r.x + (tMinX / 2) / s.canvasWidth;
+        const globalY = r.y + (tMinY / 2) / s.canvasHeight;
+        const globalW = ((tMaxX - tMinX) / 2) / s.canvasWidth;
+        const globalH = ((tMaxY - tMinY) / 2) / s.canvasHeight;
+        
+        const bpW = tMaxX - tMinX;
+        const bpH = tMaxY - tMinY;
+        
+        return {
+            svgContent: `<path d="${rle}" fill="black" />`,
+            status: 'scanned',
+            contentType: 'scan',
+            bpDims: { w: bpW, h: bpH },
+            newRect: { x: globalX, y: globalY, w: globalW, h: globalH }
+        };
+    }
+    // ======== END SPLIT MODE LOGIC ========
 
     updateBaseWidth() {
         if (this.model.state.canvasWidth === 0) return;
