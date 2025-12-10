@@ -1,5 +1,5 @@
 /*
- * SciText Digitizer - Single File Architecture
+ * SciText Digitizer
  * Contains:
  * 1. Config, Styles, HTML.
  * 2. SciTextModel (State & Data)
@@ -7,7 +7,6 @@
  * 4. SciTextController (Logic & Events)
  * 4.5. ImageProcessor (Image & Coordinate Utilities)
  * 5. RegionEditor (Canvas Interaction Logic)
- * * NOTE: The SVG editor has been simplified to an in-panel raw text editor for the selected region.
  */
 
 // ============================================================================
@@ -25,7 +24,7 @@ const apiKey = ""; // Injected by environment
 const APP_STYLES = `
 /* --- Base --- */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: "Segoe UI", sans-serif; background-color: #111827; min-height: 100vh; display: flex; flex-direction: column; color: #1f2937; font-size: 14px; }
+body { font-family: "Segoe UI", sans-serif; background-color: #yy111827; min-height: 100vh; display: flex; flex-direction: column; color: #1f2937; font-size: 14px; }
 .hidden { display: none !important; }
 .relative { position: relative; }
 .absolute { position: absolute; }
@@ -225,7 +224,7 @@ const APP_STRUCTURE = `
       <button data-type="image" class="action-bar-btn" style="background:#d97706;">Image</button>
       <button data-type="blueprint" class="action-bar-btn" style="background:#059669;">Scan</button> 
       <button data-type="empty" class="action-bar-btn" style="background:#4b5563;">Empty</button>
-      <div style="width:1px;height:1.5rem;background:#d1d5db;"></div>
+      <div style="width:1px;height:1.5rem;background:#d1d5db;"><br></div>
       <button id="btn-fit-area" class="action-bar-btn" style="background:#6b21a8;">Fit Area</button>
       <button id="btn-fit-content" class="action-bar-btn" style="background:#1e40af;">Fill</button>
       <div style="width:1px;height:1.5rem;background:#d1d5db;"></div>
@@ -1373,6 +1372,7 @@ class SciTextController {
         this.view.toggleLoader(true);
         const img = new Image();
         img.crossOrigin = "anonymous";
+        img.src = window.embeddedDefaultImage;
         img.onload = () => {
             const initialWidth = img.width;
             const initialHeight = img.height;
@@ -1389,24 +1389,6 @@ class SciTextController {
             this.updateBaseWidth();
             this.model.saveHistory();
         };
-        img.onerror = () => {
-            console.error("Failed to load default image");
-            this.view.toggleLoader(false);
-            if (img.src.endsWith(CONFIG.localImgPath)) {
-                console.warn(`Local image failed to load: ${CONFIG.localImgPath}. Trying remote fallback.`);
-                img.src = CONFIG.defaultImgUrl;
-            } else {
-                console.error("Failed to load default image from both local and remote sources.");
-                this.view.toggleLoader(false);
-            }
-        };
-        try {
-            img.src = window.embeddedDefaultImage;
-        }
-        catch {
-            img.src = CONFIG.defaultImgUrl;
-            console.error("Error setting image source:", e);
-        }
     }
 
     updateRegionFromProps(type) {
