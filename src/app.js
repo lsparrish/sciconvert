@@ -2,14 +2,13 @@
  * SciText Digitizer
  * Architecture:
  * 1. CONFIG & SHARED CONSTANTS
- * 2. UI_SCHEMA (Logic/Binding Source)
- * 3. SciTextUI (Appearance & DOM Generation)
- * 4. SciTextModel (State Management)
- * 5. ImageProcessor (Computer Vision Logic)
- * 6. RegionEditor (Canvas Interaction)
- * 7. SciTextController (Orchestration)
- * 8. UIManager (View Bridge)
- * 9. Bootstrap
+ * 2. SciTextUI (View Schema, Styles, & Builder)
+ * 3. SciTextModel (State Management)
+ * 4. ImageProcessor (Computer Vision Logic)
+ * 5. RegionEditor (Canvas Interaction)
+ * 6. SciTextController (Orchestration)
+ * 7. UIManager (View Bridge)
+ * 8. Bootstrap
  */
 
 // ============================================================================
@@ -22,7 +21,6 @@ const CONFIG = {
   aiScale: 2.0,
 };
 
-// Handle definitions used for both Hit Detection and CSS generation
 const HANDLES = {
   nw: { top: "-4px", left: "-4px", cursor: "nwse-resize" },
   n: {
@@ -57,106 +55,222 @@ const HANDLES = {
 const apiKey = ""; // Injected by environment
 
 // ============================================================================
-// 2. UI SCHEMA (LOGIC MAPPING)
+// 2. SciTextUI (SCHEMA, STYLES, BUILDER)
 // ============================================================================
 
-const UI_SCHEMA = {
-  header: [
-    { id: "zoom-out", text: "-", fn: "zoomOut" },
-    { id: "zoom-level", type: "display", text: "100%" },
-    { id: "zoom-in", text: "+", fn: "zoomIn" },
-    { type: "divider" },
-    { id: "btn-undo", text: "Undo", fn: "undo" },
-    { id: "btn-redo", text: "Redo", fn: "redo" },
-    { id: "fullscreen-toggle", text: "Full Screen", fn: "toggleFullscreen" },
-  ],
-  properties: [
-    { label: "Pos X", id: "prop-x", group: "geometry", map: "rect.x" },
-    { label: "Pos Y", id: "prop-y", group: "geometry", map: "rect.y" },
-    { label: "Width", id: "prop-w", group: "geometry", map: "rect.w" },
-    { label: "Height", id: "prop-h", group: "geometry", map: "rect.h" },
-    {
-      label: "Offset X",
-      id: "prop-offset-x",
-      group: "transform",
-      step: "0.1",
-      map: "offset.x",
-    },
-    {
-      label: "Offset Y",
-      id: "prop-offset-y",
-      group: "transform",
-      step: "0.1",
-      map: "offset.y",
-    },
-    {
-      label: "Scale X",
-      id: "prop-scale-x",
-      group: "transform",
-      step: "0.05",
-      map: "scale.x",
-    },
-    {
-      label: "Scale Y",
-      id: "prop-scale-y",
-      group: "transform",
-      step: "0.05",
-      map: "scale.y",
-    },
-  ],
-  footer: [
-    {
-      id: "btn-auto-segment",
-      text: "Auto Segment",
-      class: "btn-danger",
-      fn: "autoSegment",
-    },
-    { id: "btn-export", text: "Export", class: "btn-success", fn: "exportSVG" },
-    {
-      id: "btn-clear-all",
-      text: "Reset",
-      class: "btn-ghost text-danger",
-      fn: "resetAll",
-    },
-  ],
-  floating: [
-    { label: "Digitize", type: "text", class: "bg-primary" },
-    { label: "Image", type: "image", class: "bg-warn" },
-    { label: "Scan", type: "blueprint", class: "bg-success" },
-    { label: "Empty", type: "empty", class: "bg-gray" },
-    { type: "divider" },
-    { id: "btn-fit-area", label: "Fit Area", class: "bg-gray", fn: "fitArea" },
-    {
-      id: "btn-fit-content",
-      label: "Fill",
-      class: "bg-gray",
-      fn: "fitContent",
-    },
-    { type: "divider" },
-    { id: "btn-split", label: "Split", class: "bg-gray", fn: "enterSplitMode" },
-    {
-      id: "btn-group",
-      label: "Group",
-      class: "bg-gray",
-      fn: "groupSelectedRegions",
-    },
-    {
-      id: "btn-delete",
-      label: "Del",
-      class: "bg-danger",
-      fn: "deleteSelected",
-    },
-  ],
-};
+class SciTextUI {
+  // --- UI Configuration (Schema) ---
+  static get layout() {
+    return {
+      header: [
+        { id: "zoom-out", text: "-", fn: "zoomOut" },
+        { id: "zoom-level", type: "display", text: "100%" },
+        { id: "zoom-in", text: "+", fn: "zoomIn" },
+        { type: "divider" },
+        { id: "btn-undo", text: "Undo", fn: "undo" },
+        { id: "btn-redo", text: "Redo", fn: "redo" },
+        {
+          id: "fullscreen-toggle",
+          text: "Full Screen",
+          fn: "toggleFullscreen",
+        },
+      ],
+      properties: [
+        { label: "Pos X", id: "prop-x", group: "geometry", map: "rect.x" },
+        { label: "Pos Y", id: "prop-y", group: "geometry", map: "rect.y" },
+        { label: "Width", id: "prop-w", group: "geometry", map: "rect.w" },
+        { label: "Height", id: "prop-h", group: "geometry", map: "rect.h" },
+        {
+          label: "Offset X",
+          id: "prop-offset-x",
+          group: "transform",
+          step: "0.1",
+          map: "offset.x",
+        },
+        {
+          label: "Offset Y",
+          id: "prop-offset-y",
+          group: "transform",
+          step: "0.1",
+          map: "offset.y",
+        },
+        {
+          label: "Scale X",
+          id: "prop-scale-x",
+          group: "transform",
+          step: "0.05",
+          map: "scale.x",
+        },
+        {
+          label: "Scale Y",
+          id: "prop-scale-y",
+          group: "transform",
+          step: "0.05",
+          map: "scale.y",
+        },
+      ],
+      footer: [
+        {
+          id: "btn-auto-segment",
+          text: "Auto Segment",
+          class: "btn-danger",
+          fn: "autoSegment",
+        },
+        {
+          id: "btn-export",
+          text: "Export",
+          class: "btn-success",
+          fn: "exportSVG",
+        },
+        {
+          id: "btn-clear-all",
+          text: "Reset",
+          class: "btn-ghost text-danger",
+          fn: "resetAll",
+        },
+      ],
+      floating: [
+        { label: "Digitize", type: "text", class: "bg-primary" },
+        { label: "Image", type: "image", class: "bg-warn" },
+        { label: "Scan", type: "blueprint", class: "bg-success" },
+        { label: "Empty", type: "empty", class: "bg-gray" },
+        { type: "divider" },
+        {
+          id: "btn-fit-area",
+          label: "Fit Area",
+          class: "bg-gray",
+          fn: "fitArea",
+        },
+        {
+          id: "btn-fit-content",
+          label: "Fill",
+          class: "bg-gray",
+          fn: "fitContent",
+        },
+        { type: "divider" },
+        {
+          id: "btn-split",
+          label: "Split",
+          class: "bg-gray",
+          fn: "enterSplitMode",
+        },
+        {
+          id: "btn-group",
+          label: "Group",
+          class: "bg-gray",
+          fn: "groupSelectedRegions",
+        },
+        {
+          id: "btn-delete",
+          label: "Del",
+          class: "bg-danger",
+          fn: "deleteSelected",
+        },
+      ],
+    };
+  }
 
-// ============================================================================
-// 3. SciTextUI (APPEARANCE & DOM GENERATION)
-// ============================================================================
+  // --- Component Templates ---
+  static get components() {
+    return {
+      root: { tag: "div", id: "template-structure", class: "flex-col" },
+      header: { tag: "header", class: "app-header z-30 shrink-0" },
+      flexRow: {
+        tag: "div",
+        style: "display:flex; align-items:center; gap:1rem;",
+      },
+      flexGap: { tag: "div", style: "display:flex; gap:0.25rem;" },
+      headerDiv: {
+        tag: "div",
+        style: "width:1px; height:0.5rem; background:#4b5563;",
+      },
+      zoomGroup: {
+        tag: "div",
+        style:
+          "display:flex; border:1px solid #4b5563; border-radius:0.375rem;",
+      },
+      zoomBtn: {
+        tag: "button",
+        style: "color:#d1d5db; padding:0.25rem 0.5rem;",
+      },
+      zoomLabel: {
+        tag: "span",
+        style:
+          "font-size:0.75rem; width:3.5rem; text-align:center; color:#e5e7eb; align-self:center;",
+      },
 
-const SciTextUI = {
-  // Styles converted to JSON from the uploaded app.js (Typo fixed: #yy111827 -> #111827)
-  Theme: {
-    styles: {
+      // Sidebar
+      sidebar: { tag: "div", class: "sidebar-panel" },
+      propHead: { tag: "div", class: "prop-header" },
+      geoInputs: { tag: "div", class: "geometry-inputs" },
+      geoGroup: { tag: "div" },
+      rawEditor: {
+        tag: "div",
+        id: "svg-raw-editor-panel",
+        class: "hidden",
+        style:
+          "padding: 1rem; background-color: #fff; border-bottom: 1px solid #e5e7eb; display:flex; flex-direction:column; gap:0.5rem;",
+      },
+      layerList: {
+        tag: "div",
+        id: "layer-list",
+        class: "layer-list-container",
+      },
+      layerHead: { tag: "div", class: "layer-list-header", text: "Layers" },
+      layerItems: {
+        tag: "div",
+        id: "layer-items",
+        style: "flex:1; overflow-y:auto; padding:0.25rem 0;",
+      },
+      panelFoot: { tag: "div", class: "sidebar-footer" },
+
+      // Canvas
+      canvasArea: { tag: "div", class: "canvas-view-style" },
+      scroller: { tag: "div", class: "canvas-scroller-style" },
+      wrapper: { tag: "div", class: "canvas-wrapper-style" },
+
+      // Base Elements
+      title: { tag: "h1", class: "header-title" },
+      labelTiny: { tag: "span", class: "input-label" },
+      inputNum: { tag: "input", type: "number", class: "input-field" },
+      btnAction: { tag: "button", class: "action-bar-btn" },
+      hiddenIn: { tag: "input", type: "file", class: "hidden" },
+
+      // Overlays
+      debugCon: {
+        tag: "div",
+        id: "debug-container",
+        class: "hidden",
+        style: "flex:1; background:#111827; padding:1.5rem; overflow:auto;",
+      },
+      emptyState: {
+        tag: "div",
+        id: "empty-state",
+        style:
+          "position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#f3f4f6;",
+      },
+      loader: {
+        tag: "div",
+        id: "pdf-loader",
+        class: "hidden",
+        style:
+          "position:absolute; inset:0; background:rgba(17,24,39,0.8); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:50;",
+      },
+      actionBar: {
+        tag: "div",
+        id: "region-actions-bar",
+        class: "region-actions-bar hidden",
+      },
+      barDivider: {
+        tag: "div",
+        style: "width:1px;height:1.5rem;background:#d1d5db;",
+      },
+    };
+  }
+
+  // --- CSS Styles ---
+  static get styles() {
+    return {
       "*, *::before, *::after": {
         "box-sizing": "border-box",
         margin: "0",
@@ -233,14 +347,14 @@ const SciTextUI = {
       },
       ".text-danger": { color: "#ef4444" },
 
-      // Color Utilities (for Schema)
+      // Color Utilities
       ".bg-primary": { "background-color": "#2563eb" },
       ".bg-warn": { "background-color": "#d97706" },
       ".bg-success": { "background-color": "#059669" },
       ".bg-gray": { "background-color": "#4b5563" },
       ".bg-danger": { "background-color": "#ef4444" },
 
-      // Layout
+      // Layout Panels
       ".main-content-wrapper": {
         flex: "1",
         display: "flex",
@@ -263,6 +377,8 @@ const SciTextUI = {
         "background-color": "white",
         "z-index": "10",
       },
+
+      // Sidebar Details
       ".prop-header": {
         "background-color": "#f3f4f6",
         padding: "0.75rem 1rem",
@@ -306,7 +422,7 @@ const SciTextUI = {
         "justify-content": "space-between",
       },
 
-      // Canvas
+      // Canvas Structure
       ".canvas-view-style": {
         flex: "1",
         display: "flex",
@@ -372,7 +488,7 @@ const SciTextUI = {
       },
       ".layer-item:hover .delete-btn": { opacity: "1" },
 
-      // Interactivity
+      // Region & Interactions
       ".region-highlight": {
         "background-color": "rgba(59, 130, 246, 0.1)",
         border: "1px solid #3b82f6",
@@ -415,7 +531,7 @@ const SciTextUI = {
       },
       ".resize-handle:hover": { background: "#2563eb" },
 
-      // Action Bar & Extras
+      // Action Bar & Widgets
       ".region-actions-bar": {
         position: "fixed",
         "z-index": "100",
@@ -458,6 +574,8 @@ const SciTextUI = {
         "pointer-events": "none",
         "white-space": "nowrap",
       },
+
+      // Loaders & Animations
       ".loader-spinner": {
         width: "3rem",
         height: "3rem",
@@ -472,100 +590,87 @@ const SciTextUI = {
       },
       "#ai-status": { animation: "pulse 1s infinite alternate" },
       "@keyframes pulse": { from: { opacity: "0.5" }, to: { opacity: "1" } },
-    },
-  },
+    };
+  }
 
-  // --- Component Definitions (Mapped to Schema) ---
-  Definitions: {
-    root: { tag: "div", id: "template-structure", class: "flex-col" },
-    header: { tag: "header", class: "app-header z-30 shrink-0" },
+  // --- Static Builders ---
 
-    // Structure
-    flexRow: {
-      tag: "div",
-      style: "display:flex; align-items:center; gap:1rem;",
-    },
-    flexGap: { tag: "div", style: "display:flex; gap:0.25rem;" },
-    headerDiv: {
-      tag: "div",
-      style: "width:1px; height:0.5rem; background:#4b5563;",
-    },
-    zoomGroup: {
-      tag: "div",
-      style: "display:flex; border:1px solid #4b5563; border-radius:0.375rem;",
-    },
-    zoomBtn: { tag: "button", style: "color:#d1d5db; padding:0.25rem 0.5rem;" },
-    zoomLabel: {
-      tag: "span",
-      style:
-        "font-size:0.75rem; width:3.5rem; text-align:center; color:#e5e7eb; align-self:center;",
-    },
+  static generateCSS() {
+    let css = "";
+    Object.entries(SciTextUI.styles).forEach(([selector, rules]) => {
+      css += `${selector} { `;
+      Object.entries(rules).forEach(([prop, val]) => {
+        if (typeof val === "object") {
+          // Keyframes/Nested
+          css += `${prop} { `;
+          Object.entries(val).forEach(([p, v]) => (css += `${p}: ${v}; `));
+          css += "} ";
+        } else {
+          css += `${prop}: ${val}; `;
+        }
+      });
+      css += "} \n";
+    });
 
-    // Sidebar
-    sidebar: { tag: "div", class: "sidebar-panel" },
-    propHead: { tag: "div", class: "prop-header" },
-    geoInputs: { tag: "div", class: "geometry-inputs" },
-    geoGroup: { tag: "div" },
-    rawEditor: {
-      tag: "div",
-      id: "svg-raw-editor-panel",
-      class: "hidden",
-      style:
-        "padding: 1rem; background-color: #fff; border-bottom: 1px solid #e5e7eb; display:flex; flex-direction:column; gap:0.5rem;",
-    },
-    layerList: { tag: "div", id: "layer-list", class: "layer-list-container" },
-    layerHead: { tag: "div", class: "layer-list-header", text: "Layers" },
-    layerItems: {
-      tag: "div",
-      id: "layer-items",
-      style: "flex:1; overflow-y:auto; padding:0.25rem 0;",
-    },
-    panelFoot: { tag: "div", class: "sidebar-footer" },
+    Object.entries(HANDLES).forEach(([dir, props]) => {
+      let rule = `.handle-${dir} { position: absolute; width: 8px; height: 8px; background: white; border: 1px solid #2563eb; z-index: 50; pointer-events: all; `;
+      Object.entries(props).forEach(([k, v]) => (rule += `${k}: ${v}; `));
+      rule += "} ";
+      css += rule + "\n";
+    });
+    return css;
+  }
 
-    // Canvas
-    canvasArea: { tag: "div", class: "canvas-view-style" },
-    scroller: { tag: "div", class: "canvas-scroller-style" },
-    wrapper: { tag: "div", class: "canvas-wrapper-style" },
+  static buildElement(schema, parent, bindTarget) {
+    if (!schema) return;
+    let config = schema;
+    if (schema.def && SciTextUI.components[schema.def]) {
+      config = { ...SciTextUI.components[schema.def], ...schema };
+    }
 
-    // Elements
-    title: { tag: "h1", class: "header-title" },
-    labelTiny: { tag: "span", class: "input-label" },
-    inputNum: { tag: "input", type: "number", class: "input-field" },
-    btnAction: { tag: "button", class: "action-bar-btn" },
-    hiddenIn: { tag: "input", type: "file", class: "hidden" },
+    const el = document.createElement(config.tag || "div");
+    if (config.id) {
+      el.id = config.id;
+      if (bindTarget)
+        bindTarget[config.id.replace(/-./g, (x) => x[1].toUpperCase())] = el;
+    }
 
-    // Overlays
-    debugCon: {
-      tag: "div",
-      id: "debug-container",
-      class: "hidden",
-      style: "flex:1; background:#111827; padding:1.5rem; overflow:auto;",
-    },
-    emptyState: {
-      tag: "div",
-      id: "empty-state",
-      style:
-        "position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#f3f4f6;",
-    },
-    loader: {
-      tag: "div",
-      id: "pdf-loader",
-      class: "hidden",
-      style:
-        "position:absolute; inset:0; background:rgba(17,24,39,0.8); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:50;",
-    },
-    actionBar: {
-      tag: "div",
-      id: "region-actions-bar",
-      class: "region-actions-bar hidden",
-    },
-    barDivider: {
-      tag: "div",
-      style: "width:1px;height:1.5rem;background:#d1d5db;",
-    },
-  },
+    if (config.class) el.className = config.class;
+    if (config.style) el.style.cssText = config.style;
+    if (config.text) el.textContent = config.text;
+    if (config.html) el.innerHTML = config.html;
 
-  getLayout() {
+    Object.keys(config).forEach((key) => {
+      if (
+        ![
+          "tag",
+          "id",
+          "class",
+          "style",
+          "text",
+          "html",
+          "children",
+          "def",
+          "data-type",
+        ].includes(key)
+      ) {
+        el.setAttribute(key, config[key]);
+      }
+    });
+
+    if (config["data-type"]) el.dataset.type = config["data-type"];
+    if (parent) parent.appendChild(el);
+    if (config.children)
+      config.children.forEach((child) =>
+        SciTextUI.buildElement(child, el, bindTarget),
+      );
+    return el;
+  }
+
+  static getDOMStructure() {
+    const layout = SciTextUI.layout;
+
+    // Helpers to create schema nodes
     const field = (p) => ({
       def: "geoGroup",
       children: [
@@ -573,6 +678,7 @@ const SciTextUI = {
         { def: "inputNum", id: p.id, step: p.step },
       ],
     });
+
     const btn = (b, type) => {
       if (b.type === "divider") return { def: "headerDiv" };
       if (b.type === "display")
@@ -585,7 +691,6 @@ const SciTextUI = {
           class: `action-bar-btn ${b.class}`,
           "data-type": b.type,
         };
-      // Footer buttons mapped to btn class
       if (type === "footer")
         return {
           tag: "button",
@@ -593,7 +698,7 @@ const SciTextUI = {
           text: b.text,
           class: `btn ${b.class}`,
         };
-      return { def: "zoomBtn", id: b.id, text: b.text }; // Zoom buttons
+      return { def: "zoomBtn", id: b.id, text: b.text };
     };
 
     return {
@@ -629,16 +734,18 @@ const SciTextUI = {
             { def: "headerDiv" },
             {
               def: "zoomGroup",
-              children: UI_SCHEMA.header.slice(0, 3).map((b) => btn(b)),
+              children: layout.header.slice(0, 3).map((b) => btn(b)),
             },
             {
               def: "flexGap",
-              children: UI_SCHEMA.header.slice(4).map((b) => ({
-                tag: "button",
-                id: b.id,
-                class: "btn btn-secondary",
-                text: b.text,
-              })),
+              children: layout.header
+                .slice(4)
+                .map((b) => ({
+                  tag: "button",
+                  id: b.id,
+                  class: "btn btn-secondary",
+                  text: b.text,
+                })),
             },
             {
               tag: "div",
@@ -662,7 +769,7 @@ const SciTextUI = {
             },
           ],
         },
-        // Main Content
+        // Main
         {
           tag: "main",
           class: "main-content-wrapper",
@@ -729,7 +836,7 @@ const SciTextUI = {
                             "position:absolute; top:0.25rem; right:0.5rem; font-size:9px; font-weight:700; color:#60a5fa;",
                           text: "COORDS (Normalized Pixels)",
                         },
-                        ...UI_SCHEMA.properties
+                        ...layout.properties
                           .filter((p) => p.group === "geometry")
                           .map(field),
                         {
@@ -751,7 +858,7 @@ const SciTextUI = {
                             },
                           ],
                         },
-                        ...UI_SCHEMA.properties
+                        ...layout.properties
                           .filter((p) => p.group === "transform")
                           .map(field),
                       ],
@@ -805,7 +912,7 @@ const SciTextUI = {
                           tag: "div",
                           style: "display:flex; gap:0.25rem; width:100%;",
                           children: [
-                            ...UI_SCHEMA.footer.map((b) => btn(b, "footer")),
+                            ...layout.footer.map((b) => btn(b, "footer")),
                             {
                               def: "hiddenIn",
                               id: "svg-import",
@@ -939,104 +1046,32 @@ const SciTextUI = {
         {
           def: "actionBar",
           children: [
-            ...UI_SCHEMA.floating.slice(0, 4).map((b) => btn(b, "floating")),
+            ...layout.floating.slice(0, 4).map((b) => btn(b, "floating")),
             { def: "barDivider" },
-            ...UI_SCHEMA.floating.slice(5, 7).map((b) => btn(b, "floating")),
+            ...layout.floating.slice(5, 7).map((b) => btn(b, "floating")),
             { def: "barDivider" },
-            ...UI_SCHEMA.floating.slice(8).map((b) => btn(b, "floating")),
+            ...layout.floating.slice(8).map((b) => btn(b, "floating")),
           ],
         },
       ],
     };
-  },
+  }
 
-  generateStyles() {
-    // Iterate over the JSON styles to build the CSS string
-    let css = "";
-    Object.entries(this.Theme.styles).forEach(([selector, rules]) => {
-      css += `${selector} { `;
-      Object.entries(rules).forEach(([prop, val]) => {
-        // If value is an object (nested like keyframes), iterate again
-        if (typeof val === "object") {
-          css += `${prop} { `;
-          Object.entries(val).forEach(([p, v]) => (css += `${p}: ${v}; `));
-          css += "} ";
-        } else {
-          css += `${prop}: ${val}; `;
-        }
-      });
-      css += "} \n";
-    });
-
-    // Add dynamic handle styles
-    Object.entries(HANDLES).forEach(([dir, props]) => {
-      let rule = `.handle-${dir} { position: absolute; width: 8px; height: 8px; background: white; border: 1px solid #2563eb; z-index: 50; pointer-events: all; `;
-      Object.entries(props).forEach(([k, v]) => (rule += `${k}: ${v}; `));
-      rule += "} ";
-      css += rule + "\n";
-    });
-    return css;
-  },
-
-  build(schema, parent, bindTarget) {
-    if (!schema) return;
-    let config = schema;
-    // Resolve Definition reference if present
-    if (schema.def && this.Definitions[schema.def]) {
-      config = { ...this.Definitions[schema.def], ...schema };
-    }
-
-    const el = document.createElement(config.tag || "div");
-    if (config.id) {
-      el.id = config.id;
-      // Map ID to camelCase for easy access in view.els (e.g. btn-undo -> btnUndo)
-      if (bindTarget)
-        bindTarget[config.id.replace(/-./g, (x) => x[1].toUpperCase())] = el;
-    }
-
-    if (config.class) el.className = config.class;
-    if (config.style) el.style.cssText = config.style;
-    if (config.text) el.textContent = config.text;
-    if (config.html) el.innerHTML = config.html;
-
-    // Set other attributes
-    Object.keys(config).forEach((key) => {
-      if (
-        ![
-          "tag",
-          "id",
-          "class",
-          "style",
-          "text",
-          "html",
-          "children",
-          "def",
-          "data-type",
-        ].includes(key)
-      ) {
-        el.setAttribute(key, config[key]);
-      }
-    });
-
-    if (config["data-type"]) el.dataset.type = config["data-type"];
-
-    if (parent) parent.appendChild(el);
-    if (config.children)
-      config.children.forEach((child) => this.build(child, el, bindTarget));
-    return el;
-  },
-
-  init(bindTarget) {
+  static init(bindTarget) {
     const styleEl = document.createElement("style");
-    styleEl.textContent = this.generateStyles();
+    styleEl.textContent = SciTextUI.generateCSS();
     document.head.appendChild(styleEl);
-    this.build(this.getLayout(), document.body, bindTarget);
+    SciTextUI.buildElement(
+      SciTextUI.getDOMStructure(),
+      document.body,
+      bindTarget,
+    );
     if (bindTarget) bindTarget.splitBar = document.getElementById("split-bar");
-  },
-};
+  }
+}
 
 // ============================================================================
-// 4. MODEL
+// 3. MODEL
 // ============================================================================
 
 class SciTextModel {
@@ -1158,7 +1193,7 @@ class SciTextModel {
 }
 
 // ============================================================================
-// 5. LOGIC & CONTROLLER
+// 4. LOGIC & CONTROLLER
 // ============================================================================
 
 class ImageProcessor {
@@ -1515,11 +1550,11 @@ class SciTextController {
     this.imageProcessor = new ImageProcessor(this.model);
     this.draw.init();
 
-    // Automated Bindings via Schema
+    // Automated Bindings via SciTextUI.layout
+    const layout = SciTextUI.layout;
     ["header", "footer", "floating"].forEach((section) => {
-      UI_SCHEMA[section].forEach((item) => {
+      layout[section].forEach((item) => {
         if (item.id && item.fn) {
-          // FIX: Convert schema ID (kebab-case) to view ID (camelCase)
           const viewId = item.id.replace(/-./g, (x) => x[1].toUpperCase());
 
           if (this.view.els[viewId]) {
@@ -1557,7 +1592,7 @@ class SciTextController {
     };
 
     // Property Inputs
-    UI_SCHEMA.properties.forEach((p) => {
+    layout.properties.forEach((p) => {
       // CamelCase conversion for property inputs too
       const viewId = p.id.replace(/-./g, (x) => x[1].toUpperCase());
       if (this.view.els[viewId])
@@ -2054,7 +2089,7 @@ class SciTextController {
 }
 
 // ============================================================================
-// 6. VIEW (BRIDGE)
+// 7. VIEW (BRIDGE)
 // ============================================================================
 
 class UIManager {
@@ -2064,7 +2099,6 @@ class UIManager {
   }
 
   init() {
-    // Use the new SciTextUI System
     SciTextUI.init(this.els);
   }
 
@@ -2091,7 +2125,7 @@ class UIManager {
 
   updatePropertiesInputs(region, state) {
     if (!region) {
-      UI_SCHEMA.properties.forEach((p) => {
+      SciTextUI.layout.properties.forEach((p) => {
         const id = p.id.replace(/-./g, (x) => x[1].toUpperCase());
         if (this.els[id]) this.els[id].value = "";
       });
@@ -2352,7 +2386,7 @@ class UIManager {
 }
 
 // ============================================================================
-// 9. BOOTSTRAP
+// 8. BOOTSTRAP
 // ============================================================================
 
 const appObject = (function () {
