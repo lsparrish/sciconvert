@@ -32,10 +32,17 @@ const SciTextUI = {
             danger:  "#ef4444",  success:      "#059669",
             warn:    "#d97706",  accent:       "#60a5fa",
             dark:    "#111827",  panel:        "#ffffff",
-            surface: "#f9fafb",  surfaceHov:   "#f3ff6",
+            surface: "#f9fafb",  surfaceHov:   "#f3f4f6",
             border:  "#e5e7eb",
             txtMain: "#1f2937",  txtMuted:     "#6b7280", 
-            txtInv:  "#ffffff",  txtLight:     "#f3f4f6"
+            txtInv:  "#ffffff",  txtLight:     "#f3f4f6",
+            
+            // Specific colors for buttons/interactions that were previously hardcoded
+            gray:    "#4b5563",
+            fitArea: "#6b21a8",  
+            fitContent: "#1e40af", 
+            split:   "#4338ca",  
+            group:   "#0d9488",
         },
         spacing: { 0: "0", 1: "0.25rem", 2: "0.5rem", 3: "0.75rem", 4: "1rem" },
         type: {
@@ -66,8 +73,8 @@ const SciTextUI = {
         title:      { tag: 'h1', class: 'font-sans font-bold text-lg text-txt-light' },
         labelTiny:  { tag: 'span', class: 'font-sans font-bold text-xs text-txt-muted uppercase' },
         btnLoad:    { tag: 'label', class: 'btn-base bg-primary text-txt-inv' },
-        btnAction:  { tag: 'button', class: 'btn-base text-txt-inv font-bold text-xs', style: 'padding: 0.25rem 0.75rem;' },
-        btnGhost:   { tag: 'button', class: 'btn-base text-txt-muted', style: 'background:none; border:1px solid #4b5563; color:#e5e7eb' }, 
+        btnAction:  { tag: 'button', class: 'btn-base text-txt-inv font-bold text-xs btn-action-base' }, // NEW class: btn-action-base
+        btnGhost:   { tag: 'button', class: 'btn-base btn-ghost' }, // NEW class: btn-ghost
         btnIcon:    { tag: 'button', style: 'background:none; border:none; cursor:pointer; color:#9ca3af; font-size:1.25rem' },
         inputNum:   { tag: 'input', type: 'number', class: 'input-base font-mono text-xs' },
         hiddenIn:   { tag: 'input', type: 'file', class: 'hidden' },
@@ -82,18 +89,19 @@ const SciTextUI = {
 
     // --- Data: Layout (The Assembly) ---
     getLayout() {
-        // Returns the structure using the definitions above
+        const C = this.Theme.colors;
         return {
             def: 'root', id: 'template-structure', children: [
                 // --- Header ---
                 { def: 'header', children: [
                     { def: 'flexRow', children: [
-                        { def: 'title', html: 'SciText <span style="color:#60a5fa">Digitizer</span>' },
+                        { def: 'title', html: `SciText <span style="color:${C.accent}">Digitizer</span>` },
                         { tag: 'div', class: 'relative', children: [
                             { def: 'hiddenIn', id: 'pdf-upload', accept: 'application/pdf, image/*' },
                             { def: 'btnLoad', for: 'pdf-upload', text: 'Load' }
                         ]}
                     ]},
+                    { tag: 'div', class: 'header-divider' },
                     { def: 'flexGap', children: [
                         { def: 'btnGhost', id: 'zoom-out', text: '-' },
                         { tag: 'span', id: 'zoom-level', text: '100%', class: 'text-xs text-txt-light', style: 'width:3rem; text-align:center' },
@@ -117,7 +125,7 @@ const SciTextUI = {
                             // Properties
                             { def: 'panelHead', children: [
                                 { def: 'labelTiny', text: 'Properties' },
-                                { def: 'labelTiny', id: 'region-count', text: '0', style: 'background:#dbeafe; color:#1d4ed8; padding:2px 6px; border-radius:99px' }
+                                { def: 'labelTiny', id: 'region-count', text: '0', class: 'region-count-badge' }
                             ]},
                             { def: 'panelBody', children: [
                                 { def: 'labelTiny', text: 'Geometry (Norm)', class: 'absolute text-accent', style: 'top:0.25rem; right:0.5rem' },
@@ -141,7 +149,7 @@ const SciTextUI = {
                             { def: 'panelBody', id: 'svg-raw-editor-panel', class: 'hidden col-stack gap-2', children: [
                                 { def: 'labelTiny', text: 'Edit Raw SVG' },
                                 { tag: 'textarea', id: 'svg-raw-content', class: 'font-mono text-xs b-border rounded p-2', style:'min-height:100px; resize:vertical' },
-                                { def: 'btnAction', id: 'btn-save-raw-svg', text: 'Apply', style:'background:#4f46e5' }
+                                { def: 'btnAction', id: 'btn-save-raw-svg', text: 'Apply', class: 'btn-action-base btn-save-raw-svg' } 
                             ]},
                             // Layers
                             { tag: 'div', class: 'col-stack bg-surface', style: 'flex:1; overflow:hidden', children: [
@@ -153,11 +161,11 @@ const SciTextUI = {
                             ]},
                             // Footer
                             { def: 'panelFoot', children: [
-                                { def: 'btnAction', id: 'btn-auto-segment', text: 'Auto', style:`background:${this.Theme.colors.danger}` },
-                                { def: 'btnAction', id: 'btn-export', text: 'Export', style:`background:${this.Theme.colors.success}` },
+                                { def: 'btnAction', id: 'btn-auto-segment', text: 'Auto', class: 'btn-action-base bg-danger' },
+                                { def: 'btnAction', id: 'btn-export', text: 'Export', class: 'btn-action-base bg-success' },
                                 { def: 'hiddenIn', id: 'svg-import', accept: '.svg' },
-                                { def: 'btnLoad', for: 'svg-import', text: 'Import', style:'font-size:0.75rem; padding:0.25rem 0.75rem' },
-                                { def: 'btnAction', id: 'btn-clear-all', text: 'Reset', style:'background:transparent; color:#ef4444' }
+                                { def: 'btnLoad', for: 'svg-import', text: 'Import', class: 'btn-base bg-primary text-txt-inv btn-import' }, // NEW class: btn-import
+                                { def: 'btnAction', id: 'btn-clear-all', text: 'Reset', class: 'btn-action-base btn-reset' } // NEW class: btn-reset
                             ]}
                         ]},
                         // Canvas
@@ -183,7 +191,7 @@ const SciTextUI = {
                              { tag: 'p', class: 'text-txt-muted mt-2', text: 'Upload PDF or Image to start.' }
                         ]}
                     ]},
-                    { tag: 'div', id: 'pdf-loader', class: 'hidden abs-fill flex-col justify-center items-center', style: 'background:rgba(17,24,39,0.8); z-index:50', children: [
+                    { tag: 'div', id: 'pdf-loader', class: 'hidden abs-fill flex-col justify-center items-center', style: `background:rgba(17,24,39,0.8); z-index:50`, children: [
                          { tag: 'div', class: 'loader-spinner' },
                          { tag: 'span', class: 'font-bold text-txt-inv mt-4', text: 'Loading...' }
                     ]},
@@ -191,17 +199,17 @@ const SciTextUI = {
                 ]},
                 // Floating Action Bar
                 { def: 'actionBar', id: 'region-actions-bar', children: [
-                    { def: 'btnAction', 'data-type':'text', text:'Digitize', style:'background:#2563eb' },
-                    { def: 'btnAction', 'data-type':'image', text:'Image', style:'background:#d97706' },
-                    { def: 'btnAction', 'data-type':'blueprint', text:'Scan', style:'background:#059669' },
-                    { def: 'btnAction', 'data-type':'empty', text:'Empty', style:'background:#4b5563' },
-                    { tag:'div', style:'width:1px; background:#d1d5db' },
-                    { def: 'btnAction', id:'btn-fit-area', text:'Fit', style:'background:#6b21a8' },
-                    { def: 'btnAction', id:'btn-fit-content', text:'Fill', style:'background:#1e40af' },
-                    { tag:'div', style:'width:1px; background:#d1d5db' },
-                    { def: 'btnAction', id:'btn-split', text:'Split', style:'background:#4338ca' },
-                    { def: 'btnAction', id:'btn-group', text:'Group', style:'background:#0d9488' },
-                    { def: 'btnAction', id:'btn-delete', text:'Del', style:'background:#ef4444' }
+                    { def: 'btnAction', 'data-type':'text', text:'Digitize', class: 'btn-action-base bg-primary' },
+                    { def: 'btnAction', 'data-type':'image', text:'Image', class: 'btn-action-base bg-warn' },
+                    { def: 'btnAction', 'data-type':'blueprint', text:'Scan', class: 'btn-action-base bg-success' },
+                    { def: 'btnAction', 'data-type':'empty', text:'Empty', class: 'btn-action-base bg-gray' },
+                    { tag:'div', class: 'action-bar-divider' }, // NEW class: action-bar-divider
+                    { def: 'btnAction', id:'btn-fit-area', text:'Fit', class: 'btn-action-base bg-fitArea' },
+                    { def: 'btnAction', id:'btn-fit-content', text:'Fill', class: 'btn-action-base bg-fitContent' },
+                    { tag:'div', class: 'action-bar-divider' }, // NEW class: action-bar-divider
+                    { def: 'btnAction', id:'btn-split', text:'Split', class: 'btn-action-base bg-split' },
+                    { def: 'btnAction', id:'btn-group', text:'Group', class: 'btn-action-base bg-group' },
+                    { def: 'btnAction', id:'btn-delete', text:'Del', class: 'btn-action-base bg-danger' }
                 ]}
             ]
         };
@@ -253,6 +261,17 @@ const SciTextUI = {
             ".transition": { "transition": "all 0.15s ease-in-out" },
             ".btn-primary:hover": { "background-color": theme.colors.primaryHover },
             
+            // --- NEW: Custom Component Classes (Theme Dependent) ---
+            ".btn-ghost": { "background": "none", "border": `1px solid ${theme.colors.gray}`, "color": theme.colors.txtLight },
+            ".btn-action-base": { "padding": "0.25rem 0.75rem", "border-radius": "0.25rem", "font-weight": "700", "font-size": "0.75rem", "color": "white", "border": "1px solid transparent", "cursor": "pointer" },
+            ".header-divider": { "width": "1px", "height": "0.5rem", "background": theme.colors.gray },
+            ".action-bar-divider": { "width": "1px", "height": "1.5rem", "background": theme.colors.border },
+            ".region-count-badge": { "background": theme.colors.primaryHover, "color": theme.colors.primary, "padding": "2px 6px", "border-radius": "99px" },
+            ".btn-save-raw-svg": { "background": theme.colors.primary }, // Re-using primary for consistency
+            ".btn-import": { "font-size": "0.75rem", "padding": "0.25rem 0.75rem" },
+            ".btn-reset": { "color": theme.colors.danger, "background": "transparent" },
+
+
             // --- Layer List Styles ---
             ".layer-item": { "display": "flex", "align-items": "center", "gap": "0.5rem", "font-size": "0.75rem", "cursor": "pointer", "padding": "0.5rem 0.75rem", "background": "white", "transition": "background 0.15s", "border-bottom": "1px solid #e5e7eb" },
             ".layer-item:hover": { "background-color": theme.colors.surfaceHov },
@@ -260,23 +279,22 @@ const SciTextUI = {
             ".layer-item .drag-handle": { "cursor": "move", "color": "#9ca3af" },
             ".layer-item .layer-name": { "flex": "1", "overflow": "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" },
             ".layer-item .visibility-toggle": { "font-size": "1rem", "opacity": "0.6", "cursor": "pointer" },
-            ".layer-item .delete-btn": { "color": "#ef4444", "opacity": "0", "font-size": "0.9rem" },
+            ".layer-item .delete-btn": { "color": theme.colors.danger, "opacity": "0", "font-size": "0.9rem" },
             ".layer-item:hover .delete-btn": { "opacity": "1" },
             
             // --- Component & Animation Styles ---
             ".loader-spinner": { "width":"3rem", "height":"3rem", "border":"4px solid #4b5563", "border-top-color":"#3b82f6", "border-radius":"9999px", "animation":"spin 1s linear infinite" },
-            "@keyframes spin": { "from": "transform: rotate(0deg)", "to": "transform: rotate(360deg)" },
             
             // --- Region/Canvas Styles ---
-            ".region-highlight": { "background-color": "rgba(59, 130, 246, 0.1)", "border": "1px solid #3b82f6", "opacity": "0.6", "pointer-events": "all" },
+            ".region-highlight": { "background-color": `rgba(59, 130, 246, 0.1)`, "border": `1px solid ${theme.colors.primaryHover}`, "opacity": "0.6", "pointer-events": "all" },
             ".region-highlight:hover": { "opacity": "0.9", "border-width": "2px", "cursor": "move" },
-            ".region-selected": { "border": "2px solid #2563eb", "background-color": "rgba(37, 99, 235, 0.2)", "opacity": "1.0" },
-            "#selection-box": { "border": "2px dashed #2563eb", "background": "rgba(37, 99, 235, 0.1)", "position": "absolute", "pointer-events": "none", "display": "none", "z-index": "50" },
+            ".region-selected": { "border": `2px solid ${theme.colors.primary}`, "background-color": `rgba(37, 99, 235, 0.2)`, "opacity": "1.0" },
+            "#selection-box": { "border": `2px dashed ${theme.colors.primary}`, "background": `rgba(37, 99, 235, 0.1)`, "position": "absolute", "pointer-events": "none", "display": "none", "z-index": "50" },
             
-            // --- Selection Frame & Resize Handle Styles (FIXED) ---
-            ".selection-frame": { "position": "absolute", "border": "1px solid #3b82f6", "box-shadow": "0 0 0 1px rgba(59,130,246,0.3)", "pointer-events": "none", "z-index": "40" },
-            ".resize-handle": { "position": "absolute", "width": "8px", "height": "8px", "background": "white", "border": "1px solid #2563eb", "z-index": "50", "pointer-events": "all" },
-            ".resize-handle:hover": { "background": "#2563eb" },
+            // --- Selection Frame & Resize Handle Styles (FIXED hardcoded hex values) ---
+            ".selection-frame": { "position": "absolute", "border": `1px solid ${theme.colors.primaryHover}`, "box-shadow": `0 0 0 1px rgba(59,130,246,0.3)`, "pointer-events": "none", "z-index": "40" },
+            ".resize-handle": { "position": "absolute", "width": "8px", "height": "8px", "background": "white", "border": `1px solid ${theme.colors.primary}`, "z-index": "50", "pointer-events": "all" },
+            ".resize-handle:hover": { "background": theme.colors.primary },
             ".handle-nw": { "top": "-4px", "left": "-4px", "cursor": "nwse-resize" },
             ".handle-n":  { "top": "-4px", "left": "50%", "transform": "translateX(-50%)", "cursor": "ns-resize" },
             ".handle-ne": { "top": "-4px", "right": "-4px", "cursor": "nesw-resize" },
@@ -286,16 +304,19 @@ const SciTextUI = {
             ".handle-sw": { "bottom": "-4px", "left": "-4px", "cursor": "nesw-resize" },
             ".handle-w":  { "top": "50%", "left": "-4px", "transform": "translateY(-50%)", "cursor": "ew-resize" },
             
-            // --- Split Bar Styles (FIXED) ---
-            "#split-bar": { "position": "absolute", "z-index": "50", "background": "#ef4444", "opacity": "0.8", "pointer-events": "none", "box-shadow": "0 0 0 1px #dc2626" },
-            "#split-bar-label": { "position": "absolute", "background": "#ef4444", "color": "white", "font-size": "10px", "font-weight": "700", "padding": "2px 4px", "border-radius": "3px", "pointer-events": "none", "white-space": "nowrap" }
+            // --- Split Bar Styles (FIXED hardcoded hex values) ---
+            "#split-bar": { "position": "absolute", "z-index": "50", "background": theme.colors.danger, "opacity": "0.8", "pointer-events": "none", "box-shadow": `0 0 0 1px ${theme.colors.danger}` }, 
+            "#split-bar-label": { "position": "absolute", "background": theme.colors.danger, "color": "white", "font-size": "10px", "font-weight": "700", "padding": "2px 4px", "border-radius": "3px", "pointer-events": "none", "white-space": "nowrap" }
         };
 
         const allRules = { ...base, ...rules };
-        return Object.entries(allRules).map(([selector, props]) => {
+        let css = Object.entries(allRules).map(([selector, props]) => {
             const block = Object.entries(props).map(([k, v]) => `${k}: ${v};`).join(' ');
             return `${selector} { ${block} }`;
         }).join('\n');
+        css += `\n@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`;
+        css += `\n#ai-status { animation: pulse 1s infinite alternate; } @keyframes pulse { from { opacity: 0.5; } to { opacity: 1; } }`; 
+        return css;
     },
 
     // --- Logic: DOM Builder ---

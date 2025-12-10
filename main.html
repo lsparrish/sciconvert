@@ -6,7 +6,7 @@
             return await import(`./src/app.js?v=${Date.now()}`);
         } catch (e) {
             console.warn('Local app.js import failed. Using remote fallback.', e); 
-            return await import(`https://lsparrish.github.io/sciconvert/src/app.js?v=${Date.now()}`);
+//            return await import(`https://lsparrish.github.io/sciconvert/src/app.js?v=${Date.now()}`);
         }
     })();
     appModule.default.bootstrap();
