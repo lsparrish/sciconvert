@@ -1,16 +1,15 @@
 /*
  * SciText Digitizer
- * Contains:
- * 1. Config, Styles, HTML.
- * 2. SciTextModel (State & Data)
- * 3. UIManager (View & DOM)
- * 4. SciTextController (Logic & Events)
- * 4.5. ImageProcessor (Image & Coordinate Utilities)
- * 5. RegionEditor (Canvas Interaction Logic)
+ * Architecture:
+ * 1. CONFIG & SYSTEM (Environment)
+ * 2. SciTextUI (The "Dedicated Object" for UI System)
+ * 3. Model (State)
+ * 4. Controller (Logic & Interaction - with restored algorithms)
+ * 5. View (Bridge between UI System and Model)
  */
 
 // ============================================================================
-// 1. CONFIG & STYLES
+// 1. CONFIG
 // ============================================================================
 
 const CONFIG = {
@@ -21,223 +20,324 @@ const CONFIG = {
 
 const apiKey = ""; // Injected by environment
 
-const APP_STYLES = `
-/* --- Base --- */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: "Segoe UI", sans-serif; background-color: #yy111827; min-height: 100vh; display: flex; flex-direction: column; color: #1f2937; font-size: 14px; }
-.hidden { display: none !important; }
-.relative { position: relative; }
-.absolute { position: absolute; }
-.inset-0 { top: 0; left: 0; right: 0; bottom: 0; }
-.transition { transition: all 0.15s ease-in-out; }
-.uppercase { text-transform: uppercase; }
-.select-none { user-select: none; }
-.disabled-bar { opacity: 0.5; pointer-events: none; }
+// ============================================================================
+// 2. SciTextUI (THE DEDICATED UI OBJECT)
+// ============================================================================
 
-/* --- Components --- */
-.loader-spinner { width: 3rem; height: 3rem; border: 4px solid #4b5563; border-top-color: #3b82f6; border-radius: 9999px; animation: spin 1s linear infinite; }
-@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-#ai-status { animation: pulse 1s infinite alternate; }
-@keyframes pulse { from { opacity: 0.5; } to { opacity: 1; } }
+const SciTextUI = {
+    // --- Data: Theme ---
+    Theme: {
+        colors: {
+            primary: "#2563eb",  primaryHover: "#3b82f6",
+            danger:  "#ef4444",  success:      "#059669",
+            warn:    "#d97706",  accent:       "#60a5fa",
+            dark:    "#111827",  panel:        "#ffffff",
+            surface: "#f9fafb",  surfaceHov:   "#f3ff6",
+            border:  "#e5e7eb",
+            txtMain: "#1f2937",  txtMuted:     "#6b7280", 
+            txtInv:  "#ffffff",  txtLight:     "#f3f4f6"
+        },
+        spacing: { 0: "0", 1: "0.25rem", 2: "0.5rem", 3: "0.75rem", 4: "1rem" },
+        type: {
+            family: { sans: '"Segoe UI", sans-serif', mono: 'Consolas, Monaco, monospace' },
+            size:   { xs: "10px", sm: "12px", base: "14px", lg: "1.25rem" },
+            weight: { reg: "400", bold: "700" }
+        },
+        composites: {
+            "btn-base":   "padding: 0.375rem 0.75rem; border-radius: 0.25rem; font-weight: 600; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 0.5rem;",
+            "row-spread": "display: flex; justify-content: space-between; align-items: center;",
+            "col-stack":  "display: flex; flex-direction: column;",
+            "abs-fill":   "position: absolute; top: 0; left: 0; right: 0; bottom: 0;",
+            "input-base": "width: 100%; border: 1px solid #e5e7eb; border-radius: 0.25rem; padding: 0.375rem; text-align: center;"
+        }
+    },
 
-.app-header { background-color: #1f2937; padding: 0.75rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #111827; z-index: 30; }
-.header-title { font-size: 1.25rem; font-weight: 700; color: #f3f4f6; margin-right: 1rem; }
-.header-title span { color: #60a5fa; }
+    // --- Data: Definitions (The Blueprint Parts) ---
+    Definitions: {
+        root:       { tag: 'div', class: 'col-stack bg-dark text-txt-light', style: 'height:100vh' },
+        header:     { tag: 'header', class: 'row-spread p-3 b-dark bg-dark shrink-0', style: 'border-bottom-width:1px' },
+        workspace:  { tag: 'div', class: 'flex bg-panel relative', style: 'flex:1; overflow:hidden' },
+        flexRow:    { tag: 'div', class: 'flex items-center gap-4' },
+        flexGap:    { tag: 'div', class: 'flex items-center gap-2' },
+        sidebar:    { tag: 'div', class: 'col-stack bg-panel b-border', style: 'width:20rem; border-right-width:1px; z-index:10' },
+        panelHead:  { tag: 'div', class: 'row-spread bg-surface b-border p-3', style: 'border-bottom-width:1px' },
+        panelBody:  { tag: 'div', class: 'bg-surface b-border p-4 relative', style: 'border-bottom-width:1px' },
+        panelFoot:  { tag: 'div', class: 'flex gap-2 p-3 border-t-border bg-surface' },
+        title:      { tag: 'h1', class: 'font-sans font-bold text-lg text-txt-light' },
+        labelTiny:  { tag: 'span', class: 'font-sans font-bold text-xs text-txt-muted uppercase' },
+        btnLoad:    { tag: 'label', class: 'btn-base bg-primary text-txt-inv' },
+        btnAction:  { tag: 'button', class: 'btn-base text-txt-inv font-bold text-xs', style: 'padding: 0.25rem 0.75rem;' },
+        btnGhost:   { tag: 'button', class: 'btn-base text-txt-muted', style: 'background:none; border:1px solid #4b5563; color:#e5e7eb' }, 
+        btnIcon:    { tag: 'button', style: 'background:none; border:none; cursor:pointer; color:#9ca3af; font-size:1.25rem' },
+        inputNum:   { tag: 'input', type: 'number', class: 'input-base font-mono text-xs' },
+        hiddenIn:   { tag: 'input', type: 'file', class: 'hidden' },
+        tabBtn:     { tag: 'button', class: 'font-bold text-xs text-txt-muted p-2', style: 'border-bottom:2px solid transparent; cursor:pointer' },
+        activeTab:  { tag: 'button', class: 'font-bold text-xs text-primary p-2', style: 'border-bottom:2px solid #2563eb; cursor:pointer' },
+        geoGrid:    { tag: 'div', style: 'display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;' },
+        geoGroup:   { tag: 'div', class: 'col-stack gap-1' },
+        canvasArea: { tag: 'div', class: 'col-stack bg-border relative', style: 'flex:1; overflow:hidden' },
+        canvasWrap: { tag: 'div', class: 'relative bg-panel', style: 'box-shadow:0 20px 25px -5px rgba(0,0,0,0.5)' },
+        actionBar:  { tag: 'div', class: 'fixed z-50 bg-panel b-border rounded p-2 flex gap-2 hidden', style: 'box-shadow:0 4px 6px rgba(0,0,0,0.1)' }
+    },
 
-.btn { padding: 0.375rem 0.75rem; border-radius: 0.25rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; border: 1px solid transparent; transition: all 0.15s; }
-.btn-primary { background-color: #2563eb; color: white; } .btn-primary:hover { background-color: #3b82f6; }
-.btn-secondary { background-color: #374151; color: #e5e7eb; border-color: #4b5563; font-size: 0.75rem; }
-.action-bar-btn { padding: 0.25rem 0.75rem; border-radius: 0.25rem; font-weight: 700; font-size: 0.75rem; color: white; border: 1px solid transparent; cursor: pointer; }
+    // --- Data: Layout (The Assembly) ---
+    getLayout() {
+        // Returns the structure using the definitions above
+        return {
+            def: 'root', id: 'template-structure', children: [
+                // --- Header ---
+                { def: 'header', children: [
+                    { def: 'flexRow', children: [
+                        { def: 'title', html: 'SciText <span style="color:#60a5fa">Digitizer</span>' },
+                        { tag: 'div', class: 'relative', children: [
+                            { def: 'hiddenIn', id: 'pdf-upload', accept: 'application/pdf, image/*' },
+                            { def: 'btnLoad', for: 'pdf-upload', text: 'Load' }
+                        ]}
+                    ]},
+                    { def: 'flexGap', children: [
+                        { def: 'btnGhost', id: 'zoom-out', text: '-' },
+                        { tag: 'span', id: 'zoom-level', text: '100%', class: 'text-xs text-txt-light', style: 'width:3rem; text-align:center' },
+                        { def: 'btnGhost', id: 'zoom-in', text: '+' }
+                    ]},
+                    { def: 'flexGap', children: [
+                        { def: 'btnGhost', id: 'btn-undo', text: 'Undo' },
+                        { def: 'btnGhost', id: 'btn-redo', text: 'Redo' },
+                        { tag: 'span', id: 'ai-status', class: 'hidden font-mono text-xs text-accent', text: 'Processing...' },
+                        { def: 'btnGhost', id: 'fullscreen-toggle', text: 'Full Screen' }
+                    ]}
+                ]},
+                // --- Main ---
+                { tag: 'main', class: 'flex-col bg-panel relative', style: 'flex:1; overflow:hidden', children: [
+                    { tag: 'div', class: 'flex bg-surface b-border', style: 'border-bottom-width:1px', children: [
+                        { def: 'activeTab', id: 'tab-overlay', text: 'Compositor' },
+                        { def: 'tabBtn', id: 'tab-debug', text: 'Debug View' }
+                    ]},
+                    { def: 'workspace', id: 'workspace-container', class: 'hidden flex', children: [
+                        { def: 'sidebar', children: [
+                            // Properties
+                            { def: 'panelHead', children: [
+                                { def: 'labelTiny', text: 'Properties' },
+                                { def: 'labelTiny', id: 'region-count', text: '0', style: 'background:#dbeafe; color:#1d4ed8; padding:2px 6px; border-radius:99px' }
+                            ]},
+                            { def: 'panelBody', children: [
+                                { def: 'labelTiny', text: 'Geometry (Norm)', class: 'absolute text-accent', style: 'top:0.25rem; right:0.5rem' },
+                                { def: 'geoGrid', children: [
+                                    { def: 'geoGroup', children: [{ def: 'labelTiny', text: 'X' }, { def: 'inputNum', id: 'prop-x' }] },
+                                    { def: 'geoGroup', children: [{ def: 'labelTiny', text: 'Y' }, { def: 'inputNum', id: 'prop-y' }] },
+                                    { def: 'geoGroup', children: [{ def: 'labelTiny', text: 'W' }, { def: 'inputNum', id: 'prop-w' }] },
+                                    { def: 'geoGroup', children: [{ def: 'labelTiny', text: 'H' }, { def: 'inputNum', id: 'prop-h' }] }
+                                ]},
+                                { tag: 'div', style: 'margin-top:0.5rem; padding-top:0.5rem; border-top:1px solid #e5e7eb', children: [
+                                     { def: 'labelTiny', text: 'SVG Transform', class: 'text-center block' },
+                                     { def: 'geoGrid', style:'margin-top:0.5rem; grid-template-columns:1fr 1fr; gap:0.5rem', children: [
+                                        { def: 'geoGroup', children: [{ def: 'labelTiny', text: 'Off X' }, { def: 'inputNum', id: 'prop-offset-x', step: '0.1' }] },
+                                        { def: 'geoGroup', children: [{ def: 'labelTiny', text: 'Off Y' }, { def: 'inputNum', id: 'prop-offset-y', step: '0.1' }] },
+                                        { def: 'geoGroup', children: [{ def: 'labelTiny', text: 'Scl X' }, { def: 'inputNum', id: 'prop-scale-x', step: '0.05' }] },
+                                        { def: 'geoGroup', children: [{ def: 'labelTiny', text: 'Scl Y' }, { def: 'inputNum', id: 'prop-scale-y', step: '0.05' }] }
+                                     ]}
+                                ]}
+                            ]},
+                            // SVG Raw Editor
+                            { def: 'panelBody', id: 'svg-raw-editor-panel', class: 'hidden col-stack gap-2', children: [
+                                { def: 'labelTiny', text: 'Edit Raw SVG' },
+                                { tag: 'textarea', id: 'svg-raw-content', class: 'font-mono text-xs b-border rounded p-2', style:'min-height:100px; resize:vertical' },
+                                { def: 'btnAction', id: 'btn-save-raw-svg', text: 'Apply', style:'background:#4f46e5' }
+                            ]},
+                            // Layers
+                            { tag: 'div', class: 'col-stack bg-surface', style: 'flex:1; overflow:hidden', children: [
+                                { def: 'panelHead', children: [
+                                     { def: 'labelTiny', text: 'Layers' },
+                                     { def: 'btnIcon', id: 'btn-toggle-visibility-all', text: '👁', style:'font-size:1rem' }
+                                ]},
+                                { tag: 'div', id: 'layer-items', style: 'flex:1; overflow-y:auto' }
+                            ]},
+                            // Footer
+                            { def: 'panelFoot', children: [
+                                { def: 'btnAction', id: 'btn-auto-segment', text: 'Auto', style:`background:${this.Theme.colors.danger}` },
+                                { def: 'btnAction', id: 'btn-export', text: 'Export', style:`background:${this.Theme.colors.success}` },
+                                { def: 'hiddenIn', id: 'svg-import', accept: '.svg' },
+                                { def: 'btnLoad', for: 'svg-import', text: 'Import', style:'font-size:0.75rem; padding:0.25rem 0.75rem' },
+                                { def: 'btnAction', id: 'btn-clear-all', text: 'Reset', style:'background:transparent; color:#ef4444' }
+                            ]}
+                        ]},
+                        // Canvas
+                        { def: 'canvasArea', id: 'canvas-view-area', children: [
+                            { tag: 'div', id: 'canvas-scroller', style: 'width:100%; height:100%; overflow:auto; display:flex; justify-content:center; padding:2rem', children: [
+                                { def: 'canvasWrap', id: 'canvas-wrapper', children: [
+                                     { tag: 'div', id: 'pdf-layer', class: 'abs-fill transition' },
+                                     { tag: 'div', id: 'svg-layer', class: 'abs-fill', style: 'pointer-events:none; z-index:10' },
+                                     { tag: 'div', id: 'interaction-layer', class: 'abs-fill', style: 'z-index:20' },
+                                     { tag: 'div', id: 'selection-box' },
+                                     { tag: 'div', id: 'split-bar', class: 'hidden' }
+                                ]}
+                            ]}
+                        ]}
+                    ]},
+                    // Debug & Overlays
+                    { tag: 'div', id: 'debug-container', class: 'hidden bg-dark p-4', style: 'flex:1; overflow:auto', children: [
+                        { tag: 'pre', id: 'debug-log', class: 'font-mono text-xs text-success' }
+                    ]},
+                    { tag: 'div', id: 'empty-state', class: 'abs-fill flex-col justify-center items-center bg-surface', children: [
+                        { tag: 'div', class: 'p-4 bg-panel rounded b-border text-center shadow', children: [
+                             { tag: 'h2', class: 'font-bold text-lg text-txt-main', text: 'No Document' },
+                             { tag: 'p', class: 'text-txt-muted mt-2', text: 'Upload PDF or Image to start.' }
+                        ]}
+                    ]},
+                    { tag: 'div', id: 'pdf-loader', class: 'hidden abs-fill flex-col justify-center items-center', style: 'background:rgba(17,24,39,0.8); z-index:50', children: [
+                         { tag: 'div', class: 'loader-spinner' },
+                         { tag: 'span', class: 'font-bold text-txt-inv mt-4', text: 'Loading...' }
+                    ]},
+                    { tag: 'canvas', id: 'processing-canvas', class: 'hidden' }
+                ]},
+                // Floating Action Bar
+                { def: 'actionBar', id: 'region-actions-bar', children: [
+                    { def: 'btnAction', 'data-type':'text', text:'Digitize', style:'background:#2563eb' },
+                    { def: 'btnAction', 'data-type':'image', text:'Image', style:'background:#d97706' },
+                    { def: 'btnAction', 'data-type':'blueprint', text:'Scan', style:'background:#059669' },
+                    { def: 'btnAction', 'data-type':'empty', text:'Empty', style:'background:#4b5563' },
+                    { tag:'div', style:'width:1px; background:#d1d5db' },
+                    { def: 'btnAction', id:'btn-fit-area', text:'Fit', style:'background:#6b21a8' },
+                    { def: 'btnAction', id:'btn-fit-content', text:'Fill', style:'background:#1e40af' },
+                    { tag:'div', style:'width:1px; background:#d1d5db' },
+                    { def: 'btnAction', id:'btn-split', text:'Split', style:'background:#4338ca' },
+                    { def: 'btnAction', id:'btn-group', text:'Group', style:'background:#0d9488' },
+                    { def: 'btnAction', id:'btn-delete', text:'Del', style:'background:#ef4444' }
+                ]}
+            ]
+        };
+    },
 
-/* --- Layout --- */
-.main-content-wrapper { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; background-color: white; }
-.workspace-container { flex: 1; display: flex; overflow: hidden; position: relative; }
+    // --- Logic: Style Generator ---
+    generateStyles() {
+        const theme = this.Theme;
+        const rules = {};
+        // Colors
+        Object.entries(theme.colors).forEach(([k, v]) => {
+            const n = k.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`);
+            rules[`.text-${n}`] = { "color": v };
+            rules[`.bg-${n}`]   = { "background-color": v };
+            rules[`.b-${n}`]    = { "border": `1px solid ${v}` };
+        });
+        // Spacing
+        Object.entries(theme.spacing).forEach(([k, v]) => {
+            rules[`.p-${k}`]   = { "padding": v };
+            rules[`.gap-${k}`] = { "gap": v };
+        });
+        // Typography
+        Object.entries(theme.type.family).forEach(([k,v]) => rules[`.font-${k}`] = { "font-family": v });
+        Object.entries(theme.type.size).forEach(([k,v]) => rules[`.text-${k}`] = { "font-size": v });
+        Object.entries(theme.type.weight).forEach(([k,v]) => rules[`.font-${k}`] = { "font-weight": v });
+        // Composites
+        Object.entries(theme.composites).forEach(([k, cssStr]) => {
+            rules[`.${k}`] = cssStr.split(';').reduce((acc, rule) => {
+                const [p, v] = rule.split(':');
+                if (p && v) acc[p.trim()] = v.trim();
+                return acc;
+            }, {});
+        });
 
-.sidebar-panel { width: 20rem; display: flex; flex-direction: column; border-right: 1px solid #e5e7eb; background-color: white; z-index: 10; }
-.prop-header { background-color: #f3f4f6; padding: 0.75rem 1rem; border-bottom: 1px solid #e5e7eb; display: flex; flex-direction: column; gap: 0.5rem; }
-.geometry-inputs { padding: 1rem; background-color: #f9fafb; border-bottom: 1px solid #e5e7eb; display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; font-size: 0.75rem; position: relative; }
-.input-label { display: block; color: #9ca3af; font-weight: 700; margin-bottom: 0.25rem; font-size: 10px; text-transform: uppercase; }
-.input-field { width: 100%; border: 1px solid #d1d5db; border-radius: 0.25rem; padding: 0.375rem; text-align: center; }
-.layer-list-container { display: flex; flex-direction: column; background-color: #e5e7eb; overflow: hidden; position: relative; }
-.layer-item {
-    padding: 0.5rem 0.75rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.75rem;
-    cursor: pointer;
-    border-bottom: 1px solid #e5e7eb;
-    background: white;
-    transition: background 0.15s;
-}
-.layer-item:hover { background: #f3f4f6; }
-.layer-item.active { background: #dbeafe; font-weight: 600; }
-.layer-item .visibility-toggle { font-size: 1rem; opacity: 0.6; cursor: pointer; }
-.layer-item .visibility-toggle.hidden { opacity: 0.2; }
-.layer-item .drag-handle { cursor: move; color: #9ca3af; }
-.layer-item .layer-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.layer-item .delete-btn { color: #ef4444; opacity: 0; font-size: 0.9rem; }
-.layer-item:hover .delete-btn { opacity: 1; }
-.sidebar-footer { padding: 0.75rem; border-top: 1px solid #e5e7eb; background-color: #f9fafb; display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: space-between; }
+        // Base Styles
+        const base = {
+            "*, *::before, *::after": { "box-sizing": "border-box", "margin": "0", "padding": "0" },
+            "body": { "font-family": '"Segoe UI", sans-serif', "background-color": theme.colors.dark, "color": theme.colors.txtMain, "min-height": "100vh", "display": "flex", "flex-direction": "column", "font-size": "14px" },
+            ".hidden": { "display": "none !important" },
+            ".flex": { "display": "flex" },
+            ".flex-col": { "display": "flex", "flex-direction": "column" },
+            ".items-center": { "align-items": "center" },
+            ".justify-center": { "justify-content": "center" },
+            ".relative": { "position": "relative" },
+            ".absolute": { "position": "absolute" },
+            ".inset-0": { "top": "0", "left": "0", "right": "0", "bottom": "0" },
+            ".rounded": { "border-radius": "0.25rem" },
+            ".uppercase": { "text-transform": "uppercase" },
+            ".transition": { "transition": "all 0.15s ease-in-out" },
+            ".btn-primary:hover": { "background-color": theme.colors.primaryHover },
+            
+            // --- Layer List Styles ---
+            ".layer-item": { "display": "flex", "align-items": "center", "gap": "0.5rem", "font-size": "0.75rem", "cursor": "pointer", "padding": "0.5rem 0.75rem", "background": "white", "transition": "background 0.15s", "border-bottom": "1px solid #e5e7eb" },
+            ".layer-item:hover": { "background-color": theme.colors.surfaceHov },
+            ".layer-item.active": { "background-color": "#dbeafe", "font-weight": "600" },
+            ".layer-item .drag-handle": { "cursor": "move", "color": "#9ca3af" },
+            ".layer-item .layer-name": { "flex": "1", "overflow": "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" },
+            ".layer-item .visibility-toggle": { "font-size": "1rem", "opacity": "0.6", "cursor": "pointer" },
+            ".layer-item .delete-btn": { "color": "#ef4444", "opacity": "0", "font-size": "0.9rem" },
+            ".layer-item:hover .delete-btn": { "opacity": "1" },
+            
+            // --- Component & Animation Styles ---
+            ".loader-spinner": { "width":"3rem", "height":"3rem", "border":"4px solid #4b5563", "border-top-color":"#3b82f6", "border-radius":"9999px", "animation":"spin 1s linear infinite" },
+            "@keyframes spin": { "from": "transform: rotate(0deg)", "to": "transform: rotate(360deg)" },
+            
+            // --- Region/Canvas Styles ---
+            ".region-highlight": { "background-color": "rgba(59, 130, 246, 0.1)", "border": "1px solid #3b82f6", "opacity": "0.6", "pointer-events": "all" },
+            ".region-highlight:hover": { "opacity": "0.9", "border-width": "2px", "cursor": "move" },
+            ".region-selected": { "border": "2px solid #2563eb", "background-color": "rgba(37, 99, 235, 0.2)", "opacity": "1.0" },
+            "#selection-box": { "border": "2px dashed #2563eb", "background": "rgba(37, 99, 235, 0.1)", "position": "absolute", "pointer-events": "none", "display": "none", "z-index": "50" },
+            
+            // --- Selection Frame & Resize Handle Styles (FIXED) ---
+            ".selection-frame": { "position": "absolute", "border": "1px solid #3b82f6", "box-shadow": "0 0 0 1px rgba(59,130,246,0.3)", "pointer-events": "none", "z-index": "40" },
+            ".resize-handle": { "position": "absolute", "width": "8px", "height": "8px", "background": "white", "border": "1px solid #2563eb", "z-index": "50", "pointer-events": "all" },
+            ".resize-handle:hover": { "background": "#2563eb" },
+            ".handle-nw": { "top": "-4px", "left": "-4px", "cursor": "nwse-resize" },
+            ".handle-n":  { "top": "-4px", "left": "50%", "transform": "translateX(-50%)", "cursor": "ns-resize" },
+            ".handle-ne": { "top": "-4px", "right": "-4px", "cursor": "nesw-resize" },
+            ".handle-e":  { "top": "50%", "right": "-4px", "transform": "translateY(-50%)", "cursor": "ew-resize" },
+            ".handle-se": { "bottom": "-4px", "right": "-4px", "cursor": "nwse-resize" },
+            ".handle-s":  { "bottom": "-4px", "left": "50%", "transform": "translateX(-50%)", "cursor": "ns-resize" },
+            ".handle-sw": { "bottom": "-4px", "left": "-4px", "cursor": "nesw-resize" },
+            ".handle-w":  { "top": "50%", "left": "-4px", "transform": "translateY(-50%)", "cursor": "ew-resize" },
+            
+            // --- Split Bar Styles (FIXED) ---
+            "#split-bar": { "position": "absolute", "z-index": "50", "background": "#ef4444", "opacity": "0.8", "pointer-events": "none", "box-shadow": "0 0 0 1px #dc2626" },
+            "#split-bar-label": { "position": "absolute", "background": "#ef4444", "color": "white", "font-size": "10px", "font-weight": "700", "padding": "2px 4px", "border-radius": "3px", "pointer-events": "none", "white-space": "nowrap" }
+        };
 
-/* --- Canvas --- */
-.canvas-view-style { flex: 1; display: flex; flex-direction: column; background-color: #e5e7eb; overflow: hidden; position: relative; }
-.canvas-scroller-style { flex: 1; overflow: auto; display: flex; justify-content: center; padding: 1rem; position: relative; }
-.canvas-wrapper-style { box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); background-color: white; position: relative; transform-origin: top; }
+        const allRules = { ...base, ...rules };
+        return Object.entries(allRules).map(([selector, props]) => {
+            const block = Object.entries(props).map(([k, v]) => `${k}: ${v};`).join(' ');
+            return `${selector} { ${block} }`;
+        }).join('\n');
+    },
 
-/* --- SVG Elements --- */
-.region-highlight { background-color: rgba(59, 130, 246, 0.1); border: 1px solid #3b82f6; opacity: 0.6; pointer-events: all; }
-.region-highlight:hover { opacity: 0.9; border-width: 2px; cursor: move; }
-.region-selected { border: 2px solid #2563eb; background-color: rgba(37, 99, 235, 0.2); opacity: 1.0; }
-#selection-box { border: 2px dashed #2563eb; background: rgba(37, 99, 235, 0.1); position: absolute; pointer-events: none; display: none; z-index: 50; }
+    // --- Logic: DOM Builder ---
+    build(schema, parent, bindTarget) {
+        if (!schema) return;
+        let config = schema;
+        if (schema.def && this.Definitions[schema.def]) {
+            config = { ...this.Definitions[schema.def], ...schema };
+        }
+        const el = document.createElement(config.tag || 'div');
+        if (config.id) {
+            el.id = config.id;
+            const toCamel = (s) => s.replace(/-./g, x => x[1].toUpperCase());
+            if (bindTarget) bindTarget[toCamel(config.id)] = el;
+        }
+        if (config.class) el.className = config.class;
+        if (config.style) el.style.cssText = config.style;
+        if (config.text) el.textContent = config.text;
+        if (config.html) el.innerHTML = config.html;
+        
+        Object.keys(config).forEach(key => {
+            if (!['tag','id','class','style','text','html','children','def'].includes(key)) {
+                el.setAttribute(key, config[key]);
+            }
+        });
+        if (parent) parent.appendChild(el);
+        if (config.children) config.children.forEach(child => this.build(child, el, bindTarget));
+        return el;
+    },
 
-/* --- Draw Handles --- */
-.selection-frame { position: absolute; border: 1px solid #3b82f6; box-shadow: 0 0 0 1px rgba(59,130,246,0.3); pointer-events: none; z-index: 40; }
-.resize-handle { position: absolute; width: 8px; height: 8px; background: white; border: 1px solid #2563eb; z-index: 50; pointer-events: all; }
-.resize-handle:hover { background: #2563eb; }
-.handle-nw { top: -4px; left: -4px; cursor: nwse-resize; } .handle-n { top: -4px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
-.handle-ne { top: -4px; right: -4px; cursor: nesw-resize; } .handle-e { top: 50%; right: -4px; transform: translateY(-50%); cursor: ew-resize; }
-.handle-se { bottom: -4px; right: -4px; cursor: nwse-resize; } .handle-s { bottom: -4px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
-.handle-sw { bottom: -4px; left: -4px; cursor: nesw-resize; } .handle-w { top: 50%; left: -4px; transform: translateY(-50%); cursor: ew-resize; }
-
-.region-actions-bar { position: fixed; z-index: 100; background: rgba(255,255,255,0.95); padding: 0.5rem; border-radius: 0.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 1px solid #d1d5db; display: flex; gap: 0.5rem; }
-.tab-button { padding: 0.5rem 1rem; font-size: 0.75rem; font-weight: 600; color: #6b7280; border-bottom: 2px solid transparent; cursor: pointer; }
-.tab-button-active { color: #2563eb; border-bottom-color: #2563eb; }
-
-#split-bar { position: absolute; z-index: 50; background: #ef4444; opacity: 0.8; pointer-events: none; box-shadow: 0 0 0 1px #dc2626; }
-#split-bar-label { position: absolute; background: #ef4444; color: white; font-size: 10px; font-weight: 700; padding: 2px 4px; border-radius: 3px; pointer-events: none; white-space: nowrap; }
-`;
-
-const APP_STRUCTURE = `
-<div id="template-structure">
-    <header class="app-header z-30 shrink-0">
-      <div class="header-group" style="display:flex; align-items:center; gap:1rem;">
-        <h1 class="header-title">SciText <span>Digitizer</span></h1>
-        <div class="relative">
-          <input type="file" id="pdf-upload" accept="application/pdf, image/*" class="hidden" />
-          <label for="pdf-upload" class="btn btn-primary">Load</label>
-        </div>
-        <div style="width:1px; height:0.5rem; background:#4b5563;"></div>
-        <div style="display:flex; border:1px solid #4b5563; border-radius:0.375rem;">
-          <button id="zoom-out" style="color:#d1d5db; padding:0.25rem 0.5rem;">-</button>
-          <span id="zoom-level" style="font-size:0.75rem; width:3.5rem; text-align:center; color:#e5e7eb; align-self:center;">100%</span>
-          <button id="zoom-in" style="color:#d1d5db; padding:0.25rem 0.5rem;">+</button>
-        </div>
-        <div style="display:flex; gap:0.25rem;">
-            <button id="btn-undo" class="btn btn-secondary">Undo</button>
-            <button id="btn-redo" class="btn btn-secondary">Redo</button>
-        </div>
-      </div>
-      <div style="display:flex; align-items:center; gap:1rem;">
-          <span id="ai-status" class="hidden" style="color:#60a5fa; font-size:0.75rem; font-family:monospace;">Processing...</span>
-          <button id="fullscreen-toggle" class="btn btn-secondary">Full Screen</button>
-      </div>
-    </header>
-
-    <main class="main-content-wrapper">
-      <div style="background:#f9fafb; border-bottom:1px solid #e5e7eb; flex-shrink:0; padding:0;">
-        <button id="tab-overlay" class="tab-button tab-button-active">Compositor</button>
-        <button id="tab-debug" class="tab-button">Debug View</button>
-      </div>
-
-      <div id="workspace-container" class="workspace-container hidden">
-          <div class="sidebar-panel">
-              <div class="prop-header">
-                  <div style="display:flex; justify-content:space-between; align-items:center;">
-                      <span class="uppercase" style="font-size:0.75rem; font-weight:700; color:#4b5563;">Properties</span>
-                      <span id="region-count" style="background:#dbeafe; color:#1d4ed8; padding:0.125rem 0.5rem; border-radius:99px; font-size:10px; font-weight:700;">0</span>
-                  </div>
-              </div>
-              
-              <div class="geometry-inputs">
-                  <div style="position:absolute; top:0.25rem; right:0.5rem; font-size:9px; font-weight:700; color:#60a5fa;">COORDS (Normalized Pixels)</div>
-                  <div><label class="input-label">Pos X</label><input type="number" id="prop-x" class="input-field"></div>
-                  <div><label class="input-label">Pos Y</label><input type="number" id="prop-y" class="input-field"></div>
-                  <div><label class="input-label">Width</label><input type="number" id="prop-w" class="input-field"></div>
-                  <div><label class="input-label">Height</label><input type="number" id="prop-h" class="input-field"></div>
-                  
-                  <div style="grid-column: 1 / span 2; margin-top: 0.5rem; position:relative;">
-                      <span class="input-label" style="text-align:center; display:block;">SVG Content Adjustment</span>
-                      <div style="position:absolute; top:0.15rem; right:0; font-size:9px; font-weight:700; color:#60a5fa;">OFFSET/SCALE</div>
-                  </div>
-                  <div><label class="input-label">Offset X</label><input type="number" id="prop-offset-x" class="input-field" step="0.1"></div>
-                  <div><label class="input-label">Offset Y</label><input type="number" id="prop-offset-y" class="input-field" step="0.1"></div>
-                  <div><label class="input-label">Scale X</label><input type="number" id="prop-scale-x" class="input-field" step="0.05" min="0.1"></div>
-                  <div><label class="input-label">Scale Y</label><input type="number" id="prop-scale-y" class="input-field" step="0.05" min="0.1"></div>
-              </div>
-
-              <div id="svg-raw-editor-panel" class="hidden" style="padding: 1rem; background-color: #fff; border-bottom: 1px solid #e5e7eb; display:flex; flex-direction:column; gap:0.5rem;">
-                  <span class="input-label" style="margin-bottom:0;">SVG Content (Edit Raw)</span>
-                  <textarea id="svg-raw-content" style="width: 100%; min-height: 150px; border: 1px solid #d1d5db; border-radius: 0.25rem; padding: 0.5rem; font-family: monospace; font-size: 11px; line-height: 1.2; resize: vertical;"></textarea>
-                  <button id="btn-save-raw-svg" class="action-bar-btn" style="background:#4f46e5; font-size:0.75rem;">Apply Changes</button>
-              </div>
-              <div id="layer-list" class="layer-list-container">
-                  <div class="layer-list-header" style="padding:0.5rem 1rem; background:#f3f4f6; border-bottom:1px solid #e5e7eb; font-size:0.75rem; font-weight:700; color:#4b5563; text-transform:uppercase; letter-spacing:0.05em;">
-                      Layers
-                      <button id="btn-toggle-visibility-all" style="float:right; background:none; border:none; cursor:pointer; color:#6b7280; font-size:1rem;">👁</button>
-                  </div>
-                  <div id="layer-items" style="flex:1; overflow-y:auto; padding:0.25rem 0;"></div>
-              </div>
-              
-              <div class="sidebar-footer">
-                  <div style="display:flex; gap:0.25rem;">
-                    <button id="btn-auto-segment" class="action-bar-btn" style="background:#dc2626;">Auto Segment</button>
-                    <button id="btn-export" class="action-bar-btn" style="background:#047857;">Export</button>
-                    <input type="file" id="svg-import" accept=".svg" class="hidden" />
-                    <label for="svg-import" class="btn btn-primary">Import</label>
-                    <button id="btn-clear-all" class="action-bar-btn" style="color:#ef4444; background:transparent;">Reset</button>
-                  </div>
-              </div>
-          </div>
-
-          <div id="canvas-view-area" class="canvas-view-style">
-              <div id="canvas-scroller" class="canvas-scroller-style">
-                  <div id="canvas-wrapper" class="canvas-wrapper-style">
-                      <div id="pdf-layer" class="transition absolute inset-0"></div>
-                      <div id="svg-layer" class="absolute inset-0 z-10" style="pointer-events:none;"></div> 
-                      <div id="interaction-layer" class="absolute inset-0 z-20"></div>
-                      <div id="selection-box"></div>
-                      <div id="split-bar" class="hidden"></div>
-                  </div>
-              </div>
-          </div>
-      </div>
-      
-      <div id="debug-container" class="hidden" style="flex:1; background:#111827; padding:1.5rem; overflow:auto;">
-           <pre id="debug-log" style="color:#4ade80; font-size:10px; font-family:monospace;"></pre>
-      </div>
-      
-      <div id="empty-state" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#f3f4f6;">
-        <div style="background:white; padding:2rem; border-radius:1rem; box-shadow:0 10px 15px rgba(0,0,0,0.1); text-align:center;">
-            <h2 style="font-size:1.25rem; font-weight:700; color:#374151;">No Document Loaded</h2>
-            <p style="color:#6b7280; margin-top:0.5rem;">Upload a PDF or Image.</p>
-        </div>
-      </div>
-      <div id="pdf-loader" class="hidden" style="position:absolute; inset:0; background:rgba(17,24,39,0.8); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:50;">
-          <div class="loader-spinner"></div>
-          <span style="color:white; font-weight:700; margin-top:1rem;">Loading...</span>
-      </div>
-    </main>
-
-    <div id="region-actions-bar" class="region-actions-bar hidden">
-      <button data-type="text" class="action-bar-btn" style="background:#2563eb;">Digitize</button>
-      <button data-type="image" class="action-bar-btn" style="background:#d97706;">Image</button>
-      <button data-type="blueprint" class="action-bar-btn" style="background:#059669;">Scan</button> 
-      <button data-type="empty" class="action-bar-btn" style="background:#4b5563;">Empty</button>
-      <div style="width:1px;height:1.5rem;background:#d1d5db;"><br></div>
-      <button id="btn-fit-area" class="action-bar-btn" style="background:#6b21a8;">Fit Area</button>
-      <button id="btn-fit-content" class="action-bar-btn" style="background:#1e40af;">Fill</button>
-      <div style="width:1px;height:1.5rem;background:#d1d5db;"></div>
-      <button id="btn-split" class="action-bar-btn" style="background:#4338ca;">Split</button>
-      <button id="btn-group" class="action-bar-btn" style="background:#0d9488;">Group</button>
-      <button id="btn-delete" class="action-bar-btn" style="background:#ef4444;">Del</button>
-    </div>
-    
-    <canvas id="processing-canvas" style="display:none;"></canvas>
-</div>`;
+    // --- Init ---
+    init(bindTarget) {
+        const styleEl = document.createElement("style");
+        styleEl.textContent = this.generateStyles();
+        document.head.appendChild(styleEl);
+        this.build(this.getLayout(), document.body, bindTarget);
+        if (bindTarget) bindTarget.splitBar = document.getElementById('split-bar'); 
+    }
+};
 
 // ============================================================================
-// 2. MODEL
+// 3. MODEL
 // ============================================================================
 
 class SciTextModel {
@@ -266,12 +366,7 @@ class SciTextModel {
     }
 
     addRegion(region) {
-        const newRegion = { 
-            ...region, 
-            visible: true,
-            offset: {x: 0, y: 0},
-            scale: {x: 1, y: 1}
-        };
+        const newRegion = { ...region, visible: true, offset: {x: 0, y: 0}, scale: {x: 1, y: 1} };
         this.state.regions.push(newRegion);
         this.selectRegion(newRegion.id);
         this.saveHistory();
@@ -317,19 +412,13 @@ class SciTextModel {
         if (this.state.historyIndex < this.state.history.length - 1) {
             this.state.history = this.state.history.slice(0, this.state.historyIndex + 1);
         }
-        // Deep copy only relevant data to history
+        // Deep copy
         const regionsCopy = this.state.regions.map(r => ({
-            id: r.id,
-            rect: {...r.rect},
-            svgContent: r.svgContent,
-            bpDims: r.bpDims ? {...r.bpDims} : undefined,
-            visible: r.visible,
-            status: r.status,
-            contentType: r.contentType,
-            offset: {...r.offset},
-            scale: {...r.scale}
+            id: r.id, rect: {...r.rect}, svgContent: r.svgContent,
+            bpDims: r.bpDims ? {...r.bpDims} : undefined, visible: r.visible,
+            status: r.status, contentType: r.contentType,
+            offset: {...r.offset}, scale: {...r.scale}
         }));
-
         this.state.history.push(regionsCopy);
         this.state.historyIndex++;
         if (this.state.history.length > 50) {
@@ -353,15 +442,598 @@ class SciTextModel {
     }
 
     restore() {
-        // Restore from history, performing deep copy back to state
         this.state.regions = JSON.parse(JSON.stringify(this.state.history[this.state.historyIndex]));
         this.deselect();
         this.notify();
     }
 }
 
-// ===========================================// ============================================================================
-// 3. VIEW (UI Manager)
+// ============================================================================
+// 4. LOGIC & CONTROLLER
+// ============================================================================
+
+class ImageProcessor {
+    constructor(model) { this.model = model; this.scaleFactor = 2; }
+    isDark(data, i) { return data[i*4+3] > 128 && data[i*4] < 200 && data[i*4+1] < 200 && data[i*4+2] < 200; }
+    
+    processRegion(normRect, pad=4) {
+        const s = this.model.state, cvs = s.canvas;
+        if (!cvs) return null;
+        const pw = Math.floor(normRect.w*s.canvasWidth), ph = Math.floor(normRect.h*s.canvasHeight);
+        if (pw < 1 || ph < 1) return null;
+        
+        const tmp = document.createElement("canvas");
+        tmp.width = pw*this.scaleFactor; tmp.height = ph*this.scaleFactor;
+        const ctx = tmp.getContext("2d");
+        ctx.drawImage(cvs, normRect.x*s.canvasWidth, normRect.y*s.canvasHeight, pw, ph, 0, 0, tmp.width, tmp.height);
+        
+        const d = ctx.getImageData(0,0,tmp.width,tmp.height).data, W = tmp.width, H = tmp.height;
+        let minX=W, minY=H, maxX=0, maxY=0, found=false;
+        for(let y=0; y<H; y++) for(let x=0; x<W; x++) if(this.isDark(d, y*W+x)) { minX=Math.min(minX,x); maxX=Math.max(maxX,x); minY=Math.min(minY,y); maxY=Math.max(maxY,y); found=true; }
+        if(!found) return null;
+
+        minX=Math.max(0,minX-pad); minY=Math.max(0,minY-pad); maxX=Math.min(W,maxX+pad); maxY=Math.min(H,maxY+pad);
+        const bpW = maxX-minX;
+        const bpH = maxY-minY;
+        let rle = "";
+        for(let y=minY; y<maxY; y+=this.scaleFactor) {
+            let sx=-1;
+            for(let x=minX; x<maxX; x++) {
+                if(this.isDark(d, y*W+x)) { if(sx===-1) sx=x; }
+                else if(sx!==-1) { rle+=`M${sx} ${y}h${x-sx}v${this.scaleFactor}h-${x-sx}z`; sx=-1; }
+            }
+            if(sx!==-1) rle+=`M${sx} ${y}h${maxX-sx}v${this.scaleFactor}h-${maxX-sx}z`;
+        }
+        
+        return {
+            rle, bpDims: { w: bpW, h: bpH },
+            newRect: { x: normRect.x+(minX/this.scaleFactor)/s.canvasWidth, y: normRect.y+(minY/this.scaleFactor)/s.canvasHeight, w: (maxX-minX)/this.scaleFactor/s.canvasWidth, h: (maxY-minY)/this.scaleFactor/s.canvasHeight },
+            imageData: tmp.toDataURL("image/png").split(",")[1]
+        };
+    }
+}
+
+class RegionEditor {
+    constructor(controller) {
+        this.controller = controller;
+        this.mode = 'IDLE'; 
+        this.dragStart = null;
+        this.initialRect = null;
+        this.activeHandle = null;
+    }
+    init() {
+        this.controller.view.els.interactionLayer.addEventListener('mousedown', e => this.handleMouseDown(e));
+        document.addEventListener('mousemove', e => this.handleMouseMove(e));
+        document.addEventListener('mouseup', e => this.handleMouseUp(e));
+        document.addEventListener('keydown', e => this.handleKeyDown(e));
+    }
+    getPhysicalDims() {
+        const s = this.controller.model.state;
+        const cw = s.baseWidth * s.scaleMultiplier;
+        return { physicalCw: cw, physicalCh: cw * (s.canvasHeight / s.canvasWidth) };
+    }
+    getLocalPos(e) {
+        const rect = this.controller.view.els.canvasWrapper.getBoundingClientRect();
+        return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    }
+    
+    // Extracted hit detection logic from old file
+    hitDetection(pos) {
+        const state = this.controller.model.state;
+        const { physicalCw, physicalCh } = this.getPhysicalDims();
+
+        // Check resize handles first
+        const active = state.activeRegionId ? this.controller.model.getRegion(state.activeRegionId) : null;
+        if (active) {
+            const rx = active.rect.x * physicalCw;
+            const ry = active.rect.y * physicalCh;
+            const rw = active.rect.w * physicalCw;
+            const rh = active.rect.h * physicalCh;
+
+            const handles = [
+                {name:'nw', x:rx-4, y:ry-4}, {name:'n', x:rx+rw/2-4, y:ry-4},
+                {name:'ne', x:rx+rw-4, y:ry-4}, {name:'e', x:rx+rw-4, y:ry+rh/2-4},
+                {name:'se', x:rx+rw-4, y:ry+rh-4}, {name:'s', x:rx+rw/2-4, y:ry+rh-4},
+                {name:'sw', x:rx-4, y:ry+rh-4}, {name:'w', x:rx-4, y:ry+rh/2-4}
+            ];
+
+            for (const h of handles) {
+                if (pos.x >= h.x && pos.x <= h.x+8 && pos.y >= h.y && pos.y <= h.y+8) {
+                    return { type: 'HANDLE', handle: h.name };
+                }
+            }
+        }
+
+        // Check region bodies
+        for (const r of state.regions.slice().reverse()) {
+            const rx = r.rect.x * physicalCw;
+            const ry = r.rect.y * physicalCh;
+            const rw = r.rect.w * physicalCw;
+            const rh = r.rect.h * physicalCh;
+            if (pos.x >= rx && pos.x <= rx+rw && pos.y >= ry && pos.y <= ry+rh) {
+                return { type: 'BODY', id: r.id };
+            }
+        }
+
+        return { type: 'NONE' };
+    }
+    
+    handleMouseDown(e) {
+        if (e.button !== 0) return;
+        const pos = this.getLocalPos(e);
+        if (this.controller.splitMode) { this.dragStart = pos; return; }
+        
+        const s = this.controller.model.state;
+        const hit = this.hitDetection(pos);
+
+        if (hit.type === 'BODY') {
+            if (hit.id !== s.activeRegionId) this.controller.model.selectRegion(hit.id);
+            this.mode = 'MOVE';
+        } else if (hit.type === 'HANDLE') {
+            this.mode = 'RESIZE';
+            this.activeHandle = hit.handle;
+        } else {
+            this.controller.model.deselect();
+            this.mode = 'CREATE';
+        }
+        this.dragStart = pos;
+        const active = this.controller.model.getRegion(s.activeRegionId);
+        this.initialRect = active ? { ...active.rect } : null;
+    }
+
+    handleMouseMove(e) {
+        const pos = this.getLocalPos(e);
+        const s = this.controller.model.state;
+        const { physicalCw, physicalCh } = this.getPhysicalDims();
+        const layer = this.controller.view.els.interactionLayer; // Get layer
+        const active = s.activeRegionId ? s.regions.find(r => r.id === s.activeRegionId) : null;
+        
+        if (this.controller.splitMode && active) {
+            const r = this.controller.model.getRegion(s.activeRegionId);
+            const rx = r.rect.x * physicalCw, ry = r.rect.y * physicalCh;
+            const rw = r.rect.w * physicalCw, rh = r.rect.h * physicalCh;
+            
+            // --- FIXED: Add cursor logic for split mode ---
+            if (this.controller.splitType === 'horizontal') {
+                 layer.style.cursor = 'ns-resize'; 
+                 this.controller.splitPosition = Math.min(0.9, Math.max(0.1, (pos.y - ry) / rh));
+            } else {
+                 layer.style.cursor = 'ew-resize'; 
+                 this.controller.splitPosition = Math.min(0.9, Math.max(0.1, (pos.x - rx) / rw));
+            }
+            this.controller.model.notify({ noHistory:true });
+            return;
+        }
+        
+        // Handle IDLE mode cursor logic (restored from old file)
+        if (this.mode === 'IDLE') {
+            const hit = this.hitDetection(pos);
+            if (hit.type === 'HANDLE') {
+                layer.style.cursor = hit.handle.includes('n') && hit.handle.includes('s') ? 'ns-resize' : 
+                                     hit.handle.includes('e') && hit.handle.includes('w') ? 'ew-resize' : 
+                                     hit.handle.includes('nw') || hit.handle.includes('se') ? 'nwse-resize' : 'nesw-resize';
+            } else if (hit.type === 'BODY') {
+                layer.style.cursor = 'move';
+            } else {
+                layer.style.cursor = 'default';
+            }
+            return;
+        }
+
+
+        if (this.mode === 'CREATE') {
+            const w = Math.abs(pos.x - this.dragStart.x), h = Math.abs(pos.y - this.dragStart.y);
+            const x = Math.min(pos.x, this.dragStart.x), y = Math.min(pos.y, this.dragStart.y);
+            Object.assign(this.controller.view.els.selectionBox.style, { display:'block', left:x+'px', top:y+'px', width:w+'px', height:h+'px' });
+        } else if (this.mode === 'MOVE' && this.initialRect) {
+            const dx = (pos.x - this.dragStart.x)/physicalCw, dy = (pos.y - this.dragStart.y)/physicalCh;
+            const r = this.controller.model.getRegion(s.activeRegionId);
+            this.controller.model.updateRegion(r.id, { rect: { x: this.initialRect.x+dx, y: this.initialRect.y+dy, w:this.initialRect.w, h:this.initialRect.h }}, {noHistory:true});
+        } else if (this.mode === 'RESIZE' && this.initialRect && this.activeHandle) {
+            const r = this.controller.model.getRegion(s.activeRegionId);
+            const ix = this.initialRect.x * physicalCw, iy = this.initialRect.y * physicalCh;
+            const iw = this.initialRect.w * physicalCw, ih = this.initialRect.h * physicalCh;
+
+            let nx = ix, ny = iy, nw = iw, nh = ih;
+
+            if (this.activeHandle.includes('e')) nw = pos.x - ix;
+            if (this.activeHandle.includes('s')) nh = pos.y - iy;
+            if (this.activeHandle.includes('w')) { nw = (ix + iw) - pos.x; nx = pos.x; }
+            if (this.activeHandle.includes('n')) { nh = (iy + ih) - pos.y; ny = pos.y; }
+
+            if (nw > 5 && nh > 5) {
+                const newRect = { x: nx/physicalCw, y: ny/physicalCh, w: nw/physicalCw, h: nh/physicalCh };
+                this.controller.model.updateRegion(r.id, { rect: newRect }, { noHistory: true });
+            }
+        }
+    }
+
+    handleMouseUp(e) {
+        if (this.controller.splitMode) { this.dragStart = null; return; }
+        if (this.mode === 'CREATE') {
+            const pos = this.getLocalPos(e);
+            const w = Math.abs(pos.x - this.dragStart.x), h = Math.abs(pos.y - this.dragStart.y);
+            if (w > 5 && h > 5) {
+                const { physicalCw, physicalCh } = this.getPhysicalDims();
+                this.controller.model.addRegion({
+                    id: `r${Date.now()}`,
+                    rect: { x: Math.min(pos.x, this.dragStart.x)/physicalCw, y: Math.min(pos.y, this.dragStart.y)/physicalCh, w: w/physicalCw, h: h/physicalCh },
+                    status: 'pending', svgContent: ''
+                });
+            }
+            this.controller.view.els.selectionBox.style.display = 'none';
+        } else if (this.initialRect) {
+            this.controller.model.saveHistory();
+        }
+        this.mode = 'IDLE';
+    }
+
+    handleKeyDown(e) {
+        if (e.key === 'Escape') this.controller.splitMode ? this.controller.exitSplitMode() : (this.mode = 'IDLE');
+        if (this.controller.splitMode && e.key === 'Tab') { e.preventDefault(); this.controller.toggleSplitType(); }
+        if (this.controller.splitMode && e.key === 'Enter') { e.preventDefault(); this.controller.confirmSplit(); }
+    }
+}
+
+class SciTextController {
+    constructor(model, view) {
+        this.model = model; this.view = view;
+        this.draw = new RegionEditor(this);
+        this.splitMode = false; this.splitType = 'horizontal'; this.splitPosition = 0.5;
+    }
+    async init() {
+        this.view.init();
+        this.model.state.canvas = this.view.els.processingCanvas;
+        this.imageProcessor = new ImageProcessor(this.model);
+        await this.loadPDFJS();
+        this.draw.init();
+        
+        // Bindings
+        this.view.els.pdfUpload.onchange = e => this.handleFileUpload(e);
+        this.view.els.svgImport.onchange = e => this.handleSvgImport(e.target.files[0]);
+        this.view.els.btnUndo.onclick = () => this.model.undo();
+        this.view.els.btnRedo.onclick = () => this.model.redo();
+        this.view.els.zoomIn.onclick = () => this.setZoom(this.model.state.scaleMultiplier + 0.25);
+        this.view.els.zoomOut.onclick = () => this.setZoom(this.model.state.scaleMultiplier - 0.25);
+        this.view.els.btnAutoSegment.onclick = () => this.autoSegment();
+        this.view.els.btnDelete.onclick = () => { Array.from(this.model.state.selectedIds).forEach(id => this.model.deleteRegion(id)); };
+        this.view.els.btnClearAll.onclick = () => { this.model.setState({regions:[]}); this.model.deselect(); this.model.saveHistory(); };
+        this.view.els.fullscreenToggle.onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+        this.view.els.tabOverlay.onclick = () => this.view.switchTab('overlay');
+        this.view.els.tabDebug.onclick = () => this.view.switchTab('debug');
+        this.view.els.btnExport.onclick = () => this.exportSVG();
+        this.view.els.btnFitArea.onclick = () => this.fitArea();
+        this.view.els.btnFitContent.onclick = () => this.fitContent();
+        this.view.els.btnSplit.onclick = () => this.enterSplitMode(); 
+        this.view.els.btnGroup.onclick = () => this.groupSelectedRegions();
+        this.view.els.btnSaveRawSvg.onclick = () => this.saveRawSvgChanges();
+        this.view.els.btnToggleVisibilityAll.onclick = () => {
+             const anyHidden = this.model.state.regions.some(r => !r.visible);
+             this.model.state.regions.forEach(r => this.model.updateRegion(r.id, { visible: !anyHidden }));
+        };
+        
+        ['propX','propY','propW','propH'].forEach(k => { if(this.view.els[k]) this.view.els[k].onchange = () => this.updateRegionFromProps('rect'); });
+        ['propOffsetX','propOffsetY','propScaleX','propScaleY'].forEach(k => { if(this.view.els[k]) this.view.els[k].onchange = () => this.updateRegionFromProps('svg-transform'); });
+
+        this.view.els.regionActionsBar.onclick = (e) => { const type = e.target.dataset.type; if (type) this.generateContent(type); };
+        
+        // Layer list interaction (updated to use new layout)
+        this.view.els.layerItems?.addEventListener('click', (e) => {
+            const item = e.target.closest('.layer-item'); if (!item) return;
+            const id = item.dataset.id;
+            if (e.target.classList.contains('visibility-toggle')) { const r = this.model.getRegion(id); this.model.updateRegion(id, { visible: !r.visible }); }
+            else if (e.target.classList.contains('delete-btn')) this.model.deleteRegion(id);
+            else this.model.selectRegion(id);
+        });
+
+        window.addEventListener('resize', () => { this.updateBaseWidth(); this.model.notify(); });
+        this.loadDefaultImage();
+    }
+    
+    enterSplitMode() {
+        if (!this.model.state.activeRegionId) return;
+        this.splitMode = true; 
+        const r = this.model.getRegion(this.model.state.activeRegionId);
+        const cw = this.model.state.canvasWidth, ch = this.model.state.canvasHeight;
+        this.splitType = (r.rect.w * cw) > (r.rect.h * ch) ? 'vertical' : 'horizontal';
+        this.model.notify();
+    }
+    exitSplitMode() { this.splitMode = false; this.model.notify(); }
+    toggleSplitType() { this.splitType = this.splitType === 'horizontal' ? 'vertical' : 'horizontal'; this.model.notify(); }
+    confirmSplit() {
+        const id = this.model.state.activeRegionId; if(!id) return this.exitSplitMode();
+        const r = this.model.getRegion(id);
+        let r1 = {...r.rect}, r2 = {...r.rect};
+        if(this.splitType === 'horizontal') { r1.h *= this.splitPosition; r2.h *= (1-this.splitPosition); r2.y += r1.h; }
+        else { r1.w *= this.splitPosition; r2.w *= (1-this.splitPosition); r2.x += r1.w; }
+        
+        this.view.els.aiStatus.classList.remove('hidden');
+        const s1 = this.imageProcessor.processRegion(r1), s2 = this.imageProcessor.processRegion(r2);
+        const mk = (s) => ({ id:`r${Date.now()}_${Math.random()}`, rect:s.newRect, svgContent:`<path d="${s.rle}" fill="black" />`, status:'scanned', contentType:'scan', bpDims:s.bpDims, scale:{x:1,y:1}, offset:{x:0,y:0} });
+        
+        if(s1 && s2) {
+            this.model.deleteRegion(id);
+            this.model.addRegion(mk(s1));
+            this.model.addRegion(mk(s2));
+        }
+        this.view.els.aiStatus.classList.add('hidden');
+        this.exitSplitMode();
+    }
+
+    updateBaseWidth() {
+        const w = Math.min(this.model.state.canvasWidth, this.view.els.canvasScroller.clientWidth - 32);
+        if (w > 0 && Math.abs(w - this.model.state.baseWidth) > 1) this.model.setState({ baseWidth: w });
+    }
+
+    async loadPDFJS() {
+        if (window.pdfjsLib) return;
+        const script = 'https://unpkg.com/pdfjs-dist@5.4.449/build/pdf.min.mjs';
+        await import(script);
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@5.4.449/build/pdf.worker.min.mjs';
+    }
+
+    setZoom(s) { this.model.setState({ scaleMultiplier: Math.max(0.25, Math.min(5.0, s)) }); }
+
+    async handleFileUpload(e) {
+        const file = e.target.files[0]; if(!file) return;
+        this.view.toggleLoader(true);
+        const canvas = this.model.state.canvas, ctx = canvas.getContext("2d");
+        
+        if (file.type === "application/pdf" && window.pdfjsLib) {
+            const doc = await pdfjsLib.getDocument(await file.arrayBuffer()).promise;
+            const page = await doc.getPage(1), vp = page.getViewport({ scale: 2.0 });
+            canvas.width = vp.width; canvas.height = vp.height;
+            await page.render({ canvasContext: ctx, viewport: vp }).promise;
+        } else {
+            const img = new Image();
+            img.src = URL.createObjectURL(file);
+            await new Promise(r => img.onload = r);
+            canvas.width = img.width; canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+        }
+        
+        this.view.els.pdfLayer.style.backgroundImage = `url(${canvas.toDataURL()})`;
+        this.view.els.pdfLayer.style.backgroundSize = "100% 100%";
+        this.view.toggleLoader(false);
+        this.view.toggleWorkspace(true);
+        this.model.setState({ regions: [], history: [] });
+        this.model.setCanvasDimensions(canvas.width, canvas.height, canvas.width);
+        this.updateBaseWidth();
+    }
+
+    loadDefaultImage() {
+        const img = new Image(); img.crossOrigin = "anonymous"; img.src = window.embeddedDefaultImage;
+        img.onload = () => {
+            const c = this.model.state.canvas; c.width = img.width; c.height = img.height;
+            c.getContext("2d").drawImage(img, 0, 0);
+            this.view.els.pdfLayer.style.backgroundImage = `url(${c.toDataURL()})`;
+            this.view.els.pdfLayer.style.backgroundSize = "100% 100%";
+            this.model.setCanvasDimensions(img.width, img.height, img.width);
+            this.updateBaseWidth();
+            this.view.toggleWorkspace(true);
+        };
+    }
+
+    updateRegionFromProps(type) {
+        const id = this.model.state.activeRegionId; if(!id) return;
+        const cw = this.model.state.canvasWidth, ch = this.model.state.canvasHeight;
+        let u = {};
+        if (type === 'rect') u.rect = { x:parseFloat(this.view.els.propX.value)/cw, y:parseFloat(this.view.els.propY.value)/ch, w:parseFloat(this.view.els.propW.value)/cw, h:parseFloat(this.view.els.propH.value)/ch };
+        else u = { offset: { x:parseFloat(this.view.els.propOffsetX.value), y:parseFloat(this.view.els.propOffsetY.value) }, scale: { x:parseFloat(this.view.els.propScaleX.value), y:parseFloat(this.view.els.propScaleY.value) } };
+        this.model.updateRegion(id, u); this.model.saveHistory();
+    }
+
+    saveRawSvgChanges() {
+        const id = this.model.state.activeRegionId; if(!id) return;
+        this.model.updateRegion(id, { svgContent: this.view.els.svgRawContent.value.replace(/<svg[^>]*?>|<\/svg>/g, '').trim(), status: 'edited' });
+        this.model.saveHistory();
+    }
+
+    fitArea() {
+        const id = this.model.state.activeRegionId, r = this.model.getRegion(id); if(!r) return;
+        const s = this.imageProcessor.processRegion(r.rect); if(!s) return;
+        this.model.updateRegion(id, { rect: s.newRect, svgContent: `<path d="${s.rle}" fill="black" />`, bpDims: s.bpDims, scale:{x:1,y:1}, offset:{x:0,y:0} });
+        this.model.saveHistory();
+    }
+
+    fitContent() {
+        const id = this.model.state.activeRegionId; if(id) { this.model.updateRegion(id, { scale:{x:1,y:1}, offset:{x:0,y:0} }); this.model.saveHistory(); }
+    }
+
+    groupSelectedRegions() {
+        const sel = this.model.state.regions.filter(r => this.model.state.selectedIds.has(r.id));
+        if (sel.length < 2) return;
+        const cw = this.model.state.canvasWidth, ch = this.model.state.canvasHeight;
+        let minX=Infinity, minY=Infinity, maxX=0, maxY=0;
+        sel.forEach(r => { minX=Math.min(minX,r.rect.x); minY=Math.min(minY,r.rect.y); maxX=Math.max(maxX,r.rect.x+r.rect.w); maxY=Math.max(maxY,r.rect.y+r.rect.h); });
+        
+        const groupW = maxX-minX;
+        const groupH = maxY-minY;
+
+        let svg = '';
+        sel.forEach(r => {
+             const x = (r.rect.x - minX)*cw, y = (r.rect.y - minY)*ch;
+             // Use original scale logic for nested SVGs to correctly position content
+             const tx = r.offset?.x ?? 0;
+             const ty = r.offset?.y ?? 0;
+             const sx = r.scale?.x ?? 1;
+             const sy = r.scale?.y ?? 1;
+             const bpW = r.bpDims?.w ?? (r.rect.w * cw * 2); 
+             const bpH = r.bpDims?.h ?? (r.rect.h * ch * 2);
+             const viewBoxX = -(tx / sx);
+             const viewBoxY = -(ty / sy);
+             const viewBoxW = bpW / sx;
+             const viewBoxH = bpH / sy;
+             const transformedViewBox = `${viewBoxX} ${viewBoxY} ${viewBoxW} ${viewBoxH}`;
+
+             svg += `<svg x="${x*2}" y="${y*2}" width="${r.rect.w*cw*2}" height="${r.rect.h*ch*2}" viewBox="${transformedViewBox}" preserveAspectRatio="none">${r.svgContent}</svg>`;
+        });
+        
+        const grp = { id:`r${Date.now()}`, rect:{x:minX, y:minY, w:groupW, h:groupH}, svgContent:svg, bpDims:{w:groupW*cw*2, h:groupH*ch*2}, scale:{x:1,y:1}, offset:{x:0,y:0}, contentType:'group' };
+        this.model.state.regions = this.model.state.regions.filter(r => !this.model.state.selectedIds.has(r.id));
+        this.model.addRegion(grp);
+    }
+    
+    exportSVG() {
+        const cw = this.model.state.canvasWidth, ch = this.model.state.canvasHeight;
+        let out = `<svg xmlns="http://www.w3.org/2000/svg" width="${cw}" height="${ch}" viewBox="0 0 ${cw} ${ch}"><rect width="${cw}" height="${ch}" fill="white"/>\n`;
+        this.model.state.regions.forEach(r => {
+            const x=r.rect.x*cw, y=r.rect.y*ch, w=r.rect.w*cw, h=r.rect.h*ch;
+            
+            const tx = r.offset?.x ?? 0, ty = r.offset?.y ?? 0;
+            const sx = r.scale?.x ?? 1, sy = r.scale?.y ?? 1;
+            const bpW = r.bpDims?.w ?? (r.rect.w * cw * 2);
+            const bpH = r.bpDims?.h ?? (r.rect.h * ch * 2);
+            const viewBoxX = -(tx / sx);
+            const viewBoxY = -(ty / sy);
+            const viewBoxW = bpW / sx;
+            const viewBoxH = bpH / sy;
+            const transformedViewBox = `${viewBoxX.toFixed(2)} ${viewBoxY.toFixed(2)} ${viewBoxW.toFixed(2)} ${viewBoxH.toFixed(2)}`;
+
+            out += `<svg x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" height="${h.toFixed(2)}" viewBox="${transformedViewBox}" preserveAspectRatio="none">${r.svgContent}</svg>\n`;
+        });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([out+'</svg>'], {type:"image/svg+xml"})); a.download="export.svg"; a.click();
+    }
+
+    async generateContent(type) {
+        const r = this.model.getRegion(this.model.state.activeRegionId); if(!r) return;
+        if(type==='empty') { this.model.updateRegion(r.id, {svgContent:'', status:'done'}); return; }
+        
+        this.view.els.aiStatus.classList.remove('hidden');
+        const s = this.imageProcessor.processRegion(r.rect, 0);
+        if(!s) { this.view.els.aiStatus.classList.add('hidden'); return; }
+        
+        if(type==='blueprint') {
+            this.model.updateRegion(r.id, { svgContent:`<path d="${s.rle}" fill="black" />`, status:'scanned', bpDims:s.bpDims });
+            this.view.els.aiStatus.classList.add('hidden');
+            return;
+        }
+
+        try {
+            const promptType = type === 'image' ? 'SVG Graphic' : 'SVG Text';
+            const prompt = `You are a precision SVG Typesetter.\nINPUT: 2x scale scan.\nTASK: Generate ${promptType}.\nViewBox: 0 0 ${s.bpDims.w} ${s.bpDims.h}. Output raw SVG only.`;
+            
+            const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: s.imageData } }] }] })
+            });
+            const responseText = await resp.text();
+
+            if (!resp.ok) {
+                 throw new Error(`API returned HTTP ${resp.status}. Response: ${responseText.substring(0, 100)}...`);
+            }
+            const json = JSON.parse(responseText);
+
+            let txt = json.candidates?.[0]?.content?.parts?.[0]?.text;
+            
+            if(!txt) throw new Error("No content");
+            
+            const cleanSVG = txt.replace(/```svg/g, "").replace(/```/g, "").replace(/<svg[^>]*>/g, '').replace(/<\/svg>/g, '').trim();
+            if(cleanSVG.length < 10) throw new Error("AI output too short/invalid");
+
+            this.model.updateRegion(r.id, { svgContent: cleanSVG, status:'generated', bpDims:s.bpDims });
+        } catch(e) { 
+            console.error("AI Generation Error:", e);
+            this.model.updateRegion(r.id, { svgContent: `<text x="10" y="30" fill="red" font-size="20">ERROR</text>` });
+        }
+        this.view.els.aiStatus.classList.add('hidden');
+    }
+    
+    async handleSvgImport(file) {
+        if(!file) return;
+        this.view.toggleLoader(true);
+        try {
+            const text = await file.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(text, "image/svg+xml");
+            if(doc.querySelector('parsererror')) throw new Error("Invalid SVG");
+
+            const root = doc.documentElement;
+            const viewBox = root.getAttribute("viewBox")?.split(/\s+/).map(parseFloat) || [0, 0, parseFloat(root.getAttribute("width") || "0"), parseFloat(root.getAttribute("height") || "0")];
+            const cw = viewBox[2], ch = viewBox[3];
+            
+            if (cw <= 0 || ch <= 0) throw new Error("Invalid SVG dimensions");
+
+            if(this.model.state.canvasWidth===0) {
+                 this.model.setCanvasDimensions(cw,ch,cw);
+                 this.view.els.pdfLayer.style.background = 'white';
+                 this.updateBaseWidth();
+                 this.view.toggleWorkspace(true);
+            }
+            
+            this.model.setState({regions:[]});
+            
+            // Extract nested <svg> elements (regions) - Restored scale/offset calculation
+            Array.from(root.children).filter(el => el.tagName.toLowerCase() === 'svg').forEach(el => {
+                 const x=parseFloat(el.getAttribute('x')), y=parseFloat(el.getAttribute('y')), w=parseFloat(el.getAttribute('width')), h=parseFloat(el.getAttribute('height'));
+                 const viewBoxStr = el.getAttribute("viewBox");
+                 const [vx, vy, vw, vh] = viewBoxStr ? viewBoxStr.split(/\s+/).map(parseFloat) : [0, 0, w, h];
+                 const svgContent = el.innerHTML.trim();
+
+                 const bpW = w * CONFIG.aiScale;
+                 const bpH = h * CONFIG.aiScale;
+                 const sx = vw > 0 ? bpW / vw : 1;
+                 const sy = vh > 0 ? bpH / vh : 1;
+                 const offsetX = -vx * sx;
+                 const offsetY = -vy * sy;
+
+                 this.model.addRegion({ 
+                    id:`r${Date.now()}`, 
+                    rect:{x:x/cw, y:y/ch, w:w/cw, h:h/ch}, 
+                    svgContent:svgContent, 
+                    bpDims:{w:bpW,h:bpH}, 
+                    offset:{x:offsetX, y:offsetY}, 
+                    scale:{x:sx,y:sy},
+                    contentType: 'imported'
+                 });
+            });
+        } catch(e) { alert(e.message); }
+        this.view.toggleLoader(false);
+    }
+
+    async autoSegment() {
+        const s = this.model.state; if(s.canvasWidth===0) return;
+        this.view.els.aiStatus.classList.remove('hidden');
+        this.model.setState({regions:[]});
+        
+        const w=s.canvas.width, h=s.canvas.height;
+        const d=s.canvas.getContext('2d').getImageData(0,0,w,h).data;
+        const visited = new Uint8Array(w*h);
+        const CONNECTION_RADIUS = 10;
+        
+        for(let y=0; y<h; y++) for(let x=0; x<w; x++) {
+             const i = y*w+x;
+             if(!visited[i] && this.imageProcessor.isDark(d, i)) {
+                 let q=[{x,y}], minX=x, maxX=x, minY=y, maxY=y, count=0;
+                 visited[i]=1;
+                 while(q.length) {
+                     const p = q.shift();
+                     minX=Math.min(minX,p.x); maxX=Math.max(maxX,p.x); minY=Math.min(minY,p.y); maxY=Math.max(maxY,p.y); count++;
+                     
+                     for(let dy=-CONNECTION_RADIUS; dy<=CONNECTION_RADIUS; dy++) 
+                     for(let dx=-CONNECTION_RADIUS; dx<=CONNECTION_RADIUS; dx++) {
+                         if(dx===0 && dy===0) continue;
+                         const nx=p.x+dx, ny=p.y+dy;
+                         if(nx>=0 && nx<w && ny>=0 && ny<h) {
+                             const ni = ny*w+nx;
+                             if(!visited[ni] && this.imageProcessor.isDark(d,ni)) { visited[ni]=1; q.push({x:nx,y:ny}); }
+                         }
+                     }
+                 }
+                 if(count > 250) {
+                     const pad = 2; // small padding
+                     let initialRect = {x:Math.max(0,minX-pad)/w, y:Math.max(0,minY-pad)/h, w:(Math.min(w-1,maxX+pad)-Math.max(0,minX-pad))/w, h:(Math.min(h-1,maxY+pad)-Math.max(0,minY-pad))/h};
+                     const scan = this.imageProcessor.processRegion(initialRect);
+                     if(scan) this.model.addRegion({ id:`r${Date.now()}_${x}`, rect:scan.newRect, svgContent:`<path d="${scan.rle}" fill="black" />`, bpDims:scan.bpDims });
+                 }
+             }
+        }
+        this.view.els.aiStatus.classList.add('hidden');
+    }
+}
+
+// ============================================================================
+// 5. VIEW (BRIDGE)
 // ============================================================================
 
 class UIManager {
@@ -371,47 +1043,13 @@ class UIManager {
     }
 
     init() {
-        const style = document.createElement("style");
-        style.textContent = APP_STYLES;
-        document.head.appendChild(style);
-        document.body.insertAdjacentHTML("beforeend", APP_STRUCTURE);
-        this.bindElements();
+        // Use the new SciTextUI System
+        SciTextUI.init(this.els);
     }
 
-    bindElements() {
-        const ids = [
-            'processing-canvas','pdf-upload','svg-import','zoom-in','zoom-out','zoom-level','btn-undo','btn-redo',
-            'tab-overlay','tab-debug','debug-container','debug-log','workspace-container','empty-state',
-            'pdf-loader','canvas-wrapper','pdf-layer','svg-layer','interaction-layer','selection-box',
-            'region-actions-bar','layer-list','region-count','layer-items','btn-toggle-visibility-all',
-            'ai-status','fullscreen-toggle','prop-x','prop-y','prop-w','prop-h',
-            'prop-offset-x','prop-offset-y','prop-scale-x','prop-scale-y',
-            'btn-fit-area','btn-fit-content','btn-split','btn-group','btn-delete','btn-export','btn-clear-all',
-            'canvas-scroller',
-            'svg-raw-editor-panel', 'svg-raw-content', 'btn-save-raw-svg',
-            'canvas-view-area',
-            'btn-auto-segment'
-        ];
-        const camelCase = (s) => s.replace(/-./g, x=>x[1].toUpperCase());
-        ids.forEach(id => {
-            const el = document.getElementById(id);
-            if(el) this.els[camelCase(id)] = el;
-        });
-        this.els.splitBar = document.getElementById('split-bar');
-    }
-
-    toggleLoader(show) {
-        this.els.pdfLoader.classList.toggle('hidden', !show);
-    }
-
-    toggleWorkspace(show) {
-        this.els.emptyState.classList.toggle('hidden', show);
-        this.els.workspaceContainer.classList.toggle('hidden', !show);
-    }
-
-    hideRegionActionsBar() {
-        this.els.regionActionsBar.classList.add('hidden');
-    }
+    toggleLoader(show) { this.els.pdfLoader.classList.toggle('hidden', !show); }
+    toggleWorkspace(show) { this.els.emptyState.classList.toggle('hidden', show); this.els.workspaceContainer.classList.toggle('hidden', !show); }
+    hideRegionActionsBar() { this.els.regionActionsBar.classList.add('hidden'); }
 
     showRegionActionsBar(region, state) {
         this.els.regionActionsBar.classList.remove('hidden');
@@ -446,8 +1084,6 @@ class UIManager {
         this.els.propY.value = Math.round(region.rect.y * ch);
         this.els.propW.value = Math.round(region.rect.w * cw);
         this.els.propH.value = Math.round(region.rect.h * ch);
-        
-        // NEW PROPERTIES
         this.els.propOffsetX.value = (region.offset?.x ?? 0).toFixed(1);
         this.els.propOffsetY.value = (region.offset?.y ?? 0).toFixed(1);
         this.els.propScaleX.value = (region.scale?.x ?? 1).toFixed(2);
@@ -461,59 +1097,26 @@ class UIManager {
             frame.id = 'active-selection-frame';
             frame.className = 'selection-frame';
             this.els.interactionLayer.appendChild(frame);
-
-            const handles = ['nw','n','ne','e','se','s','sw','w'];
-            handles.forEach(dir => {
+            // Handles are now positioned by CSS classes added to SciTextUI.generateStyles()
+            ['nw','n','ne','e','se','s','sw','w'].forEach(dir => {
                 const h = document.createElement('div');
                 h.className = `resize-handle handle-${dir}`;
                 frame.appendChild(h);
             });
         }
-
         const scale = state.scaleMultiplier;
         const aspectRatio = state.canvasHeight / state.canvasWidth;
         const physicalCw = state.baseWidth * scale;
         const physicalCh = physicalCw * aspectRatio;
-
-        const x = region.rect.x * physicalCw;
-        const y = region.rect.y * physicalCh;
-        const w = region.rect.w * physicalCw;
-        const h = region.rect.h * physicalCh;
-
-        Object.assign(frame.style, { left: x+'px', top: y+'px', width: w+'px', height: h+'px' });
-    }
-
-    renderSplitBar(region, state, splitType, splitPosition) {
-        const { physicalCw, physicalCh } = this.model.controller.draw.getPhysicalDims();
-        const rx = region.rect.x * physicalCw;
-        const ry = region.rect.y * physicalCh;
-        const rw = region.rect.w * physicalCw;
-        const rh = region.rect.h * physicalCh;
-        
-        const bar = this.els.splitBar;
-        bar.classList.remove('hidden');
-
-        if (splitType === 'horizontal') {
-            const py = ry + rh * splitPosition;
-            Object.assign(bar.style, {
-                left: rx + 'px', top: py - 1 + 'px', 
-                width: rw + 'px', height: '2px', 
-                cursor: 'ns-resize'
-            });
-            // Label for split bar
-            this.renderSplitLabel(bar, 'Horizontal (TAB to switch)');
-        } else { // vertical
-            const px = rx + rw * splitPosition;
-            Object.assign(bar.style, {
-                left: px - 1 + 'px', top: ry + 'px', 
-                width: '2px', height: rh + 'px', 
-                cursor: 'ew-resize'
-            });
-            // Label for split bar
-            this.renderSplitLabel(bar, 'Vertical (TAB to switch)');
-        }
+        Object.assign(frame.style, { 
+            left: (region.rect.x * physicalCw)+'px', 
+            top: (region.rect.y * physicalCh)+'px', 
+            width: (region.rect.w * physicalCw)+'px', 
+            height: (region.rect.h * physicalCh)+'px' 
+        });
     }
     
+    // --- ADDED: Helper to render split bar label ---
     renderSplitLabel(bar, text) {
         let label = document.getElementById('split-bar-label');
         if (!label) {
@@ -524,55 +1127,91 @@ class UIManager {
         
         const barRect = bar.getBoundingClientRect();
         const wrapperRect = this.els.canvasWrapper.getBoundingClientRect();
+        const scroller = this.els.canvasScroller;
+        const scrollX = scroller.scrollLeft;
+        const scrollY = scroller.scrollTop;
 
         label.textContent = text;
         
+        // Position logic restored from old implementation
         if (this.model.controller.splitType === 'horizontal') {
             Object.assign(label.style, {
-                left: `${barRect.left - wrapperRect.left + 5}px`,
-                top: `${barRect.top - wrapperRect.top - label.offsetHeight - 5}px`,
+                left: `${barRect.left - wrapperRect.left + 5 + scrollX}px`,
+                top: `${barRect.top - wrapperRect.top - label.offsetHeight - 5 + scrollY}px`,
                 transform: 'none'
             });
         } else {
              Object.assign(label.style, {
-                left: `${barRect.left - wrapperRect.left - label.offsetWidth - 5}px`,
-                top: `${barRect.top - wrapperRect.top + 5}px`,
+                left: `${barRect.left - wrapperRect.left - label.offsetWidth - 5 + scrollX}px`,
+                top: `${barRect.top - wrapperRect.top + 5 + scrollY}px`,
                 transform: 'none'
             });
         }
     }
+    // --- END ADDED HELPER ---
 
-    hideSplitBar() {
-        this.els.splitBar.classList.add('hidden');
-        const label = document.getElementById('split-bar-label');
-        if (label) label.remove();
+    renderSplitBar(region, state, splitType, splitPosition) {
+        const { physicalCw, physicalCh } = this.model.controller.draw.getPhysicalDims();
+        const rx = region.rect.x * physicalCw;
+        const ry = region.rect.y * physicalCh;
+        const rw = region.rect.w * physicalCw;
+        const rh = region.rect.h * physicalCh;
+        const bar = this.els.splitBar;
+        bar.classList.remove('hidden');
+
+        if (splitType === 'horizontal') {
+            const py = ry + rh * splitPosition;
+            Object.assign(bar.style, { left: rx + 'px', top: py - 1 + 'px', width: rw + 'px', height: '2px', cursor: 'ns-resize' });
+            this.renderSplitLabel(bar, 'Horizontal (TAB to switch)'); // ADDED
+        } else {
+            const px = rx + rw * splitPosition;
+            Object.assign(bar.style, { left: px - 1 + 'px', top: ry + 'px', width: '2px', height: rh + 'px', cursor: 'ew-resize' });
+            this.renderSplitLabel(bar, 'Vertical (TAB to switch)'); // ADDED
+        }
+    }
+
+    hideSplitBar() { 
+        this.els.splitBar.classList.add('hidden'); 
+        const label = document.getElementById('split-bar-label'); // ADDED
+        if(label) label.remove(); // ADDED
     }
 
     switchTab(tab) {
+        const activeClass = 'text-primary'; 
+        const activeStyle = 'border-bottom:2px solid #2563eb';
+        const inactiveClass = 'text-txt-muted';
+        const inactiveStyle = 'border-bottom:2px solid transparent';
+
         if (tab === 'overlay') {
-            this.els.tabOverlay.classList.add('tab-button-active');
-            this.els.tabDebug.classList.remove('tab-button-active');
+            // Logic to handle class/style switching (simplified for robust replacement)
+            this.els.tabOverlay.className = this.els.tabOverlay.className.replace(inactiveClass, activeClass);
+            this.els.tabDebug.className = this.els.tabDebug.className.replace(activeClass, inactiveClass);
+            this.els.tabOverlay.style.cssText = this.els.tabOverlay.style.cssText.replace(inactiveStyle, '') + activeStyle;
+            this.els.tabDebug.style.cssText = this.els.tabDebug.style.cssText.replace(activeStyle, '') + inactiveStyle;
+            
             this.els.workspaceContainer.classList.remove('hidden');
             this.els.debugContainer.classList.add('hidden');
         } else if (tab === 'debug') {
-            this.els.tabOverlay.classList.remove('tab-button-active');
-            this.els.tabDebug.classList.add('tab-button-active');
+            // Logic to handle class/style switching (simplified for robust replacement)
+            this.els.tabOverlay.className = this.els.tabOverlay.className.replace(activeClass, inactiveClass);
+            this.els.tabDebug.className = this.els.tabDebug.className.replace(inactiveClass, activeClass);
+            this.els.tabOverlay.style.cssText = this.els.tabOverlay.style.cssText.replace(activeStyle, '') + inactiveStyle;
+            this.els.tabDebug.style.cssText = this.els.tabDebug.style.cssText.replace(inactiveStyle, '') + activeStyle;
+
             this.els.workspaceContainer.classList.add('hidden');
             this.els.debugContainer.classList.remove('hidden');
         }
     }
 
+    // --- UPDATED: Layer List Rendering ---
     renderLayerList(activeRegion) {
         const container = this.els.layerItems;
         if (!container) return;
-
-        const regions = this.model.state.regions.slice().reverse(); // newest on top
-
+        const regions = this.model.state.regions.slice().reverse();
         if (regions.length === 0) {
             container.innerHTML = '<div style="text-align:center;color:#9ca3af;font-size:0.75rem;padding:1rem;">No regions yet</div>';
             return;
         }
-
         container.innerHTML = regions.map(r => {
             const isActive = r.id === (activeRegion?.id || this.model.state.activeRegionId);
             const eye = r.visible !== false ? '◉' : '◯';
@@ -591,101 +1230,59 @@ class UIManager {
         const controller = this.model.controller;
         this.els.regionCount.textContent = state.regions.length;
         this.els.zoomLevel.textContent = Math.round(state.scaleMultiplier * 100) + "%";
-
+        
         const scale = state.scaleMultiplier;
         const aspectRatio = state.canvasHeight / state.canvasWidth;
-        let physicalCw = 0;
-        let physicalCh = 0;
+        let physicalCw = state.baseWidth > 0 ? state.baseWidth * scale : state.canvasWidth * scale;
+        let physicalCh = physicalCw * aspectRatio;
         
-        if (state.canvasWidth > 0 && state.baseWidth > 0) {
-            physicalCw = state.baseWidth * scale;
-            physicalCh = physicalCw * aspectRatio;
-            
-            this.els.canvasWrapper.style.width = physicalCw + "px";
-            this.els.canvasWrapper.style.height = physicalCh + "px";
-        } else {
-             // Use original logical dimensions as fallback if baseWidth isn't set yet
-            physicalCw = state.canvasWidth * scale;
-            physicalCh = state.canvasHeight * scale;
+        if(state.canvasWidth > 0) {
+             this.els.canvasWrapper.style.width = physicalCw + "px";
+             this.els.canvasWrapper.style.height = physicalCh + "px";
         }
-
 
         this.els.svgLayer.innerHTML = '';
         this.els.interactionLayer.innerHTML = '';
         this.els.selectionBox.style.display = 'none';
         this.hideSplitBar();
-
-        // Remove old active frame if any
         const oldFrame = document.getElementById('active-selection-frame');
         if (oldFrame) oldFrame.remove();
 
         state.regions.forEach(r => {
-            const px = r.rect.x * physicalCw;
-            const py = r.rect.y * physicalCh;
-            const pw = r.rect.w * physicalCw;
-            const ph = r.rect.h * physicalCh;
-
-            const tx = r.offset?.x ?? 0;
-            const ty = r.offset?.y ?? 0;
-            const sx = r.scale?.x ?? 1;
-            const sy = r.scale?.y ?? 1;
+            const px = r.rect.x * physicalCw, py = r.rect.y * physicalCh;
+            const pw = r.rect.w * physicalCw, ph = r.rect.h * physicalCh;
             
-            const bpW = r.bpDims?.w ?? (r.rect.w * state.canvasWidth * 2); 
-            const bpH = r.bpDims?.h ?? (r.rect.h * state.canvasHeight * 2); 
-            
-            // Calculate transformed viewBox:
-            const viewBoxX = -(tx / sx);
-            const viewBoxY = -(ty / sy);
-            const viewBoxW = bpW / sx;
-            const viewBoxH = bpH / sy;
-            const transformedViewBox = `${viewBoxX} ${viewBoxY} ${viewBoxW} ${viewBoxH}`;
-
-            // Interaction highlight
             const div = document.createElement("div");
             div.className = "absolute region-highlight";
             if (state.selectedIds.has(r.id)) div.classList.add("region-selected");
             if (r.visible === false) div.style.opacity = "0.3";
-            div.style.left   = px + "px";
-            div.style.top    = py + "px";
-            div.style.width  = pw + "px";
-            div.style.height = ph + "px";
-            div.dataset.id   = r.id;
+            Object.assign(div.style, { left: px+"px", top: py+"px", width: pw+"px", height: ph+"px" });
+            div.dataset.id = r.id;
             this.els.interactionLayer.appendChild(div);
 
-            // SVG content (only when visible)
-            if (r.visible === false || !r.svgContent) return;
-
-            const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-            // The position (x, y) and size (width, height) are in PIXELS relative to the canvas.
-            svg.setAttribute("x", px);
-            svg.setAttribute("y", py);
-            svg.setAttribute("width", pw);
-            svg.setAttribute("height", ph);
-            svg.setAttribute("viewBox", transformedViewBox);
-            svg.setAttribute("preserveAspectRatio", "none");
-            svg.style.position = "absolute";
-            svg.style.left = px + "px";
-            svg.style.top  = py + "px";
-            svg.style.pointerEvents = "none";
-            svg.innerHTML=r.svgContent;
-            this.els.svgLayer.appendChild(svg);
+            if (r.visible !== false && r.svgContent) {
+                const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                const tx = r.offset?.x ?? 0, ty = r.offset?.y ?? 0;
+                const sx = r.scale?.x ?? 1, sy = r.scale?.y ?? 1;
+                const bpW = r.bpDims?.w ?? (r.rect.w * state.canvasWidth * 2); 
+                const bpH = r.bpDims?.h ?? (r.rect.h * state.canvasHeight * 2);
+                svg.setAttribute("viewBox", `${-(tx/sx)} ${-(ty/sy)} ${bpW/sx} ${bpH/sy}`);
+                svg.setAttribute("preserveAspectRatio", "none");
+                Object.assign(svg.style, { position:"absolute", left:px+"px", top:py+"px", width:pw+"px", height:ph+"px", pointerEvents:"none" });
+                svg.innerHTML = r.svgContent;
+                this.els.svgLayer.appendChild(svg);
+            }
         });
 
-        // Update properties when there is an active region
         const active = state.activeRegionId ? state.regions.find(r => r.id === state.activeRegionId) : null;
         this.updatePropertiesInputs(active, state);
         
-        if (active && (active.svgContent !== undefined) ) {
+        if (active && active.svgContent !== undefined) {
             this.els.svgRawEditorPanel.classList.remove('hidden');
-            // Only update the textarea if the controller isn't actively editing it
-            if (this.els.svgRawContent.value !== active.svgContent) {
-                 this.els.svgRawContent.value = active.svgContent;
-            }
+            if (this.els.svgRawContent.value !== active.svgContent) this.els.svgRawContent.value = active.svgContent;
         } else {
             this.els.svgRawEditorPanel.classList.add('hidden');
-            this.els.svgRawContent.value = '';
         }
-        // --- END NEW LOGIC ---
 
         if (active) {
             if (controller.splitMode) {
@@ -699,1159 +1296,8 @@ class UIManager {
             this.hideRegionActionsBar();
         }
         this.renderLayerList(active);
-
         if (!this.els.debugContainer.classList.contains('hidden')) {
             this.els.debugLog.textContent = JSON.stringify(state, null, 2);
-        }
-    }
-}
-
-// ============================================================================
-// 4. RegionEditor (canvas interaction)
-// ============================================================================
-
-class RegionEditor {
-    constructor(controller) {
-        this.controller = controller;
-        this.mode = 'IDLE'; // IDLE, CREATE, MOVE, RESIZE
-        this.dragStart = null;
-        this.initialRect = null;
-        this.activeHandle = null;
-    }
-
-    init() {
-        this.controller.view.els.interactionLayer.addEventListener('mousedown', e => this.handleMouseDown(e));
-        document.addEventListener('mousemove', e => this.handleMouseMove(e));
-        document.addEventListener('mouseup', e => this.handleMouseUp(e));
-        this.controller.view.els.interactionLayer.addEventListener('mouseleave', () => this.handleMouseLeave());
-        document.addEventListener('keydown', e => this.handleKeyDown(e));
-    }
-    getPhysicalDims() {
-        const state = this.controller.model.state;
-        const scale = state.scaleMultiplier;
-        const physicalCw = state.baseWidth * scale; // Use baseWidth
-        const physicalCh = physicalCw * (state.canvasHeight / state.canvasWidth);
-        return { physicalCw, physicalCh };
-    }
-
-    getLocalPos(e) {
-        const rect = this.controller.view.els.canvasWrapper.getBoundingClientRect();
-        return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    }
-
-    hitDetection(pos) {
-        const state = this.controller.model.state;
-        const { physicalCw, physicalCh } = this.getPhysicalDims();
-
-        // Check resize handles first
-        const active = state.activeRegionId ? this.controller.model.getRegion(state.activeRegionId) : null;
-        if (active) {
-            const rx = active.rect.x * physicalCw;
-            const ry = active.rect.y * physicalCh;
-            const rw = active.rect.w * physicalCw;
-            const rh = active.rect.h * physicalCh;
-
-            const handles = [
-                {name:'nw', x:rx-4, y:ry-4}, {name:'n', x:rx+rw/2-4, y:ry-4},
-                {name:'ne', x:rx+rw-4, y:ry-4}, {name:'e', x:rx+rw-4, y:ry+rh/2-4},
-                {name:'se', x:rx+rw-4, y:ry+rh-4}, {name:'s', x:rx+rw/2-4, y:ry+rh-4},
-                {name:'sw', x:rx-4, y:ry+rh-4}, {name:'w', x:rx-4, y:ry+rh/2-4}
-            ];
-
-            for (const h of handles) {
-                if (pos.x >= h.x && pos.x <= h.x+8 && pos.y >= h.y && pos.y <= h.y+8) {
-                    return { type: 'HANDLE', handle: h.name };
-                }
-            }
-        }
-
-        // Check region bodies
-        // Reverse order so newest regions (on top visually) are checked first
-        for (const r of state.regions.slice().reverse()) {
-            const rx = r.rect.x * physicalCw;
-            const ry = r.rect.y * physicalCh;
-            const rw = r.rect.w * physicalCw;
-            const rh = r.rect.h * physicalCh;
-            if (pos.x >= rx && pos.x <= rx+rw && pos.y >= ry && pos.y <= ry+rh) {
-                return { type: 'BODY', id: r.id };
-            }
-        }
-
-        return { type: 'NONE' };
-    }
-
-    handleMouseDown(e) {
-        if (e.button !== 0) return;
-        // If in split mode, just track position but don't change modes
-        if (this.controller.splitMode) {
-             const pos = this.getLocalPos(e);
-             this.dragStart = pos; // Start position for moving the split bar
-             return;
-        }
-
-        const pos = this.getLocalPos(e);
-        const hit = this.hitDetection(pos);
-
-        if (hit.type === 'BODY') {
-            if (hit.id !== this.controller.model.state.activeRegionId) {
-                this.controller.model.selectRegion(hit.id);
-            }
-            this.mode = 'MOVE';
-        } else if (hit.type === 'HANDLE') {
-            this.mode = 'RESIZE';
-            this.activeHandle = hit.handle;
-        } else {
-            this.controller.model.deselect();
-            this.mode = 'CREATE';
-        }
-
-        this.dragStart = pos;
-        const active = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
-        this.initialRect = active ? { ...active.rect } : null;
-    }
-
-    handleMouseMove(e) {
-        const pos = this.getLocalPos(e);
-        const hit = this.hitDetection(pos);
-        const layer = this.controller.view.els.interactionLayer;
-        const state = this.controller.model.state;
-        const active = state.activeRegionId ? state.regions.find(r => r.id === state.activeRegionId) : null;
-        const { physicalCw, physicalCh } = this.getPhysicalDims();
-
-        if (this.controller.splitMode && active) {
-            const rx = active.rect.x * physicalCw;
-            const ry = active.rect.y * physicalCh;
-            const rw = active.rect.w * physicalCw;
-            const rh = active.rect.h * physicalCh;
-            
-            let normalizedPos;
-
-            if (this.controller.splitType === 'horizontal') {
-                const relativeY = Math.min(Math.max(pos.y, ry), ry + rh);
-                normalizedPos = (relativeY - ry) / rh;
-                layer.style.cursor = 'ns-resize';
-            } else { // vertical
-                const relativeX = Math.min(Math.max(pos.x, rx), rx + rw);
-                normalizedPos = (relativeX - rx) / rw;
-                layer.style.cursor = 'ew-resize';
-            }
-            // Clamp position between 0.1 and 0.9 to prevent zero-size regions
-            this.controller.splitPosition = Math.min(0.9, Math.max(0.1, normalizedPos));
-            this.controller.model.notify({ noHistory: true });
-            return;
-        }
-        
-        if (this.mode === 'IDLE') {
-            if (hit.type === 'HANDLE') {
-                layer.style.cursor = hit.handle.includes('n') && hit.handle.includes('s') ? 'ns-resize' : 
-                                     hit.handle.includes('e') && hit.handle.includes('w') ? 'ew-resize' : 
-                                     hit.handle.includes('nw') || hit.handle.includes('se') ? 'nwse-resize' : 'nesw-resize';
-            } else if (hit.type === 'BODY') {
-                layer.style.cursor = 'move';
-            } else {
-                layer.style.cursor = 'default';
-            }
-            return;
-        }
-
-        if (this.mode === 'CREATE') {
-            const s = this.dragStart;
-            const x = Math.min(pos.x, s.x), y = Math.min(pos.y, s.y);
-            const w = Math.abs(pos.x - s.x), h = Math.abs(pos.y - s.y);
-            this.controller.view.els.selectionBox.style.display = 'block';
-            this.controller.view.els.selectionBox.style.left = x + 'px';
-            this.controller.view.els.selectionBox.style.top = y + 'px';
-            this.controller.view.els.selectionBox.style.width = w + 'px';
-            this.controller.view.els.selectionBox.style.height = h + 'px';
-        } else if (this.mode === 'MOVE') {
-            const dx = (pos.x - this.dragStart.x) / physicalCw;
-            const dy = (pos.y - this.dragStart.y) / physicalCh;
-            const r = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
-            if (r && this.initialRect) {
-                const newRect = {
-                    x: this.initialRect.x + dx,
-                    y: this.initialRect.y + dy,
-                    w: this.initialRect.w,
-                    h: this.initialRect.h
-                };
-                // Use context to prevent saving history on every tiny move update
-                this.controller.model.updateRegion(r.id, { rect: newRect }, { noHistory: true });
-            }
-        } else if (this.mode === 'RESIZE') {
-            const r = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
-            if (r && this.initialRect && this.activeHandle) {
-                const ix = this.initialRect.x * physicalCw, iy = this.initialRect.y * physicalCh;
-                const iw = this.initialRect.w * physicalCw, ih = this.initialRect.h * physicalCh;
-
-                let nx = ix, ny = iy, nw = iw, nh = ih;
-
-                if (this.activeHandle.includes('e')) nw = pos.x - ix;
-                if (this.activeHandle.includes('s')) nh = pos.y - iy;
-                if (this.activeHandle.includes('w')) { nw = (ix + iw) - pos.x; nx = pos.x; }
-                if (this.activeHandle.includes('n')) { nh = (iy + ih) - pos.y; ny = pos.y; }
-
-                if (nw > 5 && nh > 5) {
-                    const newRect = { x: nx/physicalCw, y: ny/physicalCh, w: nw/physicalCw, h: nh/physicalCh };
-                    // Use context to prevent saving history on every tiny resize update
-                    this.controller.model.updateRegion(r.id, { rect: newRect }, { noHistory: true });
-                }
-            }
-        }
-    }
-
-    handleMouseUp(e) {
-        if (this.controller.splitMode) {
-            // In split mode, mouseup cancels drag and confirms if the mouse hasn't moved much
-            if (this.dragStart.x === this.getLocalPos(e).x && this.dragStart.y === this.getLocalPos(e).y) {
-                 // Do nothing if it was a click without movement
-            } else {
-                 // If dragging occurred, the split position is updated via mousemove. No further action needed here.
-            }
-             this.dragStart = null;
-             return;
-        }
-        
-        if (this.mode === 'IDLE') return;
-
-        if (this.mode === 'CREATE') {
-            const pos = this.getLocalPos(e);
-            const w = Math.abs(pos.x - this.dragStart.x);
-            const h = Math.abs(pos.y - this.dragStart.y);
-            if (w > 5 && h > 5) {
-                const lx = Math.min(pos.x, this.dragStart.x);
-                const ly = Math.min(pos.y, this.dragStart.y);
-                const { physicalCw, physicalCh } = this.getPhysicalDims();
-                this.controller.model.addRegion({
-                    id: `r${Date.now()}`,
-                    rect: { x: lx/physicalCw, y: ly/physicalCh, w: w/physicalCw, h: h/physicalCh }, 
-                    status: 'pending', svgContent: ''
-                });
-            }
-            this.controller.view.els.selectionBox.style.display = 'none';
-        } else {
-            // Only save history if an actual move/resize occurred
-            if (this.initialRect) {
-                this.controller.model.saveHistory();
-            }
-        }
-
-        this.mode = 'IDLE';
-        this.activeHandle = null;
-        this.initialRect = null;
-    }
-
-    handleMouseLeave() {
-        if (this.mode !== 'IDLE' && !this.controller.splitMode) this.cancelInteraction();
-        this.controller.view.els.interactionLayer.style.cursor = 'default';
-    }
-
-    handleKeyDown(e) {
-        if (e.key === 'Escape') {
-            if (this.controller.splitMode) {
-                this.controller.exitSplitMode();
-            } else {
-                this.mode = 'IDLE';
-                this.controller.view.els.selectionBox.style.display = 'none';
-            }
-        } else if (this.controller.splitMode) {
-            if (e.key === 'Tab') {
-                e.preventDefault(); // Prevent tab switching focus
-                this.controller.toggleSplitType();
-            } else if (e.key === 'Enter') {
-                e.preventDefault();
-                this.controller.confirmSplit();
-            }
-        }
-    }
-
-    cancelInteraction() {
-        if (this.mode === 'CREATE') {
-            this.controller.view.els.selectionBox.style.display = 'none';
-        } else if (this.mode === 'MOVE' || this.mode === 'RESIZE') {
-            const r = this.controller.model.getRegion(this.controller.model.state.activeRegionId);
-            // Restore initial rect only if a drag was started
-            if (r && this.initialRect) {
-                this.controller.model.updateRegion(r.id, { rect: this.initialRect });
-            }
-        }
-        this.mode = 'IDLE';
-    }
-}
-
-// ============================================================================
-// 4.5. ImageProcessor (Image & Coordinate Utilities)
-// ============================================================================
-
-class ImageProcessor {
-    constructor(model) {
-        this.model = model;
-        this.scaleFactor = 2; // Fixed 2x scale for processing
-    }
-
-    /**
-     * Helper to check for non-white/non-transparent pixels.
-     */
-    isDark(data, index) {
-        const i = index * 4;
-        // Check for non-transparent (alpha > 128) AND non-white (RGB < 200)
-        return data[i + 3] > 128 && data[i] < 200 && data[i + 1] < 200 && data[i + 2] < 200;
-    }
-
-    /**
-     * Converts a normalized rect (0-1) into an image data object (2x scale), 
-     * tightly crops it, and generates the RLE blueprint and new normalized rect.
-     * @param {object} normalizedRect - {x, y, w, h} normalized to canvas dimensions (0-1).
-     * @param {number} [pad=4] - Pixel padding around the tight crop (at 2x scale).
-     * @returns {object|null} - { rle, bpDims, newRect } or null if empty.
-     */
-    processRegion(normalizedRect, pad = 4) {
-        const r = normalizedRect;
-        const s = this.model.state;
-        const canvas = s.canvas;
-        if (!canvas) return null;
-        const pw = Math.floor(r.w * s.canvasWidth);
-        const ph = Math.floor(r.h * s.canvasHeight);
-        
-        if (pw < 1 || ph < 1) return null;
-
-        // 1. Draw 2x scaled image data to a temporary canvas
-        const tmp = document.createElement("canvas");
-        tmp.width = pw * this.scaleFactor; 
-        tmp.height = ph * this.scaleFactor;
-        const ctx = tmp.getContext("2d");
-        ctx.drawImage(
-            canvas, 
-            r.x * s.canvasWidth, r.y * s.canvasHeight, pw, ph, 
-            0, 0, pw * this.scaleFactor, ph * this.scaleFactor
-        );
-
-        const tData = ctx.getImageData(0, 0, tmp.width, tmp.height).data;
-        const tW = tmp.width;
-        const tH = tmp.height;
-
-        // 2. Tight Crop Search
-        let tMinX = tW, tMinY = tH, tMaxX = 0, tMaxY = 0;
-        let tFound = false;
-
-        for (let ty = 0; ty < tH; ty++) {
-            for (let tx = 0; tx < tW; tx++) {
-                const index = ty * tW + tx;
-                if (this.isDark(tData, index)) { 
-                    tMinX = Math.min(tMinX, tx);
-                    tMaxX = Math.max(tMaxX, tx);
-                    tMinY = Math.min(tMinY, ty);
-                    tMaxY = Math.max(tMaxY, ty);
-                    tFound = true;
-                }
-            }
-        }
-        
-        if (!tFound) return null;
-
-        // Apply padding and clamp
-        tMinX = Math.max(0, tMinX - pad);
-        tMinY = Math.max(0, tMinY - pad);
-        tMaxX = Math.min(tW, tMaxX + pad);
-        tMaxY = Math.min(tH, tMaxY + pad);
-        
-        const bpW = tMaxX - tMinX;
-        const bpH = tMaxY - tMinY;
-        
-        // 3. RLE Blueprint Generation
-        let rle = "";
-        for (let ty = tMinY; ty < tMaxY; ty += this.scaleFactor) {
-            let sx = -1;
-            for (let tx = tMinX; tx < tMaxX; tx++) {
-                const index = ty * tW + tx;
-                if (this.isDark(tData, index)) {
-                    if(sx === -1) sx = tx;
-                } else {
-                    if(sx !== -1) {
-                        rle += `M${sx} ${ty}h${tx - sx}v${this.scaleFactor}h-${tx - sx}z`;
-                        sx = -1;
-                    }
-                }
-            }
-            if(sx !== -1) rle += `M${sx} ${ty}h${tMaxX - sx}v${this.scaleFactor}h-${tMaxX - sx}z`;
-        }
-
-        // 4. Calculate final normalized coordinates (relative to original canvas)
-        const globalX = r.x + (tMinX / this.scaleFactor) / s.canvasWidth;
-        const globalY = r.y + (tMinY / this.scaleFactor) / s.canvasHeight;
-        const globalW = ((tMaxX - tMinX) / this.scaleFactor) / s.canvasWidth;
-        const globalH = ((tMaxY - tMinY) / this.scaleFactor) / s.canvasHeight;
-        
-        return {
-            rle,
-            bpDims: { w: bpW, h: bpH },
-            newRect: { x: globalX, y: globalY, w: globalW, h: globalH },
-            imageData: tmp.toDataURL("image/png").split(",")[1] // Base64 data for AI
-        };
-    }
-}
-
-// ============================================================================
-// 5. CONTROLLER
-// ============================================================================
-
-class SciTextController {
-    constructor(model, view) {
-        this.model = model;
-        this.view = view;
-        this.draw = new RegionEditor(this);
-        this.splitMode = false;
-        this.splitType = 'horizontal'; 
-        this.splitPosition = 0.5; 
-    }
-
-    async init() {
-        this.view.init();
-
-        this.model.state.canvas = this.view.els.processingCanvas;
-        this.imageProcessor = new ImageProcessor(this.model);
-        await this.loadPDFJS();
-        
-        this.draw.init();
-
-        // Basic UI bindings
-        this.view.els.pdfUpload.onchange = e => this.handleFileUpload(e);
-        this.view.els.svgImport.onchange = e => this.handleSvgImport(e.target.files[0]);
-        this.view.els.btnUndo.onclick = () => this.model.undo();
-        this.view.els.btnRedo.onclick = () => this.model.redo();
-        this.view.els.zoomIn.onclick = () => this.setZoom(this.model.state.scaleMultiplier + 0.25);
-        this.view.els.zoomOut.onclick = () => this.setZoom(this.model.state.scaleMultiplier - 0.25);
-        this.view.els.btnAutoSegment.onclick = () => this.autoSegment();
-        this.view.els.btnDelete.onclick = () => {
-            Array.from(this.model.state.selectedIds).forEach(id => this.model.deleteRegion(id));
-        };
-        this.view.els.btnClearAll.onclick = () => { 
-            this.model.setState({regions:[]}); 
-            this.model.deselect(); 
-            this.model.saveHistory(); 
-        };
-        this.view.els.fullscreenToggle.onclick = () => this.toggleFullscreen();
-        this.view.els.tabOverlay.onclick = () => this.switchTab('overlay');
-        this.view.els.tabDebug.onclick = () => this.switchTab('debug');
-        this.view.els.btnExport.onclick = () => this.exportSVG();
-        this.view.els.btnFitArea.onclick = () => this.fitArea();
-        this.view.els.btnFitContent.onclick = () => this.fitContent();
-        this.view.els.btnSplit.onclick = () => this.enterSplitMode(); 
-        this.view.els.btnGroup.onclick = () => this.groupSelectedRegions();
-        
-        // NEW SVG Editor Bindings (Simplified)
-        this.view.els.btnSaveRawSvg.onclick = () => this.saveRawSvgChanges();
-
-        // Property inputs (Region Bounding Box)
-        ['propX','propY','propW','propH'].forEach(k => {
-            if(this.view.els[k]) this.view.els[k].onchange = () => this.updateRegionFromProps('rect');
-        });
-        
-        // Property inputs (SVG Content Adjustments) // NEW BINDINGS
-        ['propOffsetX','propOffsetY','propScaleX','propScaleY'].forEach(k => {
-            if(this.view.els[k]) this.view.els[k].onchange = () => this.updateRegionFromProps('svg-transform');
-        });
-
-        // Region actions bar
-        this.view.els.regionActionsBar.onclick = (e) => {
-            const type = e.target.dataset.type;
-            if (type) this.generateContent(type);
-        };
-
-        // Layer list interactions
-        this.view.els.layerItems?.addEventListener('click', (e) => {
-            const item = e.target.closest('.layer-item');
-            if (!item) return;
-            const id = item.dataset.id;
-
-            if (e.target.classList.contains('visibility-toggle')) {
-                const r = this.model.getRegion(id);
-                if (r) this.model.updateRegion(id, { visible: !r.visible });
-            } else if (e.target.classList.contains('delete-btn')) {
-                this.model.deleteRegion(id);
-            } else {
-                this.model.selectRegion(id);
-            }
-        });
-
-        // Toggle all visibility
-        this.view.els.btnToggleVisibilityAll.onclick = () => {
-            const anyHidden = this.model.state.regions.some(r => !r.visible);
-            this.model.state.regions.forEach(r => this.model.updateRegion(r.id, { visible: !anyHidden }));
-        };
-        const handleResize = () => {
-            this.updateBaseWidth();
-            this.model.notify(); 
-        };
-        document.addEventListener('fullscreenchange', handleResize);
-        window.addEventListener('resize', handleResize);
-        this.loadDefaultImage();
-    }
-    enterSplitMode() {
-        if (!this.model.state.activeRegionId) return;
-        this.splitMode = true;
-        
-        const r = this.model.getRegion(this.model.state.activeRegionId);
-        const cw = this.model.state.canvasWidth;
-        const ch = this.model.state.canvasHeight;
-        
-        // Default split type based on region aspect ratio
-        this.splitType = (r.rect.w * cw) > (r.rect.h * ch) ? 'vertical' : 'horizontal';
-        this.splitPosition = 0.5; // Start in the middle
-
-        this.model.notify();
-    }
-    
-    exitSplitMode() {
-        this.splitMode = false;
-        this.model.notify();
-    }
-    
-    toggleSplitType() {
-        const splitType = this.splitType; // store value for toggle
-        this.splitType = splitType === 'horizontal' ? 'vertical' : 'horizontal';
-        this.splitType = splitType === 'vertical' ? 'horizontal' : 'vertical';
-        this.model.notify();
-    }
-
-    async confirmSplit() {
-        const id = this.model.state.activeRegionId;
-        if (!id) return this.exitSplitMode();
-
-        const r = this.model.getRegion(id);
-        
-        let r1Rect = { ...r.rect };
-        let r2Rect = { ...r.rect };
-        const splitPos = this.splitPosition;
-
-        if (this.splitType === 'horizontal') {
-            r1Rect.h *= splitPos;
-            r2Rect.h *= (1 - splitPos);
-            r2Rect.y += r1Rect.h;
-        } else { // vertical
-            r1Rect.w *= splitPos;
-            r2Rect.w *= (1 - splitPos);
-            r2Rect.x += r1Rect.w;
-        }
-
-        this.view.els.aiStatus.classList.remove('hidden');
-        this.view.els.aiStatus.textContent = 'Splitting and scanning new regions...';
-
-        const scan1 = this.imageProcessor.processRegion(r1Rect);
-        const scan2 = this.imageProcessor.processRegion(r2Rect);
-
-        const createNewRegion = (scan) => ({
-            id: `r${Date.now()}_${Math.random()}`,
-            rect: scan.newRect,
-            svgContent: `<path d="${scan.rle}" fill="black" />`, 
-            status: 'scanned',
-            contentType: 'scan',
-            bpDims: scan.bpDims,
-            scale: {x:1, y:1}, 
-            offset: {x:0, y:0}
-        });
-
-        const newRegions = [];
-        if (scan1) newRegions.push(createNewRegion(scan1));
-        if (scan2) newRegions.push(createNewRegion(scan2));
-
-        if (newRegions.length > 0) {
-            this.model.deleteRegion(id);
-            newRegions.forEach(nr => this.model.state.regions.push(nr));
-            this.model.selectRegion(newRegions[0].id);
-            this.model.saveHistory();
-        } else {
-            console.log("Split resulted in two empty regions, keeping original.");
-        }
-        
-        this.view.els.aiStatus.classList.add('hidden');
-        this.exitSplitMode();
-    }
-    
-
-    updateBaseWidth() {
-        if (this.model.state.canvasWidth === 0) return;
-        const scroller = this.view.els.canvasScroller;
-        const availableWidth = scroller.clientWidth - 32; 
-        const newBaseWidth = Math.min(this.model.state.canvasWidth, availableWidth);
-        if (newBaseWidth > 0 && Math.abs(newBaseWidth - this.model.state.baseWidth) > 1) {
-             this.model.setState({ baseWidth: newBaseWidth });
-        }
-    }
-
-    switchTab(t) {
-        this.view.switchTab(t);
-    }
-    async loadPDFJS() {
-        if (window.pdfjsLib) return;
-
-        const isRemoteOrSandbox = 
-            /^blob:/.test(location.href) || 
-            /^blob:/.test(document.baseURI || '') || 
-            /^https?:/.test(location.href) || 
-            /^https?:/.test(document.baseURI || '');
-
-        // Official ESM builds – these are served with correct application/javascript MIME
-        const remoteScript = 'https://unpkg.com/pdfjs-dist@5.4.449/build/pdf.min.mjs';
-        const remoteWorker = 'https://unpkg.com/pdfjs-dist@5.4.449/build/pdf.worker.min.mjs';
-
-        // Local fallbacks (if you ever bundle them yourself)
-        const localScript    = './src/pdf.min.mjs';
-        const localWorker    = './src/pdf.worker.min.mjs';
-
-        const load = async (scriptUrl, workerUrl) => {
-            // pdf.js exposes the library on window.pdfjsLib when using the .mjs build
-            await import(scriptUrl);                     // dynamic import → proper module
-            window.pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
-        };
-        load(remoteScript, remoteWorker);
-    }
-
-    loadScript(src) {
-        return new Promise((resolve) => {
-            const s = document.createElement('script'); s.src = src; s.onload = resolve; document.head.appendChild(s);
-        });
-    }
-
-    setZoom(s) {
-        this.model.setState({ scaleMultiplier: Math.max(0.25, Math.min(5.0, s)) });
-    }
-
-    toggleFullscreen() {
-        document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
-    }
-
-    async handleFileUpload(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        this.view.toggleLoader(true);
-
-        const canvas = this.model.state.canvas;
-        const ctx = canvas.getContext("2d");
-        let initialWidth;
-        let initialHeight;
-
-        if (file.type === "application/pdf" && window.pdfjsLib) {
-            const ab = await file.arrayBuffer();
-            const pdf = await pdfjsLib.getDocument(ab).promise;
-            const page = await pdf.getPage(1);
-            const vp = page.getViewport({ scale: 2.0 });
-
-            initialWidth = vp.width;
-            initialHeight = vp.height;
-
-            canvas.width = initialWidth;
-            canvas.height = initialHeight;
-
-            await page.render({ canvasContext: ctx, viewport: vp }).promise;
-        } else {
-            const img = new Image();
-            const loaded = new Promise(resolve => img.onload = resolve);
-            img.src = URL.createObjectURL(file);
-            await loaded;
-            
-            initialWidth = img.width;
-            initialHeight = img.height;
-            
-            canvas.width = initialWidth;
-            canvas.height = initialHeight;
-            ctx.drawImage(img, 0, 0);
-        }
-
-        this.view.els.pdfLayer.style.backgroundImage = `url(${canvas.toDataURL()})`;
-        this.view.els.pdfLayer.style.backgroundSize = "100% 100%";
-
-        this.view.toggleLoader(false);
-        this.view.toggleWorkspace(true);
-        this.model.setState({ regions: [], history: [] });
-        this.model.saveHistory();
-        this.model.setCanvasDimensions(initialWidth, initialHeight, initialWidth);
-        this.updateBaseWidth(); // Will reset baseWidth to fit screen if needed
-    }
-
-    loadDefaultImage() {
-        this.view.toggleLoader(true);
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.src = window.embeddedDefaultImage;
-        img.onload = () => {
-            const initialWidth = img.width;
-            const initialHeight = img.height;
-            const canvas = this.model.state.canvas;
-            canvas.width = initialWidth;
-            canvas.height = initialHeight;
-            canvas.getContext("2d").drawImage(img, 0, 0);
-            const dataUrl = canvas.toDataURL();
-            this.view.els.pdfLayer.style.backgroundImage = `url(${dataUrl})`;
-            this.view.els.pdfLayer.style.backgroundSize = "100% 100%";
-            this.view.toggleLoader(false);
-            this.view.toggleWorkspace(true);
-            this.model.setCanvasDimensions(initialWidth, initialHeight, initialWidth);
-            this.updateBaseWidth();
-            this.model.saveHistory();
-        };
-    }
-
-    updateRegionFromProps(type) {
-        const id = this.model.state.activeRegionId;
-        if (!id) return;
-        
-        let updates = {};
-
-        if (type === 'rect') {
-            const cw = this.model.state.canvasWidth;
-            const ch = this.model.state.canvasHeight;
-            const r = {
-                x: parseFloat(this.view.els.propX.value) / cw || 0,
-                y: parseFloat(this.view.els.propY.value) / ch || 0,
-                w: parseFloat(this.view.els.propW.value) / cw || 0,
-                h: parseFloat(this.view.els.propH.value) / ch || 0
-            };
-            updates.rect = r;
-        } else if (type === 'svg-transform') {
-            updates.offset = {
-                x: parseFloat(this.view.els.propOffsetX.value) || 0,
-                y: parseFloat(this.view.els.propOffsetY.value) || 0
-            };
-            updates.scale = {
-                x: parseFloat(this.view.els.propScaleX.value) || 1,
-                y: parseFloat(this.view.els.propScaleY.value) || 1
-            };
-        }
-
-        this.model.updateRegion(id, updates);
-        this.model.saveHistory();
-    }
-    
-    // ======== SVG EDITOR LOGIC (Simplified) ========
-
-    saveRawSvgChanges() {
-        const activeId = this.model.state.activeRegionId;
-        if (!activeId) return;
-        
-        const newSvgContent = this.view.els.svgRawContent.value;
-
-        // Strip surrounding SVG tags if the user accidentally included them
-        const strippedContent = newSvgContent
-            .replace(/<svg[^>]*?>/g, '')
-            .replace(/<\/svg>/g, '')
-            .trim();
-
-        this.model.updateRegion(activeId, {
-            svgContent: strippedContent,
-            status: 'edited',
-            contentType: 'custom' 
-        });
-
-        this.model.saveHistory();
-        this.model.notify(); // Force re-render with new SVG content
-    }
-    
-    // ======== End SVG EDITOR LOGIC (Simplified) ========
-
-    async fitArea() {
-        const id = this.model.state.activeRegionId;
-        const r = this.model.getRegion(id);
-        if (!r) return;
-
-        // Use the refactored image processor
-        const scan = this.imageProcessor.processRegion(r.rect);
-
-        if (!scan) return;
-
-        this.model.updateRegion(id, {
-            rect: scan.newRect,
-            svgContent: `<path d="${scan.rle}" fill="black" />`,
-            bpDims: scan.bpDims,
-            scale: { x: 1, y: 1 }, 
-            offset: { x: 0, y: 0 },
-            status: 'scanned',
-            contentType: 'scan'
-        });
-
-        this.model.saveHistory();
-    }
-    
-    async autoSegment() {
-        const s = this.model.state;
-        if (s.canvasWidth === 0) return;
-
-        this.view.toggleLoader(true);
-        this.view.els.aiStatus.classList.remove('hidden');
-        this.view.els.aiStatus.textContent = 'Analyzing content for dense text blocks...';
-
-        // Clear existing regions
-        this.model.setState({ regions: [], history: [] });
-        this.model.saveHistory();
-        this.model.deselect();
-
-        const canvas = s.canvas;
-        const width = canvas.width;
-        const height = canvas.height;
-        const ctx = canvas.getContext('2d');
-        const imageData = ctx.getImageData(0, 0, width, height);
-        const data = imageData.data;
-        const visited = new Array(width * height).fill(false);
-        const newRegions = [];
-        
-        const CONNECTION_RADIUS = 10; 
-        const segmentMinSize = 250; 
-
-        // Helper to check if a pixel is 'dark' (non-white/non-transparent)
-        const isDark = (index) => this.imageProcessor.isDark(data, index);
-
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                const index = y * width + x;
-                if (!visited[index] && isDark(index)) {
-                    let minX = width, minY = height, maxX = 0, maxY = 0;
-                    let queue = [{ x, y }];
-                    visited[index] = true;
-                    let pixelCount = 0;
-
-                    // BFS to find contiguous block with neighborhood check
-                    while (queue.length > 0) {
-                        const { x: cx, y: cy } = queue.shift();
-                        
-                        minX = Math.min(minX, cx);
-                        maxX = Math.max(maxX, cx);
-                        minY = Math.min(minY, cy);
-                        maxY = Math.max(maxY, cy);
-                        pixelCount++;
-
-                        for (let dy = -CONNECTION_RADIUS; dy <= CONNECTION_RADIUS; dy++) {
-                            for (let dx = -CONNECTION_RADIUS; dx <= CONNECTION_RADIUS; dx++) {
-                                if (dx === 0 && dy === 0) continue;
-                                const nx = cx + dx;
-                                const ny = cy + dy;
-
-                                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                                    const nIndex = ny * width + nx;
-                                    if (!visited[nIndex] && isDark(nIndex)) {
-                                        visited[nIndex] = true;
-                                        queue.push({ x: nx, y: ny });
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (pixelCount >= segmentMinSize) {
-                        const pad = 2; // small padding
-                        let initialRect = {
-                            x: Math.max(0, minX - pad) / width,
-                            y: Math.max(0, minY - pad) / height,
-                            w: (Math.min(width - 1, maxX + pad) - Math.max(0, minX - pad)) / width,
-                            h: (Math.min(height - 1, maxY + pad) - Math.max(0, minY - pad)) / height
-                        };
-                        
-                        const scan = this.imageProcessor.processRegion(initialRect);
-                        
-                        if (!scan) continue;
-
-                        const newRegion = {
-                            id: `r${Date.now()}_${newRegions.length}`,
-                            rect: scan.newRect, 
-                            status: 'scanned',
-                            svgContent: `<path d="${scan.rle}" fill="black" />`,
-                            bpDims: scan.bpDims,
-                            contentType: 'scan',
-                            scale: {x: 1, y: 1}, 
-                            offset: {x: 0, y: 0}
-                        };
-
-                        this.model.state.regions.push(newRegion);
-                        newRegions.push(newRegion.id);
-                    }
-                }
-            }
-        }
-
-        // Must update the regions in a batch, select the last one, and save history
-        if (newRegions.length > 0) {
-            this.model.selectRegion(newRegions[newRegions.length - 1]);
-        } else {
-            this.model.deselect();
-        }
-        
-        this.model.saveHistory();
-        this.view.toggleLoader(false);
-        this.view.els.aiStatus.classList.add('hidden');
-    }
-
-    fitContent() {
-        // This function now resets the internal SVG transform to match the bounding box
-        const id = this.model.state.activeRegionId;
-        if (!id) return;
-        this.model.updateRegion(id, { scale: {x: 1, y: 1}, offset: {x: 0, y: 0} });
-        this.model.saveHistory();
-    }
-
-    groupSelectedRegions() {
-        const selected = this.model.state.regions.filter(r => this.model.state.selectedIds.has(r.id));
-        if (selected.length < 2) return;
-
-        let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
-        selected.forEach(r => {
-            minX = Math.min(minX, r.rect.x);
-            minY = Math.min(minY, r.rect.y);
-            maxX = Math.max(maxX, r.rect.x + r.rect.w);
-            maxY = Math.max(maxY, r.rect.y + r.rect.h);
-        });
-
-        const groupW = maxX - minX;
-        const groupH = maxY - minY;
-        const cw = this.model.state.canvasWidth;
-        const ch = this.model.state.canvasHeight;
-        const bpW = groupW * cw * 2; // Assuming 2x scale was used for blueprint generation originally
-        const bpH = groupH * ch * 2;
-
-        let svgContent = '';
-        selected.forEach(r => {
-            // Calculate offset relative to the new group's top-left corner (in original canvas units)
-            const x = (r.rect.x - minX) * cw; 
-            const y = (r.rect.y - minY) * ch; 
-            const tx = r.offset?.x ?? 0;
-            const ty = r.offset?.y ?? 0;
-            const sx = r.scale?.x ?? 1;
-            const sy = r.scale?.y ?? 1;
-            const origBpW = r.bpDims?.w || (r.rect.w * cw * 2);
-            const origBpH = r.bpDims?.h || (r.rect.h * ch * 2);
-            const viewBoxX = -(tx / sx);
-            const viewBoxY = -(ty / sy);
-            const viewBoxW = origBpW / sx;
-            const viewBoxH = origBpH / sy;
-            const transformedViewBox = `${viewBoxX} ${viewBoxY} ${viewBoxW} ${viewBoxH}`;
-            // x and y here are in 2x canvas pixels relative to the group's top-left corner
-            svgContent += `<svg x="${x * 2}" y="${y * 2}" width="${r.rect.w * cw * 2}" height="${r.rect.h * ch * 2}" viewBox="${transformedViewBox}" preserveAspectRatio="none">
-                ${r.svgContent}
-            </svg>`;
-        });
-
-        const newRegion = {
-            id: `r${Date.now()}`,
-            rect: { x: minX, y: minY, w: groupW, h: groupH },
-            svgContent,
-            bpDims: { w: bpW, h: bpH }, // Set viewBox to the bounding box at 2x scale
-            scale: {x:1, y:1}, offset: {x:0, y:0},
-            contentType: 'group'
-        };
-
-        this.model.state.regions = this.model.state.regions.filter(r => !this.model.state.selectedIds.has(r.id));
-        this.model.addRegion(newRegion);
-    }
-
-    exportSVG() {
-        const cw = this.model.state.canvasWidth;
-        const ch = this.model.state.canvasHeight;
-        let out = `<svg xmlns="http://www.w3.org/2000/svg" width="${cw}" height="${ch}" viewBox="0 0 ${cw} ${ch}">\n`;
-        
-        // Add white background
-        out += `  <rect x="0" y="0" width="${cw}" height="${ch}" fill="white"/>\n`;
-
-        this.model.state.regions.forEach(r => {
-            const x = r.rect.x * cw;
-            const y = r.rect.y * ch;
-            const w = r.rect.w * cw;
-            const h = r.rect.h * ch;
-            
-            const bpW = r.bpDims?.w ?? (r.rect.w * cw * 2);
-            const bpH = r.bpDims?.h ?? (r.rect.h * ch * 2);
-            
-            const tx = r.offset?.x ?? 0;
-            const ty = r.offset?.y ?? 0;
-            const sx = r.scale?.x ?? 1;
-            const sy = r.scale?.y ?? 1;
-            const viewBoxX = -(tx / sx);
-            const viewBoxY = -(ty / sy);
-            const viewBoxW = bpW / sx;
-            const viewBoxH = bpH / sy;
-            const transformedViewBox = `${viewBoxX.toFixed(2)} ${viewBoxY.toFixed(2)} ${viewBoxW.toFixed(2)} ${viewBoxH.toFixed(2)}`;
-            out += `  <svg x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" height="${h.toFixed(2)}" viewBox="${transformedViewBox}" preserveAspectRatio="none">\n`;
-            // Inject content after stripping any wrapping tags if present
-            out += r.svgContent.replace(/<svg[^>]*?>/g, '').replace(/<\/svg>/g, '').split('\n').map(line => `      ${line}`).join('\n').trim() + '\n';
-            out += `  </svg>\n`;
-        });
-        out += `</svg>`;
-
-        const blob = new Blob([out], {type: "image/svg+xml"});
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = "scitext_export.svg";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-    }
-
-    async generateContent(type) {
-        const r = this.model.getRegion(this.model.state.activeRegionId);
-        if (!r) return;
-
-        this.view.els.aiStatus.classList.remove('hidden');
-        this.view.hideRegionActionsBar();
-
-        if (type === 'empty') {
-            r.svgContent = '';
-            r.status = 'done';
-            r.contentType = 'empty';
-            this.model.updateRegion(r.id, r);
-            this.model.saveHistory();
-            this.view.els.aiStatus.classList.add("hidden");
-            return;
-        }
-        
-        // Use refactored logic to get the data
-        // NOTE: A no-padding process is used here for the full bounding box scan
-        const scan = this.imageProcessor.processRegion(r.rect, 0); 
-        
-        if (!scan) {
-            this.view.els.aiStatus.classList.add('hidden');
-            return;
-        }
-
-        const pw2 = scan.bpDims.w;
-        const ph2 = scan.bpDims.h;
-
-        if (type === 'blueprint') {
-            const updates = {
-                svgContent: `<path d="${scan.rle}" fill="black" />`,
-                status: 'scanned',
-                contentType: 'scan',
-                bpDims: scan.bpDims,
-                scale: { x: 1, y: 1 },
-                offset: { x: 0, y: 0 }
-            };
-            this.model.updateRegion(r.id, updates);
-            this.model.saveHistory();
-            this.view.els.aiStatus.classList.add('hidden');
-            return;
-        }
-
-        this.view.els.aiStatus.textContent = `Generating ${type}...`;
-        const base64 = scan.imageData;
-        const promptType = type === 'image' ? 'SVG Graphic' : 'SVG Text';
-        const prompt = `You are a precision SVG Typesetter.\nINPUT: 2x scale scan.\nTASK: Generate ${promptType}.\nViewBox: 0 0 ${pw2} ${ph2}.\nOutput **ONLY** raw SVG code. Do not include markdown fences or any commentary. If the original content contains mathematical equations, render them using only SVG primitives, not KaTeX. RLE: ${scan.rle.substring(0,500)}...`;
-
-        try {
-            const payload = { 
-                contents: [{ role: "user", parts: [{ text: prompt }, { inlineData: { mimeType: "image/png", data: base64 } }] }],
-                systemInstruction: { parts: [{ text: "Output ONLY raw SVG code. No markdown fences or commentary." }] }
-            };
-
-            const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
-            });
-            
-            const responseText = await resp.text();
-
-            if (!resp.ok) {
-                 throw new Error(`API returned HTTP ${resp.status}. Response: ${responseText.substring(0, 100)}...`);
-            }
-            
-            const json = JSON.parse(responseText);
-
-            let text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!text) throw new Error("Empty SVG content returned from AI.");
-
-            // Extract and clean SVG content aggressively
-            const cleanSVG = text.replace(/```svg/g, "").replace(/```/g, "").replace(/<svg[^>]*>/g, '').replace(/<\/svg>/g, '').trim();
-            
-            if (cleanSVG.length < 10) {
-                 throw new Error(`AI response too short or unusable. Raw text: ${text.substring(0, 50)}...`);
-            }
-
-
-            const updates = {
-                svgContent: cleanSVG,
-                status: 'generated',
-                contentType: type,
-                bpDims: { w: pw2, h: ph2 }, // Set viewBox to the 2x scale dimensions
-                scale: { x: 1, y: 1 },
-                offset: { x: 0, y: 0 }
-            };
-
-            this.model.updateRegion(r.id, updates);
-            this.model.saveHistory();
-        } catch(e) {
-            console.error("AI Generation Error:", e);
-            const errorSvg = `<text x="10" y="30" fill="red" font-size="60" font-weight="bold">ERROR</text><text x="10" y="50" fill="red" font-size="14">${e.message.substring(0, 150)}</text>`;
-            this.model.updateRegion(r.id, { svgContent: errorSvg });
-        } finally {
-            this.view.els.aiStatus.classList.add('hidden');
-        }
-    }
-    async handleSvgImport(file) {
-        if (!file) return;
-        this.view.toggleLoader(true);
-        try {
-            const text = await file.text();
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(text, "image/svg+xml");
-            if (doc.querySelector("parsererror")) {
-                throw new Error("Invalid SVG file");
-            }
-            const root = doc.documentElement;
-            const viewBox = root.getAttribute("viewBox")?.split(/\s+/).map(parseFloat) || [0, 0, parseFloat(root.getAttribute("width") || "0"), parseFloat(root.getAttribute("height") || "0")];
-            const cw = viewBox[2];
-            const ch = viewBox[3];
-            if (cw <= 0 || ch <= 0) {
-                throw new Error("Invalid SVG dimensions");
-            }
-            // Set canvas dimensions if no document is loaded
-            if (this.model.state.canvasWidth === 0) {
-                this.model.setCanvasDimensions(cw, ch, cw);
-                this.view.els.pdfLayer.style.backgroundColor = "white";
-                this.view.els.pdfLayer.style.backgroundImage = "none";
-                this.updateBaseWidth();
-                this.view.toggleWorkspace(true);
-            } else if (Math.abs(this.model.state.canvasWidth - cw) > 1 || Math.abs(this.model.state.canvasHeight - ch) > 1) {
-                alert("SVG dimensions do not match the loaded document. Layers may not align properly.");
-            }
-            // Clear existing regions
-            this.model.setState({ regions: [], selectedIds: new Set(), activeRegionId: null });
-
-            // Extract nested <svg> elements (regions)
-            const nestedSvgs = Array.from(root.children).filter(child => child.tagName.toLowerCase() === "svg");
-            for (const svgEl of nestedSvgs) {
-                const x = parseFloat(svgEl.getAttribute("x") || "0");
-                const y = parseFloat(svgEl.getAttribute("y") || "0");
-                const width = parseFloat(svgEl.getAttribute("width") || "0");
-                const height = parseFloat(svgEl.getAttribute("height") || "0");
-                const viewBoxStr = svgEl.getAttribute("viewBox");
-                const [vx, vy, vw, vh] = viewBoxStr ? viewBoxStr.split(/\s+/).map(parseFloat) : [0, 0, width, height];
-                const svgContent = svgEl.innerHTML.trim();
-
-                const bpW = width * CONFIG.aiScale;
-                const bpH = height * CONFIG.aiScale;
-                const sx = vw > 0 ? bpW / vw : 1;
-                const sy = vh > 0 ? bpH / vh : 1;
-                const offsetX = -vx * sx;
-                const offsetY = -vy * sy;
-
-                const rect = {
-                    x: cw > 0 ? x / cw : 0,
-                    y: ch > 0 ? y / ch : 0,
-                    w: cw > 0 ? width / cw : 0,
-                    h: ch > 0 ? height / ch : 0
-                };
-                const newRegion = {
-                    id: `r${Date.now()}`,
-                    rect,
-                    svgContent,
-                    bpDims: { w: bpW, h: bpH },
-                    offset: { x: offsetX, y: offsetY },
-                    scale: { x: sx, y: sy },
-                    visible: true,
-                    status: 'imported',
-                    contentType: 'imported'
-                };
-                this.model.addRegion(newRegion);
-            }
-            this.model.saveHistory();
-        } catch (e) {
-            console.error("SVG Import Error:", e);
-            alert(`Failed to import SVG: ${e.message}`);
-        } finally {
-            this.view.toggleLoader(false);
         }
     }
 }
@@ -1866,10 +1312,7 @@ const appObject = (function() {
     const controller = new SciTextController(model, view);
     view.model = model;
     view.model.controller = controller; 
-
-    model.subscribe((state) => {
-        view.render(state);
-    });
+    model.subscribe((state) => view.render(state));
     return {
         bootstrap: async () => {
             const mod = await import(`./appTest.js?v=${Date.now()}`);
