@@ -3,12 +3,13 @@
  * Architecture:
  * 1. CONFIG & SHARED CONSTANTS
  * 2. SciTextUI (View Schema, Styles, & Builder)
- * 3. SciTextModel (State Management)
- * 4. ImageProcessor (Computer Vision Logic)
- * 5. RegionEditor (Canvas Interaction)
- * 6. SciTextController (Orchestration)
- * 7. UIManager (View Bridge)
- * 8. Bootstrap
+ * 3. Utils (Geometry & SVG Helpers)
+ * 4. SciTextModel (State Management)
+ * 5. ImageProcessor (Computer Vision Logic)
+ * 6. RegionEditor (Canvas Interaction)
+ * 7. SciTextController (Orchestration)
+ * 8. UIManager (View Bridge)
+ * 9. Bootstrap
  */
 
 // ============================================================================
@@ -175,30 +176,12 @@ class SciTextUI {
     return {
       root: { tag: "div", id: "template-structure", class: "flex-col" },
       header: { tag: "header", class: "app-header z-30 shrink-0" },
-      flexRow: {
-        tag: "div",
-        style: "display:flex; align-items:center; gap:1rem;",
-      },
-      flexGap: { tag: "div", style: "display:flex; gap:0.25rem;" },
+      flexRow: { class: "flex-row-gap-1" },
+      flexGap: { class: "flex-gap-quarter" },
       headerDiv: {
         tag: "div",
         style: "width:1px; height:0.5rem; background:#4b5563;",
       },
-      zoomGroup: {
-        tag: "div",
-        style:
-          "display:flex; border:1px solid #4b5563; border-radius:0.375rem;",
-      },
-      zoomBtn: {
-        tag: "button",
-        style: "color:#d1d5db; padding:0.25rem 0.5rem;",
-      },
-      zoomLabel: {
-        tag: "span",
-        style:
-          "font-size:0.75rem; width:3.5rem; text-align:center; color:#e5e7eb; align-self:center;",
-      },
-
       // Sidebar
       sidebar: { tag: "div", class: "sidebar-panel" },
       propHead: { tag: "div", class: "prop-header" },
@@ -207,9 +190,7 @@ class SciTextUI {
       rawEditor: {
         tag: "div",
         id: "svg-raw-editor-panel",
-        class: "hidden",
-        style:
-          "padding: 1rem; background-color: #fff; border-bottom: 1px solid #e5e7eb; display:flex; flex-direction:column; gap:0.5rem;",
+        class: "svg-editor-panel hidden",
       },
       layerList: {
         tag: "div",
@@ -220,7 +201,7 @@ class SciTextUI {
       layerItems: {
         tag: "div",
         id: "layer-items",
-        style: "flex:1; overflow-y:auto; padding:0.25rem 0;",
+        class: "layer-items-container",
       },
       panelFoot: { tag: "div", class: "sidebar-footer" },
 
@@ -240,21 +221,17 @@ class SciTextUI {
       debugCon: {
         tag: "div",
         id: "debug-container",
-        class: "hidden",
-        style: "flex:1; background:#111827; padding:1.5rem; overflow:auto;",
+        class: "debug-container hidden",
       },
       emptyState: {
         tag: "div",
         id: "empty-state",
-        style:
-          "position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#f3f4f6;",
+        class: "empty-state-style",
       },
       loader: {
         tag: "div",
         id: "pdf-loader",
-        class: "hidden",
-        style:
-          "position:absolute; inset:0; background:rgba(17,24,39,0.8); display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:50;",
+        class: "loader-style hidden",
       },
       actionBar: {
         tag: "div",
@@ -310,6 +287,29 @@ class SciTextUI {
         color: "#f3f4f6",
         "margin-right": "1rem",
       },
+      ".flex-row-gap-1": {
+        display: "flex",
+        "align-items": "center",
+        gap: "1rem",
+      },
+      ".flex-gap-quarter": { display: "flex", gap: "0.25rem" },
+      ".flex-item-end": {
+        display: "flex",
+        "align-items": "center",
+        gap: "1rem",
+      }, // For AI Status / Full Screen button
+      ".zoom-group-style": {
+        display: "flex",
+        border: "1px solid #4b5563",
+        "border-radius": "0.375rem",
+      },
+      ".zoom-label-style": {
+        "font-size": "0.75rem",
+        width: "3.5rem",
+        "text-align": "center",
+        color: "#e5e7eb",
+        "align-self": "center",
+      },
 
       // Buttons
       ".btn": {
@@ -363,6 +363,12 @@ class SciTextUI {
         position: "relative",
         "background-color": "white",
       },
+      ".tab-button-group": {
+        background: "#f9fafb",
+        "border-bottom": "1px solid #e5e7eb",
+        "flex-shrink": "0",
+        padding: "0",
+      },
       ".workspace-container": {
         flex: "1",
         display: "flex",
@@ -412,6 +418,19 @@ class SciTextUI {
         padding: "0.375rem",
         "text-align": "center",
       },
+      ".input-wrapper-header": {
+        "grid-column": "1 / span 2",
+        "margin-top": "0.5rem",
+        position: "relative",
+      },
+      ".input-wrapper-tiny-label": {
+        position: "absolute",
+        top: "0.15rem",
+        right: "0",
+        "font-size": "9px",
+        "font-weight": "700",
+        color: "#60a5fa",
+      },
       ".sidebar-footer": {
         padding: "0.75rem",
         "border-top": "1px solid #e5e7eb",
@@ -421,6 +440,30 @@ class SciTextUI {
         gap: "0.5rem",
         "justify-content": "space-between",
       },
+      ".svg-editor-panel": {
+        padding: "1rem",
+        "background-color": "#fff",
+        "border-bottom": "1px solid #e5e7eb",
+        display: "flex",
+        "flex-direction": "column",
+        gap: "0.5rem",
+      },
+      ".svg-textarea": {
+        width: "100%",
+        "min-height": "150px",
+        border: "1px solid #d1d5db",
+        "border-radius": "0.25rem",
+        padding: "0.5rem",
+        "font-family": "monospace",
+        "font-size": "11px",
+        "line-height": "1.2",
+        resize: "vertical",
+      },
+      ".layer-items-container": {
+        flex: "1",
+        "overflow-y": "auto",
+        padding: "0.25rem 0",
+      },
 
       // Canvas Structure
       ".canvas-view-style": {
@@ -428,7 +471,6 @@ class SciTextUI {
         display: "flex",
         "flex-direction": "column",
         "background-color": "#e5e7eb",
-        overflow: "hidden",
         position: "relative",
       },
       ".canvas-scroller-style": {
@@ -576,6 +618,31 @@ class SciTextUI {
       },
 
       // Loaders & Animations
+      ".debug-container": {
+        flex: "1",
+        background: "#111827",
+        padding: "1.5rem",
+        overflow: "auto",
+      },
+      ".empty-state-style": {
+        position: "absolute",
+        inset: "0",
+        display: "flex",
+        "flex-direction": "column",
+        "align-items": "center",
+        "justify-content": "center",
+        background: "#f3f4f6",
+      },
+      ".loader-style": {
+        position: "absolute",
+        inset: "0",
+        background: "rgba(17,24,39,0.8)",
+        display: "flex",
+        "flex-direction": "column",
+        "align-items": "center",
+        "justify-content": "center",
+        "z-index": "50",
+      },
       ".loader-spinner": {
         width: "3rem",
         height: "3rem",
@@ -590,6 +657,28 @@ class SciTextUI {
       },
       "#ai-status": { animation: "pulse 1s infinite alternate" },
       "@keyframes pulse": { from: { opacity: "0.5" }, to: { opacity: "1" } },
+      ".debug-image-container": {
+        flex: "1",
+        background: "#000",
+        border: "1px solid #374151",
+        height: "200px",
+        display: "flex",
+        "justify-content": "center",
+        "align-items": "center",
+      },
+      ".debug-render-view": {
+        flex: "1",
+        background: "#fff",
+        border: "1px solid #374151",
+        height: "200px",
+      },
+      ".empty-state-card": {
+        background: "white",
+        padding: "2rem",
+        "border-radius": "1rem",
+        "box-shadow": "0 10px 15px rgba(0,0,0,0.1)",
+        "text-align": "center",
+      },
     };
   }
 
@@ -670,8 +759,9 @@ class SciTextUI {
   static getDOMStructure() {
     const layout = SciTextUI.layout;
 
-    // Helpers to create schema nodes
-    const field = (p) => ({
+    // --- Component Helpers ---
+
+    const makePropInput = (p) => ({
       def: "geoGroup",
       children: [
         { def: "labelTiny", text: p.label },
@@ -679,10 +769,15 @@ class SciTextUI {
       ],
     });
 
-    const btn = (b, type) => {
+    const makeButton = (b, type) => {
       if (b.type === "divider") return { def: "headerDiv" };
       if (b.type === "display")
-        return { def: "zoomLabel", id: b.id, text: b.text };
+        return {
+          def: "zoomLabel",
+          id: b.id,
+          text: b.text,
+          class: "zoom-label-style",
+        };
       if (type === "floating")
         return {
           def: "btnAction",
@@ -698,8 +793,62 @@ class SciTextUI {
           text: b.text,
           class: `btn ${b.class}`,
         };
-      return { def: "zoomBtn", id: b.id, text: b.text };
+      // Default: Zoom button
+      return {
+        tag: "button",
+        id: b.id,
+        style: "color:#d1d5db; padding:0.25rem 0.5rem;",
+        text: b.text,
+      };
     };
+
+    const makeHiddenFileSelect = (id, text, accept) => ({
+      tag: "div",
+      class: "relative",
+      children: [
+        { def: "hiddenIn", id: id, accept: accept },
+        { tag: "label", for: id, class: "btn btn-primary", text: text },
+      ],
+    });
+
+    const makeZoomControls = () => ({
+      tag: "div",
+      class: "zoom-group-style",
+      children: layout.header.slice(0, 3).map((b) => makeButton(b)),
+    });
+
+    const makeHeaderButtons = () => ({
+      def: "flexGap",
+      children: layout.header.slice(4).map((b) => ({
+        tag: "button",
+        id: b.id,
+        class: "btn btn-secondary",
+        text: b.text,
+      })),
+    });
+
+    const makeFooterButtons = () => ({
+      tag: "div",
+      class: "flex-gap-quarter",
+      style: "width:100%;",
+      children: [
+        ...layout.footer.map((b) => makeButton(b, "footer")),
+        makeHiddenFileSelect("svg-import", "Import", ".svg"),
+      ],
+    });
+
+    const makeFloatingButtons = () => ({
+      def: "actionBar",
+      children: [
+        ...layout.floating.slice(0, 4).map((b) => makeButton(b, "floating")),
+        { def: "barDivider" },
+        ...layout.floating.slice(5, 7).map((b) => makeButton(b, "floating")),
+        { def: "barDivider" },
+        ...layout.floating.slice(8).map((b) => makeButton(b, "floating")),
+      ],
+    });
+
+    // --- Main Structure Definition ---
 
     return {
       def: "root",
@@ -712,44 +861,19 @@ class SciTextUI {
               def: "flexRow",
               children: [
                 { def: "title", html: `SciText <span>Digitizer</span>` },
-                {
-                  tag: "div",
-                  class: "relative",
-                  children: [
-                    {
-                      def: "hiddenIn",
-                      id: "pdf-upload",
-                      accept: "application/pdf, image/*",
-                    },
-                    {
-                      tag: "label",
-                      for: "pdf-upload",
-                      class: "btn btn-primary",
-                      text: "Load",
-                    },
-                  ],
-                },
+                makeHiddenFileSelect(
+                  "pdf-upload",
+                  "Load",
+                  "application/pdf, image/*",
+                ),
               ],
             },
             { def: "headerDiv" },
-            {
-              def: "zoomGroup",
-              children: layout.header.slice(0, 3).map((b) => btn(b)),
-            },
-            {
-              def: "flexGap",
-              children: layout.header
-                .slice(4)
-                .map((b) => ({
-                  tag: "button",
-                  id: b.id,
-                  class: "btn btn-secondary",
-                  text: b.text,
-                })),
-            },
+            makeZoomControls(),
+            makeHeaderButtons(),
             {
               tag: "div",
-              style: "display:flex; align-items:center; gap:1rem;",
+              class: "flex-item-end",
               children: [
                 {
                   tag: "span",
@@ -776,8 +900,7 @@ class SciTextUI {
           children: [
             {
               tag: "div",
-              style:
-                "background:#f9fafb; border-bottom:1px solid #e5e7eb; flex-shrink:0; padding:0;",
+              class: "tab-button-group",
               children: [
                 {
                   tag: "button",
@@ -806,9 +929,8 @@ class SciTextUI {
                       def: "propHead",
                       children: [
                         {
-                          tag: "div",
-                          style:
-                            "display:flex; justify-content:space-between; align-items:center;",
+                          def: "flexRow",
+                          style: "justify-content:space-between;",
                           children: [
                             {
                               tag: "span",
@@ -838,11 +960,10 @@ class SciTextUI {
                         },
                         ...layout.properties
                           .filter((p) => p.group === "geometry")
-                          .map(field),
+                          .map(makePropInput),
                         {
                           tag: "div",
-                          style:
-                            "grid-column: 1 / span 2; margin-top: 0.5rem; position:relative;",
+                          class: "input-wrapper-header",
                           children: [
                             {
                               tag: "span",
@@ -852,15 +973,14 @@ class SciTextUI {
                             },
                             {
                               tag: "div",
-                              style:
-                                "position:absolute; top:0.15rem; right:0; font-size:9px; font-weight:700; color:#60a5fa;",
+                              class: "input-wrapper-tiny-label",
                               text: "OFFSET/SCALE",
                             },
                           ],
                         },
                         ...layout.properties
                           .filter((p) => p.group === "transform")
-                          .map(field),
+                          .map(makePropInput),
                       ],
                     },
                     {
@@ -875,8 +995,7 @@ class SciTextUI {
                         {
                           tag: "textarea",
                           id: "svg-raw-content",
-                          style:
-                            "width: 100%; min-height: 150px; border: 1px solid #d1d5db; border-radius: 0.25rem; padding: 0.5rem; font-family: monospace; font-size: 11px; line-height: 1.2; resize: vertical;",
+                          class: "svg-textarea",
                         },
                         {
                           tag: "button",
@@ -907,28 +1026,7 @@ class SciTextUI {
                     },
                     {
                       def: "panelFoot",
-                      children: [
-                        {
-                          tag: "div",
-                          style: "display:flex; gap:0.25rem; width:100%;",
-                          children: [
-                            ...layout.footer.map((b) => btn(b, "footer")),
-                            {
-                              def: "hiddenIn",
-                              id: "svg-import",
-                              accept: ".svg",
-                            },
-                            {
-                              tag: "label",
-                              for: "svg-import",
-                              class: "btn btn-primary",
-                              style:
-                                "font-size:0.75rem; padding:0.25rem 0.75rem;",
-                              text: "Import",
-                            },
-                          ],
-                        },
-                      ],
+                      children: [makeFooterButtons()],
                     },
                   ],
                 },
@@ -975,12 +1073,12 @@ class SciTextUI {
               children: [
                 {
                   tag: "div",
-                  style: "display:flex; gap:1rem; margin-bottom:1rem;",
+                  class: "flex-row-gap-1",
+                  style: "margin-bottom:1rem;",
                   children: [
                     {
                       tag: "div",
-                      style:
-                        "flex:1; background:#000; border:1px solid #374151; height:200px; display:flex; justify-content:center; align-items:center;",
+                      class: "debug-image-container",
                       children: [
                         {
                           tag: "img",
@@ -992,8 +1090,7 @@ class SciTextUI {
                     {
                       tag: "div",
                       id: "debug-render-view",
-                      style:
-                        "flex:1; background:#fff; border:1px solid #374151; height:200px;",
+                      class: "debug-render-view",
                     },
                   ],
                 },
@@ -1043,16 +1140,7 @@ class SciTextUI {
           ],
         },
         // Action Bar
-        {
-          def: "actionBar",
-          children: [
-            ...layout.floating.slice(0, 4).map((b) => btn(b, "floating")),
-            { def: "barDivider" },
-            ...layout.floating.slice(5, 7).map((b) => btn(b, "floating")),
-            { def: "barDivider" },
-            ...layout.floating.slice(8).map((b) => btn(b, "floating")),
-          ],
-        },
+        makeFloatingButtons(),
       ],
     };
   }
@@ -1071,7 +1159,62 @@ class SciTextUI {
 }
 
 // ============================================================================
-// 3. MODEL
+// 3. UTILS (HELPERS)
+// ============================================================================
+
+class Utils {
+  // Geometry Helpers
+  static Geo = {
+    rect: (x, y, w, h) => ({ x, y, w, h }),
+    // Convert normalized coords (0-1) to physical pixels
+    toPixels: (r, cw, ch) => ({
+      x: r.x * cw,
+      y: r.y * ch,
+      w: r.w * cw,
+      h: r.h * ch,
+    }),
+    // Hit test a point against a rect (physical pixels)
+    hitTest: (pos, r) =>
+      pos.x >= r.x && pos.x <= r.x + r.w && pos.y >= r.y && pos.y <= r.y + r.h,
+    // Hit test handle (8x8 pixel box)
+    hitHandle: (pos, hx, hy) =>
+      pos.x >= hx && pos.x <= hx + 8 && pos.y >= hy && pos.y <= hy + 8,
+    // Calculate handle position
+    getHandlePos: (h, rx, ry, rw, rh) => {
+      let hx = h.left
+        ? h.left.includes("%")
+          ? rx + rw / 2 - 4
+          : rx - 4
+        : rx + rw - 4;
+      let hy = h.top
+        ? h.top.includes("%")
+          ? ry + rh / 2 - 4
+          : ry - 4
+        : ry + rh - 4;
+      return { x: hx, y: hy };
+    },
+  };
+
+  // SVG Generation Helpers
+  static SVG = {
+    viewBox: (r, canvasW, canvasH) => {
+      const offX = -(r.offset?.x ?? 0) / (r.scale?.x ?? 1);
+      const offY = -(r.offset?.y ?? 0) / (r.scale?.y ?? 1);
+      const w = (r.bpDims?.w ?? r.rect.w * canvasW * 2) / (r.scale?.x ?? 1);
+      const h = (r.bpDims?.h ?? r.rect.h * canvasH * 2) / (r.scale?.y ?? 1);
+      return `${offX} ${offY} ${w} ${h}`;
+    },
+    // Wrap content in SVG tag
+    wrap: (content, x, y, w, h, viewBox) =>
+      `<svg x="${x}" y="${y}" width="${w}" height="${h}" viewBox="${viewBox}" preserveAspectRatio="none">${content}</svg>`,
+    // Create base SVG for export
+    createRoot: (w, h, content) =>
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="white"/>\n${content}</svg>`,
+  };
+}
+
+// ============================================================================
+// 4. MODEL
 // ============================================================================
 
 class SciTextModel {
@@ -1193,7 +1336,7 @@ class SciTextModel {
 }
 
 // ============================================================================
-// 4. LOGIC & CONTROLLER
+// 5. LOGIC & CONTROLLER
 // ============================================================================
 
 class ImageProcessor {
@@ -1215,17 +1358,17 @@ class ImageProcessor {
     const sourceCanvas = state.canvas;
     if (!sourceCanvas) return null;
 
+    // Use Utils.Geo to convert normalized to pixels?
+    // Keeping logic here for now as it deals with image data specifically
     const pixelW = Math.floor(normRect.w * state.canvasWidth);
     const pixelH = Math.floor(normRect.h * state.canvasHeight);
     if (pixelW < 1 || pixelH < 1) return null;
 
-    // Create scaled temp canvas
     const tmp = document.createElement("canvas");
     tmp.width = pixelW * this.scaleFactor;
     tmp.height = pixelH * this.scaleFactor;
     const ctx = tmp.getContext("2d");
 
-    // Draw the region from source to temp
     ctx.drawImage(
       sourceCanvas,
       normRect.x * state.canvasWidth,
@@ -1320,6 +1463,7 @@ class RegionEditor {
     const rect = this.controller.view.els.canvasWrapper.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
+
   hitDetection(pos) {
     const state = this.controller.model.state;
     const { cw, ch } = this.getPhysicalDims();
@@ -1327,32 +1471,23 @@ class RegionEditor {
       ? this.controller.model.getRegion(state.activeRegionId)
       : null;
 
+    // Check handles first
     if (active) {
-      const rx = active.rect.x * cw,
-        ry = active.rect.y * ch,
-        rw = active.rect.w * cw,
-        rh = active.rect.h * ch;
+      const r = Utils.Geo.toPixels(active.rect, cw, ch);
       for (const [dir, h] of Object.entries(HANDLES)) {
-        let hx = 0,
-          hy = 0;
-        if (h.left) hx = h.left.includes("%") ? rx + rw / 2 - 4 : rx - 4;
-        else hx = rx + rw - 4;
-        if (h.top) hy = h.top.includes("%") ? ry + rh / 2 - 4 : ry - 4;
-        else hy = ry + rh - 4;
-        if (pos.x >= hx && pos.x <= hx + 8 && pos.y >= hy && pos.y <= hy + 8)
+        const hPos = Utils.Geo.getHandlePos(h, r.x, r.y, r.w, r.h);
+        if (Utils.Geo.hitHandle(pos, hPos.x, hPos.y))
           return { type: "HANDLE", handle: dir };
       }
     }
+    // Check bodies
     for (const region of state.regions.slice().reverse()) {
-      const rx = region.rect.x * cw,
-        ry = region.rect.y * ch,
-        rw = region.rect.w * cw,
-        rh = region.rect.h * ch;
-      if (pos.x >= rx && pos.x <= rx + rw && pos.y >= ry && pos.y <= ry + rh)
-        return { type: "BODY", id: region.id };
+      const r = Utils.Geo.toPixels(region.rect, cw, ch);
+      if (Utils.Geo.hitTest(pos, r)) return { type: "BODY", id: region.id };
     }
     return { type: "NONE" };
   }
+
   handleMouseDown(e) {
     if (e.button !== 0) return;
     const pos = this.getLocalPos(e);
@@ -1360,6 +1495,7 @@ class RegionEditor {
       this.dragStart = pos;
       return;
     }
+
     const state = this.controller.model.state;
     const hit = this.hitDetection(pos);
 
@@ -1378,6 +1514,7 @@ class RegionEditor {
     const active = this.controller.model.getRegion(state.activeRegionId);
     this.initialRect = active ? { ...active.rect } : null;
   }
+
   handleMouseMove(e) {
     const pos = this.getLocalPos(e);
     const state = this.controller.model.state;
@@ -1388,22 +1525,18 @@ class RegionEditor {
       : null;
 
     if (this.controller.splitMode && active) {
-      const r = active.rect,
-        rx = r.x * cw,
-        ry = r.y * ch,
-        rw = r.w * cw,
-        rh = r.h * ch;
+      const r = Utils.Geo.toPixels(active.rect, cw, ch);
       if (this.controller.splitType === "horizontal") {
         layer.style.cursor = "ns-resize";
         this.controller.splitPosition = Math.min(
           0.9,
-          Math.max(0.1, (pos.y - ry) / rh),
+          Math.max(0.1, (pos.y - r.y) / r.h),
         );
       } else {
         layer.style.cursor = "ew-resize";
         this.controller.splitPosition = Math.min(
           0.9,
-          Math.max(0.1, (pos.x - rx) / rw),
+          Math.max(0.1, (pos.x - r.x) / r.w),
         );
       }
       this.controller.model.notify({ noHistory: true });
@@ -1451,24 +1584,21 @@ class RegionEditor {
       this.initialRect &&
       this.activeHandle
     ) {
-      const ix = this.initialRect.x * cw,
-        iy = this.initialRect.y * ch,
-        iw = this.initialRect.w * cw,
-        ih = this.initialRect.h * ch;
-      let nx = ix,
-        ny = iy,
-        nw = iw,
-        nh = ih;
+      const r = Utils.Geo.toPixels(this.initialRect, cw, ch);
+      let nx = r.x,
+        ny = r.y,
+        nw = r.w,
+        nh = r.h;
       const h = this.activeHandle;
 
-      if (h.includes("e")) nw = pos.x - ix;
-      if (h.includes("s")) nh = pos.y - iy;
+      if (h.includes("e")) nw = pos.x - r.x;
+      if (h.includes("s")) nh = pos.y - r.y;
       if (h.includes("w")) {
-        nw = ix + iw - pos.x;
+        nw = r.x + r.w - pos.x;
         nx = pos.x;
       }
       if (h.includes("n")) {
-        nh = iy + ih - pos.y;
+        nh = r.y + r.h - pos.y;
         ny = pos.y;
       }
 
@@ -1488,6 +1618,7 @@ class RegionEditor {
       }
     }
   }
+
   handleMouseUp(e) {
     if (this.controller.splitMode) {
       this.dragStart = null;
@@ -1550,13 +1681,11 @@ class SciTextController {
     this.imageProcessor = new ImageProcessor(this.model);
     this.draw.init();
 
-    // Automated Bindings via SciTextUI.layout
     const layout = SciTextUI.layout;
     ["header", "footer", "floating"].forEach((section) => {
       layout[section].forEach((item) => {
         if (item.id && item.fn) {
           const viewId = item.id.replace(/-./g, (x) => x[1].toUpperCase());
-
           if (this.view.els[viewId]) {
             const handler = this[item.fn]
               ? this[item.fn].bind(this)
@@ -1569,7 +1698,6 @@ class SciTextController {
       });
     });
 
-    // Manual Bindings
     this.view.els.pdfUpload.onchange = (e) => this.handleFileUpload(e);
     this.view.els.svgImport.onchange = (e) =>
       this.handleSvgImport(e.target.files[0]);
@@ -1583,7 +1711,6 @@ class SciTextController {
       );
     };
 
-    // Re-added: Delegated Listener for Generation Buttons (Digitize, Image, etc.)
     this.view.els.regionActionsBar.onclick = (e) => {
       const btn = e.target.closest("[data-type]");
       if (!btn) return;
@@ -1591,16 +1718,13 @@ class SciTextController {
       if (type) this.generateContent(type);
     };
 
-    // Property Inputs
     layout.properties.forEach((p) => {
-      // CamelCase conversion for property inputs too
       const viewId = p.id.replace(/-./g, (x) => x[1].toUpperCase());
       if (this.view.els[viewId])
         this.view.els[viewId].onchange = () =>
           this.updateRegionFromProps(p.group);
     });
 
-    // Layer List & Resize
     this.view.els.layerItems?.addEventListener("click", (e) => {
       const item = e.target.closest(".layer-item");
       if (!item) return;
@@ -1619,7 +1743,6 @@ class SciTextController {
     this.loadDefaultImage();
   }
 
-  // --- Logic ---
   enterSplitMode() {
     if (this.model.state.activeRegionId) {
       this.splitMode = true;
@@ -1854,20 +1977,27 @@ class SciTextController {
       maxY = Math.max(maxY, r.rect.y + r.rect.h);
     });
 
-    const svg = sel
+    const grpW = maxX - minX;
+    const grpH = maxY - minY;
+
+    const svgContent = sel
       .map((r) => {
-        const x = (r.rect.x - minX) * cw,
-          y = (r.rect.y - minY) * ch;
-        const viewBox = `${-(r.offset?.x ?? 0) / (r.scale?.x ?? 1)} ${-(r.offset?.y ?? 0) / (r.scale?.y ?? 1)} ${(r.bpDims?.w ?? r.rect.w * cw * 2) / (r.scale?.x ?? 1)} ${(r.bpDims?.h ?? r.rect.h * ch * 2) / (r.scale?.y ?? 1)}`;
-        return `<svg x="${x * 2}" y="${y * 2}" width="${r.rect.w * cw * 2}" height="${r.rect.h * ch * 2}" viewBox="${viewBox}" preserveAspectRatio="none">${r.svgContent}</svg>`;
+        const x = (r.rect.x - minX) * cw * CONFIG.aiScale;
+        const y = (r.rect.y - minY) * ch * CONFIG.aiScale;
+        const viewBox = Utils.SVG.viewBox(r, cw, ch);
+        const w = r.rect.w * cw * CONFIG.aiScale;
+        const h = r.rect.h * ch * CONFIG.aiScale;
+
+        // Use Utils.SVG.wrap to create inner SVG content
+        return Utils.SVG.wrap(r.svgContent, x, y, w, h, viewBox);
       })
       .join("");
 
     const grp = {
       id: `r${Date.now()}`,
-      rect: { x: minX, y: minY, w: maxX - minX, h: maxY - minY },
-      svgContent: svg,
-      bpDims: { w: (maxX - minX) * cw * 2, h: (maxY - minY) * ch * 2 },
+      rect: { x: minX, y: minY, w: grpW, h: grpH },
+      svgContent: svgContent,
+      bpDims: { w: grpW * cw * CONFIG.aiScale, h: grpH * ch * CONFIG.aiScale },
       scale: { x: 1, y: 1 },
       offset: { x: 0, y: 0 },
       contentType: "group",
@@ -1881,19 +2011,23 @@ class SciTextController {
   exportSVG() {
     const cw = this.model.state.canvasWidth,
       ch = this.model.state.canvasHeight;
-    let out = `<svg xmlns="http://www.w3.org/2000/svg" width="${cw}" height="${ch}" viewBox="0 0 ${cw} ${ch}"><rect width="${cw}" height="${ch}" fill="white"/>\n`;
+    let content = "";
     this.model.state.regions.forEach((r) => {
-      const x = r.rect.x * cw,
-        y = r.rect.y * ch,
-        w = r.rect.w * cw,
-        h = r.rect.h * ch;
-      const viewBox = `${-(r.offset?.x ?? 0) / (r.scale?.x ?? 1)} ${-(r.offset?.y ?? 0) / (r.scale?.y ?? 1)} ${(r.bpDims?.w ?? r.rect.w * cw * 2) / (r.scale?.x ?? 1)} ${(r.bpDims?.h ?? r.rect.h * ch * 2) / (r.scale?.y ?? 1)}`;
-      out += `<svg x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" height="${h.toFixed(2)}" viewBox="${viewBox}" preserveAspectRatio="none">${r.svgContent}</svg>\n`;
+      const { x, y, w, h } = Utils.Geo.toPixels(r.rect, cw, ch);
+      const viewBox = Utils.SVG.viewBox(r, cw, ch);
+      content +=
+        Utils.SVG.wrap(
+          r.svgContent,
+          x.toFixed(2),
+          y.toFixed(2),
+          w.toFixed(2),
+          h.toFixed(2),
+          viewBox,
+        ) + "\n";
     });
+    const out = Utils.SVG.createRoot(cw, ch, content);
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(
-      new Blob([out + "</svg>"], { type: "image/svg+xml" }),
-    );
+    a.href = URL.createObjectURL(new Blob([out], { type: "image/svg+xml" }));
     a.download = "export.svg";
     a.click();
   }
@@ -2156,13 +2290,13 @@ class UIManager {
         frame.appendChild(h);
       });
     }
-    const physW = state.baseWidth * state.scaleMultiplier;
-    const physH = physW * (state.canvasHeight / state.canvasWidth);
+    const { cw, ch } = this.model.controller.draw.getPhysicalDims();
+    const r = Utils.Geo.toPixels(region.rect, cw, ch);
     Object.assign(frame.style, {
-      left: region.rect.x * physW + "px",
-      top: region.rect.y * physH + "px",
-      width: region.rect.w * physW + "px",
-      height: region.rect.h * physH + "px",
+      left: r.x + "px",
+      top: r.y + "px",
+      width: r.w + "px",
+      height: r.h + "px",
     });
   }
 
@@ -2173,10 +2307,9 @@ class UIManager {
       label.id = "split-bar-label";
       this.els.canvasWrapper.appendChild(label);
     }
-    const barRect = bar.getBoundingClientRect();
-    const wrapperRect = this.els.canvasWrapper.getBoundingClientRect();
-    const scroller = this.els.canvasScroller;
-
+    const barRect = bar.getBoundingClientRect(),
+      wrapperRect = this.els.canvasWrapper.getBoundingClientRect(),
+      scroller = this.els.canvasScroller;
     label.textContent = text;
     Object.assign(label.style, {
       left: `${barRect.left - wrapperRect.left + 5 + scroller.scrollLeft}px`,
@@ -2186,31 +2319,26 @@ class UIManager {
   }
 
   renderSplitBar(region, state, splitType, splitPosition) {
-    const physW = state.baseWidth * state.scaleMultiplier;
-    const physH = physW * (state.canvasHeight / state.canvasWidth);
+    const { cw, ch } = this.model.controller.draw.getPhysicalDims();
     const bar = this.els.splitBar;
-
     bar.classList.remove("hidden");
-    const rx = region.rect.x * physW;
-    const ry = region.rect.y * physH;
-    const rw = region.rect.w * physW;
-    const rh = region.rect.h * physH;
+    const r = Utils.Geo.toPixels(region.rect, cw, ch);
 
     if (splitType === "horizontal") {
       Object.assign(bar.style, {
-        left: rx + "px",
-        top: ry + rh * splitPosition - 1 + "px",
-        width: rw + "px",
+        left: r.x + "px",
+        top: r.y + r.h * splitPosition - 1 + "px",
+        width: r.w + "px",
         height: "2px",
         cursor: "ns-resize",
       });
       this.renderSplitLabel(bar, "Horizontal (TAB to switch)");
     } else {
       Object.assign(bar.style, {
-        left: rx + rw * splitPosition - 1 + "px",
-        top: ry + "px",
+        left: r.x + r.w * splitPosition - 1 + "px",
+        top: r.y + "px",
         width: "2px",
-        height: rh + "px",
+        height: r.h + "px",
         cursor: "ew-resize",
       });
       this.renderSplitLabel(bar, "Vertical (TAB to switch)");
@@ -2224,8 +2352,8 @@ class UIManager {
   }
 
   switchTab(tab) {
-    const activeClass = "tab-button-active";
-    const inactiveClass = "tab-button";
+    const activeClass = "tab-button-active",
+      inactiveClass = "tab-button";
     if (tab === "overlay") {
       this.els.tabOverlay.className = `${inactiveClass} ${activeClass}`;
       this.els.tabDebug.className = inactiveClass;
@@ -2288,39 +2416,38 @@ class UIManager {
     if (oldFrame) oldFrame.remove();
 
     state.regions.forEach((r) => {
-      const px = r.rect.x * physW;
-      const py = r.rect.y * physH;
-      const pw = r.rect.w * physW;
-      const ph = r.rect.h * physH;
-
+      const { x, y, w, h } = Utils.Geo.toPixels(r.rect, physW, physH);
       const div = document.createElement("div");
       div.className = "absolute region-highlight";
       if (state.selectedIds.has(r.id)) div.classList.add("region-selected");
       if (r.visible === false) div.style.opacity = "0.3";
       Object.assign(div.style, {
-        left: px + "px",
-        top: py + "px",
-        width: pw + "px",
-        height: ph + "px",
+        left: x + "px",
+        top: y + "px",
+        width: w + "px",
+        height: h + "px",
       });
       div.dataset.id = r.id;
       this.els.interactionLayer.appendChild(div);
 
       if (r.visible !== false && r.svgContent) {
+        const viewBox = Utils.SVG.viewBox(
+          r,
+          state.canvasWidth,
+          state.canvasHeight,
+        );
         const svg = document.createElementNS(
           "http://www.w3.org/2000/svg",
           "svg",
         );
-        const viewBox = `${-(r.offset?.x ?? 0) / (r.scale?.x ?? 1)} ${-(r.offset?.y ?? 0) / (r.scale?.y ?? 1)} ${(r.bpDims?.w ?? r.rect.w * state.canvasWidth * 2) / (r.scale?.x ?? 1)} ${(r.bpDims?.h ?? r.rect.h * state.canvasHeight * 2) / (r.scale?.y ?? 1)}`;
-
         svg.setAttribute("viewBox", viewBox);
         svg.setAttribute("preserveAspectRatio", "none");
         Object.assign(svg.style, {
           position: "absolute",
-          left: px + "px",
-          top: py + "px",
-          width: pw + "px",
-          height: ph + "px",
+          left: x + "px",
+          top: y + "px",
+          width: w + "px",
+          height: h + "px",
           pointerEvents: "none",
         });
         svg.innerHTML = r.svgContent;
@@ -2362,23 +2489,22 @@ class UIManager {
     if (!this.els.debugContainer.classList.contains("hidden")) {
       this.els.debugLog.textContent = JSON.stringify(state, null, 2);
       if (active && state.canvas) {
-        const cvs = state.canvas;
-        const x = active.rect.x * state.canvasWidth;
-        const y = active.rect.y * state.canvasHeight;
-        const w = active.rect.w * state.canvasWidth;
-        const h = active.rect.h * state.canvasHeight;
-
+        const { x, y, w, h } = Utils.Geo.toPixels(
+          active.rect,
+          state.canvasWidth,
+          state.canvasHeight,
+        );
         if (w > 0 && h > 0) {
           const t = document.createElement("canvas");
           t.width = w;
           t.height = h;
-          t.getContext("2d").drawImage(cvs, x, y, w, h, 0, 0, w, h);
+          t.getContext("2d").drawImage(state.canvas, x, y, w, h, 0, 0, w, h);
           this.els.debugSourceImg.src = t.toDataURL();
         }
-        const offX = active.offset?.x ?? 0;
-        const offY = active.offset?.y ?? 0;
-        const bpW = active.bpDims?.w ?? w;
-        const bpH = active.bpDims?.h ?? h;
+        const offX = active.offset?.x ?? 0,
+          offY = active.offset?.y ?? 0;
+        const bpW = active.bpDims?.w ?? w,
+          bpH = active.bpDims?.h ?? h;
         this.els.debugRenderView.innerHTML = `<svg viewBox="${-offX} ${-offY} ${bpW} ${bpH}" style="width:100%;height:100%">${active.svgContent || ""}</svg>`;
       }
     }
