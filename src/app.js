@@ -60,1100 +60,578 @@ const apiKey = ""; // Injected by environment
 // ============================================================================
 
 class SciTextUI {
-  // --- UI Configuration (Schema) ---
-  static get layout() {
-    return {
-      header: [
-        { id: "zoom-out", text: "-", fn: "zoomOut" },
-        { id: "zoom-level", type: "display", text: "100%" },
-        { id: "zoom-in", text: "+", fn: "zoomIn" },
-        { type: "divider" },
-        { id: "btn-undo", text: "Undo", fn: "undo" },
-        { id: "btn-redo", text: "Redo", fn: "redo" },
-        {
-          id: "fullscreen-toggle",
-          text: "Full Screen",
-          fn: "toggleFullscreen",
-        },
-      ],
-      properties: [
-        { label: "Pos X", id: "prop-x", group: "geometry", map: "rect.x" },
-        { label: "Pos Y", id: "prop-y", group: "geometry", map: "rect.y" },
-        { label: "Width", id: "prop-w", group: "geometry", map: "rect.w" },
-        { label: "Height", id: "prop-h", group: "geometry", map: "rect.h" },
-        {
-          label: "Offset X",
-          id: "prop-offset-x",
-          group: "transform",
-          step: "0.1",
-          map: "offset.x",
-        },
-        {
-          label: "Offset Y",
-          id: "prop-offset-y",
-          group: "transform",
-          step: "0.1",
-          map: "offset.y",
-        },
-        {
-          label: "Scale X",
-          id: "prop-scale-x",
-          group: "transform",
-          step: "0.05",
-          map: "scale.x",
-        },
-        {
-          label: "Scale Y",
-          id: "prop-scale-y",
-          group: "transform",
-          step: "0.05",
-          map: "scale.y",
-        },
-      ],
-      footer: [
-        {
-          id: "btn-auto-segment",
-          text: "Auto Segment",
-          class: "btn-danger",
-          fn: "autoSegment",
-        },
-        {
-          id: "btn-export",
-          text: "Export",
-          class: "btn-success",
-          fn: "exportSVG",
-        },
-        {
-          id: "btn-clear-all",
-          text: "Reset",
-          class: "btn-ghost text-danger",
-          fn: "resetAll",
-        },
-      ],
-      floating: [
-        { label: "Digitize", type: "text", class: "bg-primary" },
-        { label: "Image", type: "image", class: "bg-warn" },
-        { label: "Scan", type: "blueprint", class: "bg-success" },
-        { label: "Empty", type: "empty", class: "bg-gray" },
-        { type: "divider" },
-        {
-          id: "btn-fit-area",
-          label: "Fit Area",
-          class: "bg-gray",
-          fn: "fitArea",
-        },
-        {
-          id: "btn-fit-content",
-          label: "Fill",
-          class: "bg-gray",
-          fn: "fitContent",
-        },
-        { type: "divider" },
-        {
-          id: "btn-split",
-          label: "Split",
-          class: "bg-gray",
-          fn: "enterSplitMode",
-        },
-        {
-          id: "btn-group",
-          label: "Group",
-          class: "bg-gray",
-          fn: "groupSelectedRegions",
-        },
-        {
-          id: "btn-delete",
-          label: "Del",
-          class: "bg-danger",
-          fn: "deleteSelected",
-        },
-      ],
-    };
+  // ==========================================================================
+  // 1. ENGINE (PARSERS & LOGIC)
+  // ==========================================================================
+
+  static parseConfigList(keys, dsl) {
+    return dsl.trim().split('\n').reduce((acc, line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('//')) return acc;
+      if (trimmed === '---') return [...acc, { type: 'divider' }];
+      
+      const vals = trimmed.split(/\s*\|\s*/);
+      const obj = keys.reduce((o, k, i) => {
+        if (vals[i] && vals[i] !== '-') o[k] = vals[i].trim();
+        return o;
+      }, {});
+      return [...acc, obj];
+    }, []);
   }
 
-  // --- Component Templates ---
-  static get components() {
-    return {
-      root: { tag: "div", id: "template-structure", class: "flex-col" },
-      header: { tag: "header", class: "app-header z-30 shrink-0" },
-      flexRow: { class: "flex-row-gap-1" },
-      flexGap: { class: "flex-gap-quarter" },
-      headerDiv: {
-        tag: "div",
-        style: "width:1px; height:0.5rem; background:#4b5563;",
-      },
-      // Sidebar
-      sidebar: { tag: "div", class: "sidebar-panel" },
-      propHead: { tag: "div", class: "prop-header" },
-      geoInputs: { tag: "div", class: "geometry-inputs" },
-      geoGroup: { tag: "div" },
-      rawEditor: {
-        tag: "div",
-        id: "svg-raw-editor-panel",
-        class: "svg-editor-panel hidden",
-      },
-      layerList: {
-        tag: "div",
-        id: "layer-list",
-        class: "layer-list-container",
-      },
-      layerHead: { tag: "div", class: "layer-list-header", text: "Layers" },
-      layerItems: {
-        tag: "div",
-        id: "layer-items",
-        class: "layer-items-container",
-      },
-      panelFoot: { tag: "div", class: "sidebar-footer" },
+  static parseComponentDefinitions(dsl) {
+    return dsl.trim().split('\n').reduce((acc, line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('//')) return acc;
 
-      // Canvas
-      canvasArea: { tag: "div", class: "canvas-view-style" },
-      scroller: { tag: "div", class: "canvas-scroller-style" },
-      wrapper: { tag: "div", class: "canvas-wrapper-style" },
+      const [name, selector, style, attrs] = trimmed.split(/\s*\|\s*/).map(s => s || '');
+      
+      const parts = selector.split(/(?=[#.])/);
+      let tagName = parts[0];
+      if (!tagName || tagName.startsWith('.') || tagName.startsWith('#')) {
+        tagName = 'div';
+      }
+      
+      const def = { tag: tagName };
+      parts.forEach(p => {
+        if (p.startsWith('#')) def.id = p.slice(1);
+        if (p.startsWith('.')) def.class = (def.class ? def.class + '.' : '') + p.slice(1);
+      });
 
-      // Base Elements
-      title: { tag: "h1", class: "header-title" },
-      labelTiny: { tag: "span", class: "input-label" },
-      inputNum: { tag: "input", type: "number", class: "input-field" },
-      btnAction: { tag: "button", class: "action-bar-btn" },
-      hiddenIn: { tag: "input", type: "file", class: "hidden" },
+      if (style) def.style = style;
+      
+      if (attrs) {
+        attrs.split(/\s+/).forEach(pair => {
+          const eqIdx = pair.indexOf('=');
+          if (eqIdx > -1) {
+            def[pair.slice(0, eqIdx)] = pair.slice(eqIdx + 1);
+          } else {
+            // FIX: Treat 'hidden' as a class, not a boolean attribute
+            if(pair === 'hidden') def.class = (def.class ? def.class + '.' : '') + 'hidden';
+            else def[pair] = true;
+          }
+        });
+      }
 
-      // Overlays
-      debugCon: {
-        tag: "div",
-        id: "debug-container",
-        class: "debug-container hidden",
-      },
-      emptyState: {
-        tag: "div",
-        id: "empty-state",
-        class: "empty-state-style",
-      },
-      loader: {
-        tag: "div",
-        id: "pdf-loader",
-        class: "loader-style hidden",
-      },
-      actionBar: {
-        tag: "div",
-        id: "region-actions-bar",
-        class: "region-actions-bar hidden",
-      },
-      barDivider: {
-        tag: "div",
-        style: "width:1px;height:1.5rem;background:#d1d5db;",
-      },
-    };
+      acc[name] = def;
+      return acc;
+    }, {});
   }
 
-  // --- CSS Styles ---
-  static get styles() {
-    return {
-      "*, *::before, *::after": {
-        "box-sizing": "border-box",
-        margin: "0",
-        padding: "0",
-      },
-      body: {
-        "font-family": '"Segoe UI", sans-serif',
-        "background-color": "#111827",
-        "min-height": "100vh",
-        display: "flex",
-        "flex-direction": "column",
-        color: "#1f2937",
-        "font-size": "14px",
-      },
-      ".hidden": { display: "none !important" },
-      ".relative": { position: "relative" },
-      ".absolute": { position: "absolute" },
-      ".inset-0": { top: "0", left: "0", right: "0", bottom: "0" },
-      ".transition": { transition: "all 0.15s ease-in-out" },
-      ".uppercase": { "text-transform": "uppercase" },
-      ".select-none": { "user-select": "none" },
-      ".disabled-bar": { opacity: "0.5", "pointer-events": "none" },
-
-      // Header
-      ".app-header": {
-        "background-color": "#1f2937",
-        padding: "0.75rem",
-        display: "flex",
-        "justify-content": "space-between",
-        "align-items": "center",
-        "border-bottom": "1px solid #111827",
-        "z-index": "30",
-      },
-      ".header-title": {
-        "font-size": "1.25rem",
-        "font-weight": "700",
-        color: "#f3f4f6",
-        "margin-right": "1rem",
-      },
-      ".flex-row-gap-1": {
-        display: "flex",
-        "align-items": "center",
-        gap: "1rem",
-      },
-      ".flex-gap-quarter": { display: "flex", gap: "0.25rem" },
-      ".flex-item-end": {
-        display: "flex",
-        "align-items": "center",
-        gap: "1rem",
-      }, // For AI Status / Full Screen button
-      ".zoom-group-style": {
-        display: "flex",
-        border: "1px solid #4b5563",
-        "border-radius": "0.375rem",
-      },
-      ".zoom-label-style": {
-        "font-size": "0.75rem",
-        width: "3.5rem",
-        "text-align": "center",
-        color: "#e5e7eb",
-        "align-self": "center",
-      },
-
-      // Buttons
-      ".btn": {
-        padding: "0.375rem 0.75rem",
-        "border-radius": "0.25rem",
-        "font-weight": "600",
-        display: "flex",
-        "align-items": "center",
-        gap: "0.5rem",
-        cursor: "pointer",
-        border: "1px solid transparent",
-        transition: "all 0.15s",
-      },
-      ".btn-primary": { "background-color": "#2563eb", color: "white" },
-      ".btn-secondary": {
-        "background-color": "#374151",
-        color: "#e5e7eb",
-        "border-color": "#4b5563",
-        "font-size": "0.75rem",
-      },
-      ".action-bar-btn": {
-        padding: "0.25rem 0.75rem",
-        "border-radius": "0.25rem",
-        "font-weight": "700",
-        "font-size": "0.75rem",
-        color: "white",
-        border: "1px solid transparent",
-        cursor: "pointer",
-      },
-      ".btn-danger": { "background-color": "#dc2626", color: "white" },
-      ".btn-success": { "background-color": "#047857", color: "white" },
-      ".btn-ghost": {
-        background: "transparent",
-        border: "1px solid transparent",
-      },
-      ".text-danger": { color: "#ef4444" },
-
-      // Color Utilities
-      ".bg-primary": { "background-color": "#2563eb" },
-      ".bg-warn": { "background-color": "#d97706" },
-      ".bg-success": { "background-color": "#059669" },
-      ".bg-gray": { "background-color": "#4b5563" },
-      ".bg-danger": { "background-color": "#ef4444" },
-
-      // Layout Panels
-      ".main-content-wrapper": {
-        flex: "1",
-        display: "flex",
-        "flex-direction": "column",
-        overflow: "hidden",
-        position: "relative",
-        "background-color": "white",
-      },
-      ".tab-button-group": {
-        background: "#f9fafb",
-        "border-bottom": "1px solid #e5e7eb",
-        "flex-shrink": "0",
-        padding: "0",
-      },
-      ".workspace-container": {
-        flex: "1",
-        display: "flex",
-        overflow: "hidden",
-        position: "relative",
-      },
-      ".sidebar-panel": {
-        width: "20rem",
-        display: "flex",
-        "flex-direction": "column",
-        "border-right": "1px solid #e5e7eb",
-        "background-color": "white",
-        "z-index": "10",
-      },
-
-      // Sidebar Details
-      ".prop-header": {
-        "background-color": "#f3f4f6",
-        padding: "0.75rem 1rem",
-        "border-bottom": "1px solid #e5e7eb",
-        display: "flex",
-        "flex-direction": "column",
-        gap: "0.5rem",
-      },
-      ".geometry-inputs": {
-        padding: "1rem",
-        "background-color": "#f9fafb",
-        "border-bottom": "1px solid #e5e7eb",
-        display: "grid",
-        "grid-template-columns": "1fr 1fr",
-        gap: "0.75rem",
-        "font-size": "0.75rem",
-        position: "relative",
-      },
-      ".input-label": {
-        display: "block",
-        color: "#9ca3af",
-        "font-weight": "700",
-        "margin-bottom": "0.25rem",
-        "font-size": "10px",
-        "text-transform": "uppercase",
-      },
-      ".input-field": {
-        width: "100%",
-        border: "1px solid #d1d5db",
-        "border-radius": "0.25rem",
-        padding: "0.375rem",
-        "text-align": "center",
-      },
-      ".input-wrapper-header": {
-        "grid-column": "1 / span 2",
-        "margin-top": "0.5rem",
-        position: "relative",
-      },
-      ".input-wrapper-tiny-label": {
-        position: "absolute",
-        top: "0.15rem",
-        right: "0",
-        "font-size": "9px",
-        "font-weight": "700",
-        color: "#60a5fa",
-      },
-      ".sidebar-footer": {
-        padding: "0.75rem",
-        "border-top": "1px solid #e5e7eb",
-        "background-color": "#f9fafb",
-        display: "flex",
-        "flex-wrap": "wrap",
-        gap: "0.5rem",
-        "justify-content": "space-between",
-      },
-      ".svg-editor-panel": {
-        padding: "1rem",
-        "background-color": "#fff",
-        "border-bottom": "1px solid #e5e7eb",
-        display: "flex",
-        "flex-direction": "column",
-        gap: "0.5rem",
-      },
-      ".svg-textarea": {
-        width: "100%",
-        "min-height": "150px",
-        border: "1px solid #d1d5db",
-        "border-radius": "0.25rem",
-        padding: "0.5rem",
-        "font-family": "monospace",
-        "font-size": "11px",
-        "line-height": "1.2",
-        resize: "vertical",
-      },
-      ".layer-items-container": {
-        flex: "1",
-        "overflow-y": "auto",
-        padding: "0.25rem 0",
-      },
-
-      // Canvas Structure
-      ".canvas-view-style": {
-        flex: "1",
-        display: "flex",
-        "flex-direction": "column",
-        "background-color": "#e5e7eb",
-        position: "relative",
-      },
-      ".canvas-scroller-style": {
-        flex: "1",
-        overflow: "auto",
-        display: "flex",
-        "justify-content": "center",
-        padding: "1rem",
-        position: "relative",
-      },
-      ".canvas-wrapper-style": {
-        "box-shadow": "0 20px 25px -5px rgba(0,0,0,0.5)",
-        "background-color": "white",
-        position: "relative",
-        "transform-origin": "top",
-      },
-
-      // Layer List
-      ".layer-list-container": {
-        display: "flex",
-        "flex-direction": "column",
-        "background-color": "#e5e7eb",
-        overflow: "hidden",
-        position: "relative",
-      },
-      ".layer-list-header": {
-        padding: "0.5rem 1rem",
-        background: "#f3f4f6",
-        "border-bottom": "1px solid #e5e7eb",
-        "font-size": "0.75rem",
-        "font-weight": "700",
-        color: "#4b5563",
-        "text-transform": "uppercase",
-      },
-      ".layer-item": {
-        padding: "0.5rem 0.75rem",
-        display: "flex",
-        "align-items": "center",
-        gap: "0.5rem",
-        "font-size": "0.75rem",
-        cursor: "pointer",
-        "border-bottom": "1px solid #e5e7eb",
-        background: "white",
-        transition: "background 0.15s",
-      },
-      ".layer-item:hover": { background: "#f3f4f6" },
-      ".layer-item.active": { background: "#dbeafe", "font-weight": "600" },
-      ".layer-item .visibility-toggle": {
-        "font-size": "1rem",
-        opacity: "0.6",
-        cursor: "pointer",
-      },
-      ".layer-item .delete-btn": {
-        color: "#ef4444",
-        opacity: "0",
-        "font-size": "0.9rem",
-      },
-      ".layer-item:hover .delete-btn": { opacity: "1" },
-
-      // Region & Interactions
-      ".region-highlight": {
-        "background-color": "rgba(59, 130, 246, 0.1)",
-        border: "1px solid #3b82f6",
-        opacity: "0.6",
-        "pointer-events": "all",
-      },
-      ".region-highlight:hover": {
-        opacity: "0.9",
-        "border-width": "2px",
-        cursor: "move",
-      },
-      ".region-selected": {
-        border: "2px solid #2563eb",
-        "background-color": "rgba(37, 99, 235, 0.2)",
-        opacity: "1.0",
-      },
-      "#selection-box": {
-        border: "2px dashed #2563eb",
-        background: "rgba(37, 99, 235, 0.1)",
-        position: "absolute",
-        "pointer-events": "none",
-        display: "none",
-        "z-index": "50",
-      },
-      ".selection-frame": {
-        position: "absolute",
-        border: "1px solid #3b82f6",
-        "box-shadow": "0 0 0 1px rgba(59,130,246,0.3)",
-        "pointer-events": "none",
-        "z-index": "40",
-      },
-      ".resize-handle": {
-        position: "absolute",
-        width: "8px",
-        height: "8px",
-        background: "white",
-        border: "1px solid #2563eb",
-        "z-index": "50",
-        "pointer-events": "all",
-      },
-      ".resize-handle:hover": { background: "#2563eb" },
-
-      // Action Bar & Widgets
-      ".region-actions-bar": {
-        position: "fixed",
-        "z-index": "100",
-        background: "rgba(255,255,255,0.95)",
-        padding: "0.5rem",
-        "border-radius": "0.5rem",
-        "box-shadow": "0 4px 6px rgba(0,0,0,0.1)",
-        border: "1px solid #d1d5db",
-        display: "flex",
-        gap: "0.5rem",
-      },
-      ".tab-button": {
-        padding: "0.5rem 1rem",
-        "font-size": "0.75rem",
-        "font-weight": "600",
-        color: "#6b7280",
-        "border-bottom": "2px solid transparent",
-        cursor: "pointer",
-      },
-      ".tab-button-active": {
-        color: "#2563eb",
-        "border-bottom-color": "#2563eb",
-      },
-      "#split-bar": {
-        position: "absolute",
-        "z-index": "50",
-        background: "#ef4444",
-        opacity: "0.8",
-        "pointer-events": "none",
-        "box-shadow": "0 0 0 1px #dc2626",
-      },
-      "#split-bar-label": {
-        position: "absolute",
-        background: "#ef4444",
-        color: "white",
-        "font-size": "10px",
-        "font-weight": "700",
-        padding: "2px 4px",
-        "border-radius": "3px",
-        "pointer-events": "none",
-        "white-space": "nowrap",
-      },
-
-      // Loaders & Animations
-      ".debug-container": {
-        flex: "1",
-        background: "#111827",
-        padding: "1.5rem",
-        overflow: "auto",
-      },
-      ".empty-state-style": {
-        position: "absolute",
-        inset: "0",
-        display: "flex",
-        "flex-direction": "column",
-        "align-items": "center",
-        "justify-content": "center",
-        background: "#f3f4f6",
-      },
-      ".loader-style": {
-        position: "absolute",
-        inset: "0",
-        background: "rgba(17,24,39,0.8)",
-        display: "flex",
-        "flex-direction": "column",
-        "align-items": "center",
-        "justify-content": "center",
-        "z-index": "50",
-      },
-      ".loader-spinner": {
-        width: "3rem",
-        height: "3rem",
-        border: "4px solid #4b5563",
-        "border-top-color": "#3b82f6",
-        "border-radius": "9999px",
-        animation: "spin 1s linear infinite",
-      },
-      "@keyframes spin": {
-        from: { transform: "rotate(0deg)" },
-        to: { transform: "rotate(360deg)" },
-      },
-      "#ai-status": { animation: "pulse 1s infinite alternate" },
-      "@keyframes pulse": { from: { opacity: "0.5" }, to: { opacity: "1" } },
-      ".debug-image-container": {
-        flex: "1",
-        background: "#000",
-        border: "1px solid #374151",
-        height: "200px",
-        display: "flex",
-        "justify-content": "center",
-        "align-items": "center",
-      },
-      ".debug-render-view": {
-        flex: "1",
-        background: "#fff",
-        border: "1px solid #374151",
-        height: "200px",
-      },
-      ".empty-state-card": {
-        background: "white",
-        padding: "2rem",
-        "border-radius": "1rem",
-        "box-shadow": "0 10px 15px rgba(0,0,0,0.1)",
-        "text-align": "center",
-      },
+  static parseCSSRules(schema) {
+    const PROP_MAP = { 
+      bg: 'background-color', c: 'color', d: 'display', f: 'flex', 
+      a: 'align-items', j: 'justify-content', p: 'padding', m: 'margin', 
+      w: 'width', h: 'height', min_h: 'min-height', max_w: 'max-width',
+      rad: 'border-radius', 
+      shadow: 'box-shadow', border: 'border', z: 'z-index', 
+      trans: 'transition', font: 'font-family', select: 'user-select',
+      // Mixins
+      abs: 'position:absolute', rel: 'position:relative', 
+      col: 'flex-direction:column', 
+      hidden: 'display:none !important', pointer: 'cursor:pointer',
+      'inset-0': 'top:0;left:0;right:0;bottom:0',
+      b_bot: 'border-bottom', b_right: 'border-right', b_top: 'border-top',
+      m_right: 'margin-right', m_top: 'margin-top', m_bottom: 'margin-bottom',
+      text_transform: 'text-transform', font_size: 'font-size', font_weight: 'font-weight',
+      line_height: 'line-height', resize: 'resize', grid_cols: 'grid-template-columns',
+      grid_col: 'grid-column', gap: 'gap', transform: 'transform', transform_origin: 'transform-origin'
     };
+
+    const VAL_MAP = {
+      f: 'flex', between: 'space-between', center: 'center',
+      start: 'flex-start', end: 'flex-end', rel: 'relative', abs: 'absolute',
+      none: 'none', block: 'block', grid: 'grid'
+    };
+
+    return schema.trim().split('\n').map(line => {
+      if (!line.trim() || line.trim().startsWith('//')) return '';
+      
+      const [sel, ...rules] = line.trim().split(/\s*\|\s*/);
+      
+      if (sel.startsWith('@keyframes')) return `${sel} { ${rules.join(' ')} }`;
+
+      const body = rules.map(r => {
+        const parts = r.trim().split(/\s+/);
+        const k = parts[0];
+        let v = parts.slice(1).join(' '); 
+        
+        const mappedProp = PROP_MAP[k] || k;
+        if (mappedProp.includes(':')) return `${mappedProp};`;
+        if (!v) return '';
+        if (VAL_MAP[v]) v = VAL_MAP[v];
+
+        return `${mappedProp}: ${v};`; 
+      }).join(' ');
+      
+      return `${sel} { ${body} }`;
+    }).join('\n');
   }
 
-  // --- Static Builders ---
+  static parseDOMTree(dsl) {
+    const lines = dsl.split('\n').filter(l => l.trim() && !l.trim().startsWith('//'));
+    const root = { children: [] };
+    const stack = [{ node: root, indent: -1 }];
+
+    lines.forEach(line => {
+      const indent = line.search(/\S/);
+      const content = line.trim();
+      
+      let [def, id, text, attrs] = content.split(/\s*\|\s*/).map(s => s ? s.trim() : null);
+      
+      if (!attrs && text && (text.includes('=') || text.includes('hidden'))) {
+          attrs = text;
+          text = null;
+      }
+
+      const node = { def };
+      if (id) node.id = id;
+      
+      if (text) {
+        if (text.startsWith('html=')) node.html = text.slice(5);
+        else if (text.includes('<')) node.html = text;
+        else node.text = text;
+      }
+
+      if (attrs) {
+        attrs.split(/\s+/).forEach(pair => {
+            const eqIdx = pair.indexOf('=');
+            if (eqIdx > -1) {
+              node[pair.slice(0, eqIdx)] = pair.slice(eqIdx + 1);
+            } else {
+              // FIX: Treat 'hidden' or 'relative' as classes in short-hand
+              if (['hidden', 'relative', 'absolute'].includes(pair)) {
+                node.class = (node.class ? node.class + '.' : '') + pair;
+              } else {
+                node[pair] = true;
+              }
+            }
+        });
+      }
+
+      while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
+        stack.pop();
+      }
+      
+      const parent = stack[stack.length - 1].node;
+      parent.children = parent.children || [];
+      parent.children.push(node);
+      
+      stack.push({ node, indent });
+    });
+
+    return root.children[0];
+  }
+
+  // ==========================================================================
+  // 2. CONFIGURATION (DSLs)
+  // ==========================================================================
 
   static generateCSS() {
-    let css = "";
-    Object.entries(SciTextUI.styles).forEach(([selector, rules]) => {
-      css += `${selector} { `;
-      Object.entries(rules).forEach(([prop, val]) => {
-        if (typeof val === "object") {
-          // Keyframes/Nested
-          css += `${prop} { `;
-          Object.entries(val).forEach(([p, v]) => (css += `${p}: ${v}; `));
-          css += "} ";
-        } else {
-          css += `${prop}: ${val}; `;
-        }
-      });
-      css += "} \n";
-    });
+    return this.parseCSSRules(`
+      // --- Base ---
+      *, *::before, *::after   | box-sizing border-box | m 0 | p 0
+      body                     | font "Segoe UI", sans-serif | bg #111827 | c #1f2937 | min_h 100vh | d f | col | font_size 14px
+      .hidden                  | hidden
+      .relative                | rel
+      .absolute                | abs
+      .inset-0                 | top 0 | left 0 | right 0 | bottom 0
+      .transition              | trans all 0.15s ease-in-out
+      .uppercase               | text_transform uppercase
+      .select-none             | select none
+      .disabled-bar            | opacity 0.5 | pointer-events none
+      
+      // --- Layout ---
+      .app-header              | bg #1f2937 | p 0.75rem | d f | j between | a center | b_bot 1px solid #111827 | z 30
+      .header-title            | font_size 1.25rem | font_weight 700 | c #f3f4f6 | m_right 1rem
+      .main-content-wrapper    | f 1 | d f | col | overflow hidden | rel | bg white
+      .tab-button-group        | bg #f9fafb | b_bot 1px solid #e5e7eb | flex-shrink 0 | p 0
+      .workspace-container     | f 1 | d f | overflow hidden | rel
+      .sidebar-panel           | w 20rem | d f | col | b_right 1px solid #e5e7eb | bg white | z 10
+      .sidebar-footer          | p 0.75rem | b_top 1px solid #e5e7eb | bg #f9fafb | d f | flex-wrap wrap | gap 0.5rem | j between
 
-    Object.entries(HANDLES).forEach(([dir, props]) => {
-      let rule = `.handle-${dir} { position: absolute; width: 8px; height: 8px; background: white; border: 1px solid #2563eb; z-index: 50; pointer-events: all; `;
-      Object.entries(props).forEach(([k, v]) => (rule += `${k}: ${v}; `));
-      rule += "} ";
-      css += rule + "\n";
-    });
-    return css;
+      // --- Components ---
+      .flex-row-gap-1          | d f | a center | gap 1rem
+      .flex-gap-quarter        | d f | gap 0.25rem
+      .flex-item-end           | d f | a center | gap 1rem
+      .zoom-group-style        | d f | border 1px solid #4b5563 | rad 0.375rem
+      .zoom-label-style        | font_size 0.75rem | w 3.5rem | text-align center | c #e5e7eb | align-self center
+
+      // --- Buttons ---
+      .btn                     | p 0.375rem 0.75rem | rad 0.25rem | font_weight 600 | d f | a center | gap 0.5rem | pointer | border 1px solid transparent | trans all 0.15s
+      .btn-primary             | bg #2563eb | c white
+      .btn-secondary           | bg #374151 | c #e5e7eb | border-color #4b5563 | font_size 0.75rem
+      .btn-danger              | bg #dc2626 | c white
+      .btn-success             | bg #047857 | c white
+      .btn-ghost               | bg transparent | border 1px solid transparent
+      .header-btn              | c #d1d5db | p 0.25rem 0.5rem | bg transparent | border none | pointer
+      .action-bar-btn          | p 0.25rem 0.75rem | rad 0.25rem | font_weight 700 | font_size 0.75rem | c white | border 1px solid transparent | pointer
+      .text-danger             | c #ef4444
+      .bg-primary              | bg #2563eb
+      .bg-warn                 | bg #d97706
+      .bg-success              | bg #059669
+      .bg-gray                 | bg #4b5563
+      .bg-danger               | bg #ef4444
+
+      // --- Properties ---
+      .prop-header             | bg #f3f4f6 | p 0.75rem 1rem | b_bot 1px solid #e5e7eb | d f | col | gap 0.5rem
+      .geometry-inputs         | p 1rem | bg #f9fafb | b_bot 1px solid #e5e7eb | d grid | grid_cols 1fr 1fr | gap 0.75rem | font_size 0.75rem | rel
+      .input-label             | d block | c #9ca3af | font_weight 700 | m_bottom 0.25rem | font_size 10px | text_transform uppercase
+      .input-field             | w 100% | border 1px solid #d1d5db | rad 0.25rem | p 0.375rem | text-align center
+      .input-wrapper-header    | grid_col 1 / span 2 | m_top 0.5rem | rel
+      .input-wrapper-tiny-label| abs | top 0.15rem | right 0 | font_size 9px | font_weight 700 | c #60a5fa
+      
+      // --- Editors ---
+      .svg-editor-panel        | p 1rem | bg white | b_bot 1px solid #e5e7eb | d f | col | gap 0.5rem
+      .svg-textarea            | w 100% | min_h 150px | border 1px solid #d1d5db | rad 0.25rem | p 0.5rem | font-family monospace | font_size 11px | line_height 1.2 | resize vertical
+      .layer-list-container    | d f | col | bg #e5e7eb | overflow hidden | rel
+      .layer-list-header       | p 0.5rem 1rem | bg #f3f4f6 | b_bot 1px solid #e5e7eb | font_size 0.75rem | font_weight 700 | c #4b5563 | text_transform uppercase
+      .layer-items-container   | f 1 | overflow-y auto | p 0.25rem 0
+      .layer-item              | p 0.5rem 0.75rem | d f | a center | gap 0.5rem | font_size 0.75rem | pointer | b_bot 1px solid #e5e7eb | bg white | trans all 0.15s
+      .layer-item:hover        | bg #f3f4f6
+      .layer-item.active       | bg #dbeafe | font_weight 600
+      .layer-item .visibility-toggle | font_size 1rem | opacity 0.6 | pointer
+      .layer-item .delete-btn  | c #ef4444 | opacity 0 | font_size 0.9rem
+      .layer-item:hover .delete-btn | opacity 1
+
+      // --- Canvas ---
+      .canvas-view-style       | f 1 | d f | col | bg #e5e7eb | rel
+      .canvas-scroller-style   | f 1 | overflow auto | d f | j center | p 1rem | rel
+      .canvas-wrapper-style    | shadow 0 20px 25px -5px rgba(0,0,0,0.5) | bg white | rel | transform_origin top
+
+      // --- Interaction ---
+      .region-highlight        | bg rgba(59,130,246,0.1) | border 1px solid #3b82f6 | opacity 0.6 | pointer-events all
+      .region-highlight:hover  | opacity 0.9 | border-width 2px | cursor move
+      .region-selected         | border 2px solid #2563eb | bg rgba(37,99,235,0.2) | opacity 1.0
+      #selection-box           | border 2px dashed #2563eb | bg rgba(37,99,235,0.1) | abs | pointer-events none | d none | z 50
+      .selection-frame         | abs | border 1px solid #3b82f6 | shadow 0 0 0 1px rgba(59,130,246,0.3) | pointer-events none | z 40
+      .region-actions-bar      | abs | z 100 | bg rgba(255,255,255,0.95) | p 0.5rem | rad 0.5rem | shadow 0 4px 6px rgba(0,0,0,0.1) | border 1px solid #d1d5db | d f | gap 0.5rem
+      .tab-button              | p 0.5rem 1rem | font_size 0.75rem | font_weight 600 | c #6b7280 | b_bot 2px solid transparent | pointer
+      .tab-button-active       | c #2563eb | border-bottom-color #2563eb
+      #split-bar               | abs | z 50 | bg #ef4444 | opacity 0.8 | pointer-events none | shadow 0 0 0 1px #dc2626
+      #split-bar-label         | abs | bg #ef4444 | c white | font_size 10px | font_weight 700 | p 2px 4px | rad 3px | pointer-events none | white-space nowrap
+
+      // --- Handles ---
+      .resize-handle           | abs | w 8px | h 8px | bg white | border 1px solid #2563eb | z 50 | pointer-events all
+      .resize-handle:hover     | bg #2563eb
+      .handle-nw               | top -4px | left -4px | cursor nwse-resize
+      .handle-n                | top -4px | left 50% | transform translateX(-50%) | cursor ns-resize
+      .handle-ne               | top -4px | right -4px | cursor nesw-resize
+      .handle-e                | top 50% | right -4px | transform translateY(-50%) | cursor ew-resize
+      .handle-se               | bottom -4px | right -4px | cursor nwse-resize
+      .handle-s                | bottom -4px | left 50% | transform translateX(-50%) | cursor ns-resize
+      .handle-sw               | bottom -4px | left -4px | cursor nesw-resize
+      .handle-w                | top 50% | left -4px | transform translateY(-50%) | cursor ew-resize
+
+      // --- Utils ---
+      .debug-container         | f 1 | bg #111827 | p 1.5rem | overflow auto
+      .empty-state-style       | abs | inset-0 | d f | col | a center | j center | bg #f3f4f6
+      .loader-style            | abs | inset-0 | bg rgba(17,24,39,0.8) | d f | col | a center | j center | z 50
+      .loader-spinner          | w 3rem | h 3rem | border 4px solid #4b5563 | border-top-color #3b82f6 | rad 9999px | animation spin 1s linear infinite
+      .debug-image-container   | f 1 | bg #000 | border 1px solid #374151 | h 200px | d f | j center | a center
+      .debug-render-view       | f 1 | bg #fff | border 1px solid #374151 | h 200px
+      .empty-state-card        | bg white | p 2rem | rad 1rem | shadow 0 10px 15px rgba(0,0,0,0.1) | text-align center
+      @keyframes spin          | from { transform: rotate(0deg) } to { transform: rotate(360deg) }
+      @keyframes pulse         | from { opacity: 0.5 } to { opacity: 1 }
+      #ai-status               | animation pulse 1s infinite alternate
+    `);
   }
 
-  static buildElement(schema, parent, bindTarget) {
-    if (!schema) return;
-    let config = schema;
-    if (schema.def && SciTextUI.components[schema.def]) {
-      config = { ...SciTextUI.components[schema.def], ...schema };
+  static get layout() {
+    return {
+      header: this.parseConfigList(['id', 'text', 'fn', 'type'], `
+        zoom-out          | -             | zoomOut
+        zoom-level        | 100%          |               | display
+        zoom-in           | +             | zoomIn
+        ---
+        btn-undo          | Undo          | undo
+        btn-redo          | Redo          | redo
+        fullscreen-toggle | Full Screen   | toggleFullscreen
+      `),
+      properties: this.parseConfigList(['label', 'id', 'map', 'group', 'step'], `
+        Pos X    | prop-x        | rect.x   | geometry
+        Pos Y    | prop-y        | rect.y   | geometry
+        Width    | prop-w        | rect.w   | geometry
+        Height   | prop-h        | rect.h   | geometry
+        Offset X | prop-offset-x | offset.x | transform | 0.1
+        Offset Y | prop-offset-y | offset.y | transform | 0.1
+        Scale X  | prop-scale-x  | scale.x  | transform | 0.05
+        Scale Y  | prop-scale-y  | scale.y  | transform | 0.05
+      `),
+      footer: this.parseConfigList(['id', 'text', 'fn', 'class'], `
+        btn-auto-segment | Auto Segment | autoSegment | btn-danger
+        btn-export       | Export       | exportSVG   | btn-success
+        btn-clear-all    | Reset        | resetAll    | btn-ghost text-danger
+      `),
+      floating: this.parseConfigList(['label', 'type', 'class', 'fn'], `
+        Digitize  | text      | bg-primary
+        Image     | image     | bg-warn
+        Scan      | blueprint | bg-success
+        Empty     | empty     | bg-gray
+        ---
+        Fit Area  | btn       | bg-gray   | fitArea
+        Fill      | btn       | bg-gray   | fitContent
+        ---
+        Split     | btn       | bg-gray   | enterSplitMode
+        Group     | btn       | bg-gray   | groupSelectedRegions
+        Del       | btn       | bg-danger | deleteSelected
+      `).map(i => i.type === 'btn' ? { id: 'btn-'+i.label.toLowerCase().replace(' ','-'), ...i } : i)
+    };
+  }
+
+  static get components() {
+    return this.parseComponentDefinitions(`
+      root       | div#template-structure.flex-col
+      header     | header.app-header
+      flexRow    | .flex-row-gap-1
+      flexGap    | .flex-gap-quarter
+      headerDiv  | | width:1px; height:0.5rem; background:#4b5563
+      zoomLabel  | span.zoom-label-style
+      
+      main       | main.main-content-wrapper
+      sidebar    | .sidebar-panel
+      propHead   | .prop-header
+      geoInputs  | .geometry-inputs
+      geoGroup   | div
+      rawEditor  | #svg-raw-editor-panel.svg-editor-panel.hidden
+      
+      layerList  | #layer-list.layer-list-container
+      layerHead  | .layer-list-header | | text=Layers
+      layerItems | #layer-items.layer-items-container
+      panelFoot  | .sidebar-footer
+      
+      canvasArea | .canvas-view-style
+      scroller   | .canvas-scroller-style
+      wrapper    | .canvas-wrapper-style
+      processing | canvas#processing-canvas.hidden
+      
+      title      | h1.header-title
+      labelTiny  | span.input-label
+      inputNum   | input.input-field  | | type=number
+      headerBtn  | button.header-btn
+      btnAction  | button.action-bar-btn
+      btnFooter  | button.btn
+      hiddenIn   | input.hidden       | | type=file
+      
+      debugCon   | #debug-container.debug-container.hidden
+      emptyState | #empty-state.empty-state-style
+      loader     | #pdf-loader.loader-style.hidden
+      actionBar  | #region-actions-bar.region-actions-bar.hidden
+      barDivider | | width:1px; height:1.5rem; background:#d1d5db
+    `);
+  }
+
+  // ==========================================================================
+  // 3. BUILDER & DOM STRUCTURE
+  // ==========================================================================
+
+  static buildElement(config, parent, bindTarget) {
+    const compDef = SciTextUI.components[config.def] || { tag: config.def || 'div' };
+
+    const tag = compDef.tag || 'div';
+    let el;
+    try {
+      el = document.createElement(tag);
+    } catch (e) {
+      console.warn(`Invalid tag "${tag}", falling back to div.`);
+      el = document.createElement('div');
     }
 
-    const el = document.createElement(config.tag || "div");
-    if (config.id) {
-      el.id = config.id;
-      if (bindTarget)
-        bindTarget[config.id.replace(/-./g, (x) => x[1].toUpperCase())] = el;
-    }
-
-    if (config.class) el.className = config.class;
-    if (config.style) el.style.cssText = config.style;
-    if (config.text) el.textContent = config.text;
-    if (config.html) el.innerHTML = config.html;
-
-    Object.keys(config).forEach((key) => {
-      if (
-        ![
-          "tag",
-          "id",
-          "class",
-          "style",
-          "text",
-          "html",
-          "children",
-          "def",
-          "data-type",
-        ].includes(key)
-      ) {
-        el.setAttribute(key, config[key]);
+    const elementId = config.id || compDef.id;
+    if (elementId) {
+      el.id = elementId;
+      if (bindTarget) {
+        bindTarget[elementId] = el;
+        const camelId = elementId.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+        bindTarget[camelId] = el;
       }
+    }
+
+    const allKeys = new Set([...Object.keys(compDef), ...Object.keys(config)]);
+
+    allKeys.forEach(key => {
+      if (['tag', 'id', 'text', 'html', 'children', 'def', 'data-type'].includes(key)) return;
+
+      let val = config[key] !== undefined ? config[key] : compDef[key];
+
+      if (key === 'class') {
+        const defClass = compDef.class || '';
+        const confClass = config.class || '';
+        // FIX: Ensure dots are replaced by spaces
+        el.className = `${defClass} ${confClass}`.replace(/\./g, ' ').trim();
+        return;
+      }
+
+      if (key === 'style') {
+        const defStyle = compDef.style || '';
+        const confStyle = config.style || '';
+        el.style.cssText = `${defStyle};${confStyle}`;
+        return;
+      }
+
+      if (val === true) val = ''; 
+
+      try {
+        if (['value', 'checked', 'disabled', 'readonly', 'selected', 'type', 'placeholder', 'accept'].includes(key)) {
+          el[key] = val === '' ? true : val;
+        }
+        
+        if (/[a-zA-Z_][\w-]*$/.test(key)) {
+           if (val !== false && val !== null && val !== undefined) {
+             el.setAttribute(key, val);
+           }
+        }
+      } catch (err) {}
     });
 
-    if (config["data-type"]) el.dataset.type = config["data-type"];
+    if (config['data-type']) el.dataset.type = config['data-type'];
+    if (config.html) el.innerHTML = config.html;
+    else if (config.text) el.textContent = config.text;
+    else if (compDef.text && !config.children) el.textContent = compDef.text;
+
     if (parent) parent.appendChild(el);
-    if (config.children)
-      config.children.forEach((child) =>
-        SciTextUI.buildElement(child, el, bindTarget),
-      );
+
+    if (config.children && Array.isArray(config.children)) {
+      config.children.forEach(child => SciTextUI.buildElement(child, el, bindTarget));
+    }
+
     return el;
   }
 
   static getDOMStructure() {
-    const layout = SciTextUI.layout;
+    const L = SciTextUI.layout;
+    
+    // Zoom Buttons
+    const ZoomBtns = L.header.slice(0, 3).map(b => 
+      b.type === 'display' ? `zoomLabel | ${b.id} | ${b.text}`
+      : `headerBtn | ${b.id} | ${b.text || ''}`
+    ).join('\n              ');
 
-    // --- Component Helpers ---
+    // Header Right Buttons
+    const HeaderRightBtns = L.header.slice(4).map(b => 
+      `btnFooter | ${b.id} | ${b.text} | class=btn.btn-secondary`
+    ).join('\n            ');
 
-    const makePropInput = (p) => ({
-      def: "geoGroup",
-      children: [
-        { def: "labelTiny", text: p.label },
-        { def: "inputNum", id: p.id, step: p.step },
-      ],
-    });
+    // Footer Buttons
+    const FooterBtns = L.footer.map(b => 
+      `btnFooter | ${b.id} | ${b.text} | class=btn.${b.class||''}`
+    ).join('\n                  ');
 
-    const makeButton = (b, type) => {
-      if (b.type === "divider") return { def: "headerDiv" };
-      if (b.type === "display")
-        return {
-          def: "zoomLabel",
-          id: b.id,
-          text: b.text,
-          class: "zoom-label-style",
-        };
-      if (type === "floating")
-        return {
-          def: "btnAction",
-          id: b.id,
-          text: b.label,
-          class: `action-bar-btn ${b.class}`,
-          "data-type": b.type,
-        };
-      if (type === "footer")
-        return {
-          tag: "button",
-          id: b.id,
-          text: b.text,
-          class: `btn ${b.class}`,
-        };
-      // Default: Zoom button
-      return {
-        tag: "button",
-        id: b.id,
-        style: "color:#d1d5db; padding:0.25rem 0.5rem;",
-        text: b.text,
-      };
-    };
+    // Floating Action Bar
+    const FloatingBtns = L.floating.map(b =>
+      b.type === 'divider' ? `barDivider`
+      : `btnAction | ${b.id} | ${b.label} | class=action-bar-btn.${b.class||''} data-type=${b.type||''}`
+    ).join('\n          ');
 
-    const makeHiddenFileSelect = (id, text, accept) => ({
-      tag: "div",
-      class: "relative",
-      children: [
-        { def: "hiddenIn", id: id, accept: accept },
-        { tag: "label", for: id, class: "btn btn-primary", text: text },
-      ],
-    });
+    // Properties
+    const GeoProps = L.properties.filter(p => p.group === 'geometry').map(p => 
+      `geoGroup
+                  labelTiny | | ${p.label}
+                  inputNum | ${p.id} | | step=${p.step||1}`
+    ).join('\n                ');
+    
+    const TransProps = L.properties.filter(p => p.group === 'transform').map(p => 
+      `geoGroup
+                  labelTiny | | ${p.label}
+                  inputNum | ${p.id} | | step=${p.step||1}`
+    ).join('\n                ');
 
-    const makeZoomControls = () => ({
-      tag: "div",
-      class: "zoom-group-style",
-      children: layout.header.slice(0, 3).map((b) => makeButton(b)),
-    });
 
-    const makeHeaderButtons = () => ({
-      def: "flexGap",
-      children: layout.header.slice(4).map((b) => ({
-        tag: "button",
-        id: b.id,
-        class: "btn btn-secondary",
-        text: b.text,
-      })),
-    });
+    return this.parseDOMTree(`
+      root
+        header
+          flexRow
+            title | | html=SciText <span>Digitizer</span>
+            div | | class=relative
+              hiddenIn | pdf-upload | | accept=application/pdf,image/*
+              label | | Load | for=pdf-upload class=btn.btn-primary
+          headerDiv
+          div | | class=zoom-group-style
+            ${ZoomBtns}
+          flexGap
+            ${HeaderRightBtns}
+          flexGap
+            div | | class=flex-item-end
+              span | ai-status | Processing... | class=hidden style=color:#60a5fa;font-size:0.75rem;font-family:monospace;
+              btnFooter | fullscreen-toggle | Full Screen | class=btn.btn-secondary
+        
+        main
+          div | | class=tab-button-group
+            button | tab-overlay | Compositor | class=tab-button.tab-button-active
+            button | tab-debug | Debug View | class=tab-button
+          
+          div | workspace-container | | class=workspace-container.hidden
+            sidebar
+              propHead
+                flexRow | | style=justify-content:space-between;
+                  span | | Properties | class=uppercase style=font-size:0.75rem;font-weight:700;color:#4b5563;
+                  span | region-count | 0 | class=region-count-badge
+              
+              geoInputs
+                div | | COORDS (Normalized Pixels) | style=position:absolute;top:0.25rem;right:0.5rem;font-size:9px;font-weight:700;color:#60a5fa;
+                ${GeoProps}
+                
+                div | | class=input-wrapper-header
+                  span | | SVG Content Adjustment | class=input-label style=text-align:center;display:block;
+                  div | | OFFSET/SCALE | class=input-wrapper-tiny-label
+                
+                ${TransProps}
 
-    const makeFooterButtons = () => ({
-      tag: "div",
-      class: "flex-gap-quarter",
-      style: "width:100%;",
-      children: [
-        ...layout.footer.map((b) => makeButton(b, "footer")),
-        makeHiddenFileSelect("svg-import", "Import", ".svg"),
-      ],
-    });
+              rawEditor
+                span | | SVG Content (Edit Raw) | class=input-label style=margin-bottom:0;
+                textarea | svg-raw-content | | class=svg-textarea
+                btnAction | btn-save-raw-svg | Apply Changes | style=background:#4f46e5;font-size:0.75rem;
+              
+              layerList
+                layerHead
+                  button | btn-toggle-visibility-all | 👁 | style=float:right;background:none;border:none;cursor:pointer;color:#6b7280;font-size:1rem;
+                layerItems
+              
+              panelFoot
+                div | | class=flex-gap-quarter style=width:100%;
+                  ${FooterBtns}
+                  div | | class=relative
+                    hiddenIn | svg-import | | accept=.svg
+                    label | | Import | for=svg-import class=btn.btn-primary
 
-    const makeFloatingButtons = () => ({
-      def: "actionBar",
-      children: [
-        ...layout.floating.slice(0, 4).map((b) => makeButton(b, "floating")),
-        { def: "barDivider" },
-        ...layout.floating.slice(5, 7).map((b) => makeButton(b, "floating")),
-        { def: "barDivider" },
-        ...layout.floating.slice(8).map((b) => makeButton(b, "floating")),
-      ],
-    });
+            canvasArea | canvas-view-area
+              scroller | canvas-scroller
+                wrapper | canvas-wrapper
+                  // FIX: DOTS used here for multi-class strings
+                  div | pdf-layer | | class=transition.absolute.inset-0
+                  div | svg-layer | | class=absolute.inset-0.z-10 style=pointer-events:none;
+                  div | interaction-layer | | class=absolute.inset-0.z-20
+                  div | selection-box
+                  div | split-bar | | class=hidden
 
-    // --- Main Structure Definition ---
+          debugCon
+            div | | class=flex-row-gap-1 style=margin-bottom:1rem;
+              div | | class=debug-image-container
+                img | debug-source-img | | style=max-width:100%;max-height:100%;
+              div | debug-render-view | | class=debug-render-view
+            pre | debug-log | | style=color:#4ade80;font-size:10px;font-family:monospace;
 
-    return {
-      def: "root",
-      children: [
-        // Header
-        {
-          def: "header",
-          children: [
-            {
-              def: "flexRow",
-              children: [
-                { def: "title", html: `SciText <span>Digitizer</span>` },
-                makeHiddenFileSelect(
-                  "pdf-upload",
-                  "Load",
-                  "application/pdf, image/*",
-                ),
-              ],
-            },
-            { def: "headerDiv" },
-            makeZoomControls(),
-            makeHeaderButtons(),
-            {
-              tag: "div",
-              class: "flex-item-end",
-              children: [
-                {
-                  tag: "span",
-                  id: "ai-status",
-                  class: "hidden",
-                  style:
-                    "color:#60a5fa; font-size:0.75rem; font-family:monospace;",
-                  text: "Processing...",
-                },
-                {
-                  tag: "button",
-                  id: "fullscreen-toggle",
-                  class: "btn btn-secondary",
-                  text: "Full Screen",
-                },
-              ],
-            },
-          ],
-        },
-        // Main
-        {
-          tag: "main",
-          class: "main-content-wrapper",
-          children: [
-            {
-              tag: "div",
-              class: "tab-button-group",
-              children: [
-                {
-                  tag: "button",
-                  id: "tab-overlay",
-                  class: "tab-button tab-button-active",
-                  text: "Compositor",
-                },
-                {
-                  tag: "button",
-                  id: "tab-debug",
-                  class: "tab-button",
-                  text: "Debug View",
-                },
-              ],
-            },
-            // Workspace
-            {
-              tag: "div",
-              id: "workspace-container",
-              class: "workspace-container hidden",
-              children: [
-                {
-                  def: "sidebar",
-                  children: [
-                    {
-                      def: "propHead",
-                      children: [
-                        {
-                          def: "flexRow",
-                          style: "justify-content:space-between;",
-                          children: [
-                            {
-                              tag: "span",
-                              class: "uppercase",
-                              style:
-                                "font-size:0.75rem; font-weight:700; color:#4b5563;",
-                              text: "Properties",
-                            },
-                            {
-                              tag: "span",
-                              id: "region-count",
-                              class: "region-count-badge",
-                              text: "0",
-                            },
-                          ],
-                        },
-                      ],
-                    },
-                    {
-                      def: "geoInputs",
-                      children: [
-                        {
-                          tag: "div",
-                          style:
-                            "position:absolute; top:0.25rem; right:0.5rem; font-size:9px; font-weight:700; color:#60a5fa;",
-                          text: "COORDS (Normalized Pixels)",
-                        },
-                        ...layout.properties
-                          .filter((p) => p.group === "geometry")
-                          .map(makePropInput),
-                        {
-                          tag: "div",
-                          class: "input-wrapper-header",
-                          children: [
-                            {
-                              tag: "span",
-                              class: "input-label",
-                              style: "text-align:center; display:block;",
-                              text: "SVG Content Adjustment",
-                            },
-                            {
-                              tag: "div",
-                              class: "input-wrapper-tiny-label",
-                              text: "OFFSET/SCALE",
-                            },
-                          ],
-                        },
-                        ...layout.properties
-                          .filter((p) => p.group === "transform")
-                          .map(makePropInput),
-                      ],
-                    },
-                    {
-                      def: "rawEditor",
-                      children: [
-                        {
-                          tag: "span",
-                          class: "input-label",
-                          style: "margin-bottom:0;",
-                          text: "SVG Content (Edit Raw)",
-                        },
-                        {
-                          tag: "textarea",
-                          id: "svg-raw-content",
-                          class: "svg-textarea",
-                        },
-                        {
-                          tag: "button",
-                          id: "btn-save-raw-svg",
-                          class: "action-bar-btn",
-                          style: "background:#4f46e5; font-size:0.75rem;",
-                          text: "Apply Changes",
-                        },
-                      ],
-                    },
-                    {
-                      def: "layerList",
-                      children: [
-                        {
-                          def: "layerHead",
-                          children: [
-                            {
-                              tag: "button",
-                              id: "btn-toggle-visibility-all",
-                              style:
-                                "float:right; background:none; border:none; cursor:pointer; color:#6b7280; font-size:1rem;",
-                              text: "👁",
-                            },
-                          ],
-                        },
-                        { def: "layerItems" },
-                      ],
-                    },
-                    {
-                      def: "panelFoot",
-                      children: [makeFooterButtons()],
-                    },
-                  ],
-                },
-                {
-                  def: "canvasArea",
-                  id: "canvas-view-area",
-                  children: [
-                    {
-                      def: "scroller",
-                      id: "canvas-scroller",
-                      children: [
-                        {
-                          def: "wrapper",
-                          id: "canvas-wrapper",
-                          children: [
-                            {
-                              tag: "div",
-                              id: "pdf-layer",
-                              class: "transition absolute inset-0",
-                            },
-                            {
-                              tag: "div",
-                              id: "svg-layer",
-                              class: "absolute inset-0 z-10",
-                              style: "pointer-events:none;",
-                            },
-                            {
-                              tag: "div",
-                              id: "interaction-layer",
-                              class: "absolute inset-0 z-20",
-                            },
-                            { tag: "div", id: "selection-box" },
-                            { tag: "div", id: "split-bar", class: "hidden" },
-                          ],
-                        },
-                      ],
-                    },
-                  ],
-                },
-              ],
-            },
-            {
-              def: "debugCon",
-              children: [
-                {
-                  tag: "div",
-                  class: "flex-row-gap-1",
-                  style: "margin-bottom:1rem;",
-                  children: [
-                    {
-                      tag: "div",
-                      class: "debug-image-container",
-                      children: [
-                        {
-                          tag: "img",
-                          id: "debug-source-img",
-                          style: "max-width:100%; max-height:100%;",
-                        },
-                      ],
-                    },
-                    {
-                      tag: "div",
-                      id: "debug-render-view",
-                      class: "debug-render-view",
-                    },
-                  ],
-                },
-                {
-                  tag: "pre",
-                  id: "debug-log",
-                  style:
-                    "color:#4ade80; font-size:10px; font-family:monospace;",
-                },
-              ],
-            },
-            {
-              def: "emptyState",
-              children: [
-                {
-                  tag: "div",
-                  style:
-                    "background:white; padding:2rem; border-radius:1rem; box-shadow:0 10px 15px rgba(0,0,0,0.1); text-align:center;",
-                  children: [
-                    {
-                      tag: "h2",
-                      style:
-                        "font-size:1.25rem; font-weight:700; color:#374151;",
-                      text: "No Document Loaded",
-                    },
-                    {
-                      tag: "p",
-                      style: "color:#6b7280; margin-top:0.5rem;",
-                      text: "Upload PDF or Image to start.",
-                    },
-                  ],
-                },
-              ],
-            },
-            {
-              def: "loader",
-              children: [
-                { tag: "div", class: "loader-spinner" },
-                {
-                  tag: "span",
-                  style: "color:white; font-weight:700; margin-top:1rem;",
-                  text: "Loading...",
-                },
-              ],
-            },
-            { tag: "canvas", id: "processing-canvas", style: "display:none;" },
-          ],
-        },
-        // Action Bar
-        makeFloatingButtons(),
-      ],
-    };
+          emptyState
+            div | | class=empty-state-card
+              h2 | | No Document Loaded | style=font-size:1.25rem;font-weight:700;color:#374151;
+              p | | Upload PDF or Image to start. | style=color:#6b7280;margin-top:0.5rem;
+          
+          loader
+            div | | | class=loader-spinner
+            span | | Loading... | style=color:white;font-weight:700;margin-top:1rem;
+          
+          processing
+
+        actionBar
+          ${FloatingBtns}
+    `);
   }
 
   static init(bindTarget) {
     const styleEl = document.createElement("style");
     styleEl.textContent = SciTextUI.generateCSS();
     document.head.appendChild(styleEl);
-    SciTextUI.buildElement(
-      SciTextUI.getDOMStructure(),
-      document.body,
-      bindTarget,
-    );
+    SciTextUI.buildElement(SciTextUI.getDOMStructure(), document.body, bindTarget);
     if (bindTarget) bindTarget.splitBar = document.getElementById("split-bar");
   }
 }
