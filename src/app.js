@@ -2524,7 +2524,7 @@ const appObject = (function () {
   model.subscribe((state) => view.render(state));
   return {
     bootstrap: async () => {
-      const mod = await import(`./appTest.js?v=${Date.now()}`);
+      const mod = await import(`./sampleImage.js?v=${Date.now()}`);
       window.embeddedDefaultImage = mod.default;
       controller.init();
     },
