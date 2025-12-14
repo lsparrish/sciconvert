@@ -22,37 +22,6 @@ const CONFIG = {
   aiScale: 2.0,
 };
 
-const HANDLES = {
-  nw: { top: "-4px", left: "-4px", cursor: "nwse-resize" },
-  n: {
-    top: "-4px",
-    left: "50%",
-    transform: "translateX(-50%)",
-    cursor: "ns-resize",
-  },
-  ne: { top: "-4px", right: "-4px", cursor: "nesw-resize" },
-  e: {
-    top: "50%",
-    right: "-4px",
-    transform: "translateY(-50%)",
-    cursor: "ew-resize",
-  },
-  se: { bottom: "-4px", right: "-4px", cursor: "nwse-resize" },
-  s: {
-    bottom: "-4px",
-    left: "50%",
-    transform: "translateX(-50%)",
-    cursor: "ns-resize",
-  },
-  sw: { bottom: "-4px", left: "-4px", cursor: "nesw-resize" },
-  w: {
-    top: "50%",
-    left: "-4px",
-    transform: "translateY(-50%)",
-    cursor: "ew-resize",
-  },
-};
-
 const apiKey = ""; // Injected by environment
 
 // ============================================================================
@@ -65,158 +34,212 @@ class SciTextUI {
   // ==========================================================================
 
   static parseConfigList(keys, dsl) {
-    return dsl.trim().split('\n').reduce((acc, line) => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('//')) return acc;
-      if (trimmed === '---') return [...acc, { type: 'divider' }];
-      
-      const vals = trimmed.split(/\s*\|\s*/);
-      const obj = keys.reduce((o, k, i) => {
-        if (vals[i] && vals[i] !== '-') o[k] = vals[i].trim();
-        return o;
-      }, {});
-      return [...acc, obj];
-    }, []);
+    return dsl
+      .trim()
+      .split("\n")
+      .reduce((acc, line) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("//")) return acc;
+        if (trimmed === "---") return [...acc, { type: "divider" }];
+
+        const vals = trimmed.split(/\s*\|\s*/);
+        const obj = keys.reduce((o, k, i) => {
+          if (vals[i] && vals[i] !== "-") o[k] = vals[i].trim();
+          return o;
+        }, {});
+        return [...acc, obj];
+      }, []);
   }
 
   static parseComponentDefinitions(dsl) {
-    return dsl.trim().split('\n').reduce((acc, line) => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('//')) return acc;
+    return dsl
+      .trim()
+      .split("\n")
+      .reduce((acc, line) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("//")) return acc;
 
-      const [name, selector, style, attrs] = trimmed.split(/\s*\|\s*/).map(s => s || '');
-      
-      const parts = selector.split(/(?=[#.])/);
-      let tagName = parts[0];
-      if (!tagName || tagName.startsWith('.') || tagName.startsWith('#')) {
-        tagName = 'div';
-      }
-      
-      const def = { tag: tagName };
-      parts.forEach(p => {
-        if (p.startsWith('#')) def.id = p.slice(1);
-        if (p.startsWith('.')) def.class = (def.class ? def.class + '.' : '') + p.slice(1);
-      });
+        const [name, selector, style, attrs] = trimmed
+          .split(/\s*\|\s*/)
+          .map((s) => s || "");
 
-      if (style) def.style = style;
-      
-      if (attrs) {
-        attrs.split(/\s+/).forEach(pair => {
-          const eqIdx = pair.indexOf('=');
-          if (eqIdx > -1) {
-            def[pair.slice(0, eqIdx)] = pair.slice(eqIdx + 1);
-          } else {
-            // FIX: Treat 'hidden' as a class, not a boolean attribute
-            if(pair === 'hidden') def.class = (def.class ? def.class + '.' : '') + 'hidden';
-            else def[pair] = true;
-          }
+        const parts = selector.split(/(?=[#.])/);
+        let tagName = parts[0];
+        if (!tagName || tagName.startsWith(".") || tagName.startsWith("#")) {
+          tagName = "div";
+        }
+
+        const def = { tag: tagName };
+        parts.forEach((p) => {
+          if (p.startsWith("#")) def.id = p.slice(1);
+          if (p.startsWith("."))
+            def.class = (def.class ? def.class + "." : "") + p.slice(1);
         });
-      }
 
-      acc[name] = def;
-      return acc;
-    }, {});
+        if (style) def.style = style;
+
+        if (attrs) {
+          attrs.split(/\s+/).forEach((pair) => {
+            const eqIdx = pair.indexOf("=");
+            if (eqIdx > -1) {
+              def[pair.slice(0, eqIdx)] = pair.slice(eqIdx + 1);
+            } else {
+              // FIX: Treat 'hidden' as a class, not a boolean attribute
+              if (pair === "hidden")
+                def.class = (def.class ? def.class + "." : "") + "hidden";
+              else def[pair] = true;
+            }
+          });
+        }
+
+        acc[name] = def;
+        return acc;
+      }, {});
   }
 
   static parseCSSRules(schema) {
-    const PROP_MAP = { 
-      bg: 'background-color', c: 'color', d: 'display', f: 'flex', 
-      a: 'align-items', j: 'justify-content', p: 'padding', m: 'margin', 
-      w: 'width', h: 'height', min_h: 'min-height', max_w: 'max-width',
-      rad: 'border-radius', 
-      shadow: 'box-shadow', border: 'border', z: 'z-index', 
-      trans: 'transition', font: 'font-family', select: 'user-select',
+    const PROP_MAP = {
+      bg: "background-color",
+      c: "color",
+      d: "display",
+      f: "flex",
+      a: "align-items",
+      j: "justify-content",
+      p: "padding",
+      m: "margin",
+      w: "width",
+      h: "height",
+      min_h: "min-height",
+      max_w: "max-width",
+      rad: "border-radius",
+      shadow: "box-shadow",
+      border: "border",
+      z: "z-index",
+      trans: "transition",
+      font: "font-family",
+      select: "user-select",
       // Mixins
-      abs: 'position:absolute', rel: 'position:relative', 
-      col: 'flex-direction:column', 
-      hidden: 'display:none !important', pointer: 'cursor:pointer',
-      'inset-0': 'top:0;left:0;right:0;bottom:0',
-      b_bot: 'border-bottom', b_right: 'border-right', b_top: 'border-top',
-      m_right: 'margin-right', m_top: 'margin-top', m_bottom: 'margin-bottom',
-      text_transform: 'text-transform', font_size: 'font-size', font_weight: 'font-weight',
-      line_height: 'line-height', resize: 'resize', grid_cols: 'grid-template-columns',
-      grid_col: 'grid-column', gap: 'gap', transform: 'transform', transform_origin: 'transform-origin'
+      abs: "position:absolute",
+      rel: "position:relative",
+      col: "flex-direction:column",
+      hidden: "display:none !important",
+      pointer: "cursor:pointer",
+      "inset-0": "top:0;left:0;right:0;bottom:0",
+      b_bot: "border-bottom",
+      b_right: "border-right",
+      b_top: "border-top",
+      m_right: "margin-right",
+      m_top: "margin-top",
+      m_bottom: "margin-bottom",
+      text_transform: "text-transform",
+      font_size: "font-size",
+      font_weight: "font-weight",
+      line_height: "line-height",
+      resize: "resize",
+      grid_cols: "grid-template-columns",
+      grid_col: "grid-column",
+      gap: "gap",
+      transform: "transform",
+      transform_origin: "transform-origin",
     };
 
     const VAL_MAP = {
-      f: 'flex', between: 'space-between', center: 'center',
-      start: 'flex-start', end: 'flex-end', rel: 'relative', abs: 'absolute',
-      none: 'none', block: 'block', grid: 'grid'
+      f: "flex",
+      between: "space-between",
+      center: "center",
+      start: "flex-start",
+      end: "flex-end",
+      rel: "relative",
+      abs: "absolute",
+      none: "none",
+      block: "block",
+      grid: "grid",
     };
 
-    return schema.trim().split('\n').map(line => {
-      if (!line.trim() || line.trim().startsWith('//')) return '';
-      
-      const [sel, ...rules] = line.trim().split(/\s*\|\s*/);
-      
-      if (sel.startsWith('@keyframes')) return `${sel} { ${rules.join(' ')} }`;
+    return schema
+      .trim()
+      .split("\n")
+      .map((line) => {
+        if (!line.trim() || line.trim().startsWith("//")) return "";
 
-      const body = rules.map(r => {
-        const parts = r.trim().split(/\s+/);
-        const k = parts[0];
-        let v = parts.slice(1).join(' '); 
-        
-        const mappedProp = PROP_MAP[k] || k;
-        if (mappedProp.includes(':')) return `${mappedProp};`;
-        if (!v) return '';
-        if (VAL_MAP[v]) v = VAL_MAP[v];
+        const [sel, ...rules] = line.trim().split(/\s*\|\s*/);
 
-        return `${mappedProp}: ${v};`; 
-      }).join(' ');
-      
-      return `${sel} { ${body} }`;
-    }).join('\n');
+        if (sel.startsWith("@keyframes"))
+          return `${sel} { ${rules.join(" ")} }`;
+
+        const body = rules
+          .map((r) => {
+            const parts = r.trim().split(/\s+/);
+            const k = parts[0];
+            let v = parts.slice(1).join(" ");
+
+            const mappedProp = PROP_MAP[k] || k;
+            if (mappedProp.includes(":")) return `${mappedProp};`;
+            if (!v) return "";
+            if (VAL_MAP[v]) v = VAL_MAP[v];
+
+            return `${mappedProp}: ${v};`;
+          })
+          .join(" ");
+
+        return `${sel} { ${body} }`;
+      })
+      .join("\n");
   }
 
   static parseDOMTree(dsl) {
-    const lines = dsl.split('\n').filter(l => l.trim() && !l.trim().startsWith('//'));
+    const lines = dsl
+      .split("\n")
+      .filter((l) => l.trim() && !l.trim().startsWith("//"));
     const root = { children: [] };
     const stack = [{ node: root, indent: -1 }];
 
-    lines.forEach(line => {
+    lines.forEach((line) => {
       const indent = line.search(/\S/);
       const content = line.trim();
-      
-      let [def, id, text, attrs] = content.split(/\s*\|\s*/).map(s => s ? s.trim() : null);
-      
-      if (!attrs && text && (text.includes('=') || text.includes('hidden'))) {
-          attrs = text;
-          text = null;
+
+      let [def, id, text, attrs] = content
+        .split(/\s*\|\s*/)
+        .map((s) => (s ? s.trim() : null));
+
+      if (!attrs && text && (text.includes("=") || text.includes("hidden"))) {
+        attrs = text;
+        text = null;
       }
 
       const node = { def };
       if (id) node.id = id;
-      
+
       if (text) {
-        if (text.startsWith('html=')) node.html = text.slice(5);
-        else if (text.includes('<')) node.html = text;
+        if (text.startsWith("html=")) node.html = text.slice(5);
+        else if (text.includes("<")) node.html = text;
         else node.text = text;
       }
 
       if (attrs) {
-        attrs.split(/\s+/).forEach(pair => {
-            const eqIdx = pair.indexOf('=');
-            if (eqIdx > -1) {
-              node[pair.slice(0, eqIdx)] = pair.slice(eqIdx + 1);
+        attrs.split(/\s+/).forEach((pair) => {
+          const eqIdx = pair.indexOf("=");
+          if (eqIdx > -1) {
+            node[pair.slice(0, eqIdx)] = pair.slice(eqIdx + 1);
+          } else {
+            // FIX: Treat 'hidden' or 'relative' as classes in short-hand
+            if (["hidden", "relative", "absolute"].includes(pair)) {
+              node.class = (node.class ? node.class + "." : "") + pair;
             } else {
-              // FIX: Treat 'hidden' or 'relative' as classes in short-hand
-              if (['hidden', 'relative', 'absolute'].includes(pair)) {
-                node.class = (node.class ? node.class + '.' : '') + pair;
-              } else {
-                node[pair] = true;
-              }
+              node[pair] = true;
             }
+          }
         });
       }
 
       while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
         stack.pop();
       }
-      
+
       const parent = stack[stack.length - 1].node;
       parent.children = parent.children || [];
       parent.children.push(node);
-      
+
       stack.push({ node, indent });
     });
 
@@ -339,7 +362,9 @@ class SciTextUI {
 
   static get layout() {
     return {
-      header: this.parseConfigList(['id', 'text', 'fn', 'type'], `
+      header: this.parseConfigList(
+        ["id", "text", "fn", "type"],
+        `
         zoom-out          | -             | zoomOut
         zoom-level        | 100%          |               | display
         zoom-in           | +             | zoomIn
@@ -347,8 +372,11 @@ class SciTextUI {
         btn-undo          | Undo          | undo
         btn-redo          | Redo          | redo
         fullscreen-toggle | Full Screen   | toggleFullscreen
-      `),
-      properties: this.parseConfigList(['label', 'id', 'map', 'group', 'step'], `
+      `,
+      ),
+      properties: this.parseConfigList(
+        ["label", "id", "map", "group", "step"],
+        `
         Pos X    | prop-x        | rect.x   | geometry
         Pos Y    | prop-y        | rect.y   | geometry
         Width    | prop-w        | rect.w   | geometry
@@ -357,13 +385,19 @@ class SciTextUI {
         Offset Y | prop-offset-y | offset.y | transform | 0.1
         Scale X  | prop-scale-x  | scale.x  | transform | 0.05
         Scale Y  | prop-scale-y  | scale.y  | transform | 0.05
-      `),
-      footer: this.parseConfigList(['id', 'text', 'fn', 'class'], `
+      `,
+      ),
+      footer: this.parseConfigList(
+        ["id", "text", "fn", "class"],
+        `
         btn-auto-segment | Auto Segment | autoSegment | btn-danger
         btn-export       | Export       | exportSVG   | btn-success
         btn-clear-all    | Reset        | resetAll    | btn-ghost text-danger
-      `),
-      floating: this.parseConfigList(['label', 'type', 'class', 'fn'], `
+      `,
+      ),
+      floating: this.parseConfigList(
+        ["label", "type", "class", "fn"],
+        `
         Digitize  | text      | bg-primary
         Image     | image     | bg-warn
         Scan      | blueprint | bg-success
@@ -375,7 +409,12 @@ class SciTextUI {
         Split     | btn       | bg-gray   | enterSplitMode
         Group     | btn       | bg-gray   | groupSelectedRegions
         Del       | btn       | bg-danger | deleteSelected
-      `).map(i => i.type === 'btn' ? { id: 'btn-'+i.label.toLowerCase().replace(' ','-'), ...i } : i)
+      `,
+      ).map((i) =>
+        i.type === "btn"
+          ? { id: "btn-" + i.label.toLowerCase().replace(" ", "-"), ...i }
+          : i,
+      ),
     };
   }
 
@@ -421,20 +460,88 @@ class SciTextUI {
     `);
   }
 
+  static get handles() {
+    if (this._cachedHandles) return this._cachedHandles;
+
+    // ATOMS
+    const P = "-4px";
+    const C = "50%";
+    const TF = "transform";
+    const TR = "translate";
+
+    // MACROS
+    const M = {
+      // Position
+      T: `top:${P}`,
+      B: `bottom:${P}`,
+      L: `left:${P}`,
+      R: `right:${P}`,
+
+      // Center & Transform (Now with keys!)
+      CY: `top:${C}`,
+      CX: `left:${C}`,
+      TX: `${TF}:${TR}X(-${C})`,
+      TY: `${TF}:${TR}Y(-${C})`,
+
+      // Cursor Stems
+      NS: "ns",
+      EW: "ew",
+      D1: "nwse",
+      D2: "nesw",
+    };
+
+    const raw = this.parseConfigList(
+      ["id", "y", "x", "cursor", "tx"],
+      `
+      nw | T  | L  | D1 | -
+      n  | T  | CX | NS | TX
+      ne | T  | R  | D2 | -
+      e  | CY | R  | EW | TY
+      se | B  | R  | D1 | -
+      s  | B  | CX | NS | TX
+      sw | B  | L  | D2 | -
+      w  | CY | L  | EW | TY
+    `,
+    );
+
+    this._cachedHandles = raw.reduce((acc, item) => {
+      const h = {
+        // 1. Cursor: Expand macro or use raw, append suffix
+        cursor: (M[item.cursor] || item.cursor) + "-resize",
+      };
+
+      // 2. Geometry: Unified loop for y, x, AND tx
+      ["y", "x", "tx"].forEach((col) => {
+        let val = item[col];
+        if (val === "-" || !val) return; // Skip empty
+        if (M[val]) val = M[val]; // Expand macro
+
+        const [k, v] = val.split(":"); // Split "key:value"
+        if (k && v) h[k] = v;
+      });
+
+      acc[item.id] = h;
+      return acc;
+    }, {});
+
+    return this._cachedHandles;
+  }
   // ==========================================================================
   // 3. BUILDER & DOM STRUCTURE
   // ==========================================================================
 
   static buildElement(config, parent, bindTarget) {
-    const compDef = SciTextUI.components[config.def] || { tag: config.def || 'div' };
+    const compDef = SciTextUI.components[config.def] || {
+      tag: config.def || "div",
+    };
 
-    const tag = compDef.tag || 'div';
+    const tag = compDef.tag || "div";
     let el;
     try {
       el = document.createElement(tag);
     } catch (e) {
       console.warn(`Invalid tag "${tag}", falling back to div.`);
-      el = document.createElement('div');
+      el = document.createElement("div");
     }
 
     const elementId = config.id || compDef.id;
@@ -442,49 +549,67 @@ class SciTextUI {
       el.id = elementId;
       if (bindTarget) {
         bindTarget[elementId] = el;
-        const camelId = elementId.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+        const camelId = elementId.replace(/-([a-z])/g, (g) =>
+          g[1].toUpperCase(),
+        );
         bindTarget[camelId] = el;
       }
     }
 
     const allKeys = new Set([...Object.keys(compDef), ...Object.keys(config)]);
 
-    allKeys.forEach(key => {
-      if (['tag', 'id', 'text', 'html', 'children', 'def', 'data-type'].includes(key)) return;
+    allKeys.forEach((key) => {
+      if (
+        ["tag", "id", "text", "html", "children", "def", "data-type"].includes(
+          key,
+        )
+      )
+        return;
 
       let val = config[key] !== undefined ? config[key] : compDef[key];
 
-      if (key === 'class') {
-        const defClass = compDef.class || '';
-        const confClass = config.class || '';
+      if (key === "class") {
+        const defClass = compDef.class || "";
+        const confClass = config.class || "";
         // FIX: Ensure dots are replaced by spaces
-        el.className = `${defClass} ${confClass}`.replace(/\./g, ' ').trim();
+        el.className = `${defClass} ${confClass}`.replace(/\./g, " ").trim();
         return;
       }
 
-      if (key === 'style') {
-        const defStyle = compDef.style || '';
-        const confStyle = config.style || '';
+      if (key === "style") {
+        const defStyle = compDef.style || "";
+        const confStyle = config.style || "";
         el.style.cssText = `${defStyle};${confStyle}`;
         return;
       }
 
-      if (val === true) val = ''; 
+      if (val === true) val = "";
 
       try {
-        if (['value', 'checked', 'disabled', 'readonly', 'selected', 'type', 'placeholder', 'accept'].includes(key)) {
-          el[key] = val === '' ? true : val;
+        if (
+          [
+            "value",
+            "checked",
+            "disabled",
+            "readonly",
+            "selected",
+            "type",
+            "placeholder",
+            "accept",
+          ].includes(key)
+        ) {
+          el[key] = val === "" ? true : val;
         }
-        
+
         if (/[a-zA-Z_][\w-]*$/.test(key)) {
-           if (val !== false && val !== null && val !== undefined) {
-             el.setAttribute(key, val);
-           }
+          if (val !== false && val !== null && val !== undefined) {
+            el.setAttribute(key, val);
+          }
         }
       } catch (err) {}
     });
 
-    if (config['data-type']) el.dataset.type = config['data-type'];
+    if (config["data-type"]) el.dataset.type = config["data-type"];
     if (config.html) el.innerHTML = config.html;
     else if (config.text) el.textContent = config.text;
     else if (compDef.text && !config.children) el.textContent = compDef.text;
@@ -492,7 +617,9 @@ class SciTextUI {
     if (parent) parent.appendChild(el);
 
     if (config.children && Array.isArray(config.children)) {
-      config.children.forEach(child => SciTextUI.buildElement(child, el, bindTarget));
+      config.children.forEach((child) =>
+        SciTextUI.buildElement(child, el, bindTarget),
+      );
     }
 
     return el;
@@ -500,42 +627,59 @@ class SciTextUI {
 
   static getDOMStructure() {
     const L = SciTextUI.layout;
-    
+
     // Zoom Buttons
-    const ZoomBtns = L.header.slice(0, 3).map(b => 
-      b.type === 'display' ? `zoomLabel | ${b.id} | ${b.text}`
-      : `headerBtn | ${b.id} | ${b.text || ''}`
-    ).join('\n              ');
+    const ZoomBtns = L.header
+      .slice(0, 3)
+      .map((b) =>
+        b.type === "display"
+          ? `zoomLabel | ${b.id} | ${b.text}`
+          : `headerBtn | ${b.id} | ${b.text || ""}`,
+      )
+      .join("\n              ");
 
     // Header Right Buttons
-    const HeaderRightBtns = L.header.slice(4).map(b => 
-      `btnFooter | ${b.id} | ${b.text} | class=btn.btn-secondary`
-    ).join('\n            ');
+    const HeaderRightBtns = L.header
+      .slice(4)
+      .map((b) => `btnFooter | ${b.id} | ${b.text} | class=btn.btn-secondary`)
+      .join("\n            ");
 
     // Footer Buttons
-    const FooterBtns = L.footer.map(b => 
-      `btnFooter | ${b.id} | ${b.text} | class=btn.${b.class||''}`
-    ).join('\n                  ');
+    const FooterBtns = L.footer
+      .map(
+        (b) => `btnFooter | ${b.id} | ${b.text} | class=btn.${b.class || ""}`,
+      )
+      .join("\n                  ");
 
     // Floating Action Bar
-    const FloatingBtns = L.floating.map(b =>
-      b.type === 'divider' ? `barDivider`
-      : `btnAction | ${b.id} | ${b.label} | class=action-bar-btn.${b.class||''} data-type=${b.type||''}`
-    ).join('\n          ');
+    const FloatingBtns = L.floating
+      .map((b) =>
+        b.type === "divider"
+          ? `barDivider`
+          : `btnAction | ${b.id} | ${b.label} | class=action-bar-btn.${b.class || ""} data-type=${b.type || ""}`,
+      )
+      .join("\n          ");
 
     // Properties
-    const GeoProps = L.properties.filter(p => p.group === 'geometry').map(p => 
-      `geoGroup
+    const GeoProps = L.properties
+      .filter((p) => p.group === "geometry")
+      .map(
+        (p) =>
+          `geoGroup
                   labelTiny | | ${p.label}
-                  inputNum | ${p.id} | | step=${p.step||1}`
-    ).join('\n                ');
-    
-    const TransProps = L.properties.filter(p => p.group === 'transform').map(p => 
-      `geoGroup
-                  labelTiny | | ${p.label}
-                  inputNum | ${p.id} | | step=${p.step||1}`
-    ).join('\n                ');
+                  inputNum | ${p.id} | | step=${p.step || 1}`,
+      )
+      .join("\n                ");
 
+    const TransProps = L.properties
+      .filter((p) => p.group === "transform")
+      .map(
+        (p) =>
+          `geoGroup
+                  labelTiny | | ${p.label}
+                  inputNum | ${p.id} | | step=${p.step || 1}`,
+      )
+      .join("\n                ");
 
     return this.parseDOMTree(`
       root
@@ -631,7 +775,11 @@ class SciTextUI {
     const styleEl = document.createElement("style");
     styleEl.textContent = SciTextUI.generateCSS();
     document.head.appendChild(styleEl);
-    SciTextUI.buildElement(SciTextUI.getDOMStructure(), document.body, bindTarget);
+    SciTextUI.buildElement(
+      SciTextUI.getDOMStructure(),
+      document.body,
+      bindTarget,
+    );
     if (bindTarget) bindTarget.splitBar = document.getElementById("split-bar");
   }
 }
@@ -952,7 +1100,7 @@ class RegionEditor {
     // Check handles first
     if (active) {
       const r = Utils.Geo.toPixels(active.rect, cw, ch);
-      for (const [dir, h] of Object.entries(HANDLES)) {
+      for (const [dir, h] of Object.entries(SciTextUI.handles)) {
         const hPos = Utils.Geo.getHandlePos(h, r.x, r.y, r.w, r.h);
         if (Utils.Geo.hitHandle(pos, hPos.x, hPos.y))
           return { type: "HANDLE", handle: dir };
@@ -1025,7 +1173,7 @@ class RegionEditor {
       const hit = this.hitDetection(pos);
       layer.style.cursor =
         hit.type === "HANDLE"
-          ? `${HANDLES[hit.handle].cursor}`
+          ? `${SciTextUI.handles[hit.handle].cursor}`
           : hit.type === "BODY"
             ? "move"
             : "default";
@@ -1413,6 +1561,7 @@ class SciTextController {
     const id = this.model.state.activeRegionId,
       r = this.model.getRegion(id);
     if (!r) return;
+    r.type = "blueprint";
     const s = this.imageProcessor.processRegion(r.rect); // Returns null if invalid
     if (s) {
       this.model.updateRegion(id, {
@@ -1570,9 +1719,6 @@ class SciTextController {
       });
     } catch (e) {
       console.error(e);
-      this.model.updateRegion(r.id, {
-        svgContent: `<text x="10" y="30" fill="red" font-size="20">ERROR</text>`,
-      });
     }
     this.view.els.aiStatus.classList.add("hidden");
   }
@@ -1762,7 +1908,7 @@ class UIManager {
       frame.id = "active-selection-frame";
       frame.className = "selection-frame";
       this.els.interactionLayer.appendChild(frame);
-      Object.keys(HANDLES).forEach((dir) => {
+      Object.keys(SciTextUI.handles).forEach((dir) => {
         const h = document.createElement("div");
         h.className = `resize-handle handle-${dir}`;
         frame.appendChild(h);
