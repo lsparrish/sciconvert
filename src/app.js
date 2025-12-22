@@ -325,7 +325,7 @@ root
     span | | Loading...
   processing
   actionBar
-    button | | Digitize | data-type=text class=btn
+    button | | Digitize | data-type=digitize class=btn
     button | | Image | data-type=image class=btn
     button | | Scan | data-type=blueprint class=btn
     button | | Empty | data-type=empty class=btn
