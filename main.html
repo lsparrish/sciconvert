@@ -1,20 +1,40 @@
 <!doctype html>
-<script type="module">
-    // Should load the module without caching.
-    const appModule = await (async () => {
-        try {
-            return await import(`./src/app.js?v=${Date.now()}`);
-        } catch (e) {
-            console.warn('Local app.js import failed. Using remote fallback.', e); 
-//            return await import(`https://lsparrish.github.io/sciconvert/src/app.js?v=${Date.now()}`);
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>SciConvert</title>
+</head>
+<body>
+    <div id="app"></div>
+    <script type="module">
+        const local = './src/', remote = 'https://lsparrish.github.io/sciconvert/src/', v = `?v=${Date.now()}`;
+        
+        async function load() {
+            // Determine source once
+            const base = await fetch(`${local}app.js`, {method:'HEAD'}).then(r => r.ok ? local : remote).catch(() => remote);
+
+            try {
+                // 1. Setup global assets required by app.js internal bootstrap
+                const img = await import(`${base}sampleImage.js${v}`);
+                window.embeddedDefaultImage = img.default;
+
+                // 2. Import app.js (it self-bootstraps internally via its own async IIFE)
+                const { default: app } = await import(`${base}app.js${v}`);
+                window.app = app;
+
+                // 3. Optional: Initialize audit engine after a short render delay
+                const { TestEngine } = await import(`${base}unitTestEngine.js${v}`);
+                setTimeout(() => new TestEngine(app).run(), 500);
+                
+            } catch (e) {
+                document.body.innerHTML = `<pre style="color:red;padding:20px">Load Error: ${e.message}</pre>`;
+            }
         }
-    })();
-    appModule.default.bootstrap();
-
-  // Developer Note:
-  // To add custom UI extensions without modifying app.js, use the window.app.insertElementBefore API.
-  // Must be after window.app.bootstrap.
-  // Example:
-  // window.app.insertElementBefore('<button>My Button</button>', '#some-selector', (el) => { ... });
-
-</script>
+        load();
+    </script>
+</body>
+</html>
