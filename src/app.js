@@ -325,7 +325,17 @@ root
     span | | Loading...
   processing
   actionBar
-    {{FloatingBtns}}
+    button | | Digitize | data-type=text class=btn
+    button | | Image | data-type=image class=btn
+    button | | Scan | data-type=blueprint class=btn
+    button | | Empty | data-type=empty class=btn
+    barDivider
+    button | btn-fit-area | Fit Area | data-type=btn data-fn=fitArea class=btn
+    button | btn-fill | Fill | data-type=btn data-fn=fitContent class=btn
+    barDivider
+    button | btn-split | Split | data-type=btn data-fn=enterSplitMode class=btn
+    button | btn-group | Group | data-type=btn data-fn=groupSelectedRegions class=btn
+    button | btn-del | Del | data-type=btn data-fn=deleteSelected class=btn
     `,
     handles: `
       .handle-nw               | top -4px | left -4px | cursor nwse-resize
@@ -527,12 +537,12 @@ root
       floating: this.parseDSL(
         "list",
         `
-        Digitize  | text      | bg-primary
+        Digitize  | digitize  | bg-primary
         Image     | image     | bg-warn
         Scan      | blueprint | bg-success
         Empty     | empty     | bg-gray
         ---
-        Fit Area  | btn       | bg-gray   | fitArea
+        Fit Area  | blueprint | bg-gray   | fitArea
         Fill      | btn       | bg-gray   | fitContent
         ---
         Split     | btn       | bg-gray   | enterSplitMode
@@ -1788,27 +1798,26 @@ class AppUIManager {
     this.els.regionActionsBar.classList.add("hidden");
   }
   showRegionActionsBar(region, state) {
-    this.els.regionActionsBar.classList.remove("hidden");
-    const scale = state.scaleMultiplier;
-    const physW = state.baseWidth * scale;
-    const physH = physW * (state.canvasHeight / state.canvasWidth);
-    const wrapperRect = this.els.canvasWrapper.getBoundingClientRect();
-    const bar = this.els.regionActionsBar;
-    // 1. Calculate the center relative to the viewport
-    const centerX =
-      wrapperRect.left + region.rect.x * physW + (region.rect.w * physW) / 2;
-    // 2. Calculate the bottom edge relative to the viewport
-    // This matches 'regionBottomY' in the TestEngine exactly.
-    const regionBottomY =
-      wrapperRect.top + (region.rect.y + region.rect.h) * physH;
-    Object.assign(bar.style, {
-      position: "fixed", // Fixed pins it to the viewport
-      left: `${centerX - bar.offsetWidth / 2}px`,
-      top: `${regionBottomY}px`, // 0px gap to be safe, the test allows < 15px
-      display: "flex",
-      zIndex: "100",
-      transform: "none",
-    });
+    const bar = document.getElementById("region-actions-bar");
+    if (!bar) return;
+    // Remove any previous inline positioning
+    bar.style.left = "";
+    bar.style.top = "";
+    bar.style.transform = "";
+    // Use viewport coordinates + fixed positioning
+    const regionEl = document.querySelector(".region-selected");
+    if (!regionEl) {
+      bar.classList.add("hidden");
+      return;
+    }
+    const regionRect = regionEl.getBoundingClientRect();
+    const barRect = bar.getBoundingClientRect();
+    // Center horizontally, place 8px below the region
+    bar.style.position = "fixed";
+    bar.style.left = `${regionRect.left + regionRect.width / 2 - barRect.width / 2}px`;
+    bar.style.top = `${regionRect.bottom + 8}px`;
+    bar.style.zIndex = "100";
+    bar.classList.remove("hidden");
   }
   updatePropertiesInputs(region, state) {
     if (!region) {
